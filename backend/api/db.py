@@ -142,7 +142,7 @@ def connect() -> sqlite3.Connection:
     with _lock:
         if _conn is None:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
-            _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            _conn = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30.0)
             _conn.row_factory = sqlite3.Row
             _conn.execute("PRAGMA journal_mode=WAL")
             _conn.execute("PRAGMA foreign_keys=ON")
@@ -189,11 +189,13 @@ def close() -> None:
 # --------------------------------------------------------------------------- #
 
 def query(sql: str, params: Sequence[Any] = ()) -> list[sqlite3.Row]:
-    return connect().execute(sql, params).fetchall()
+    with _lock:
+        return connect().execute(sql, params).fetchall()
 
 
 def one(sql: str, params: Sequence[Any] = ()) -> sqlite3.Row | None:
-    return connect().execute(sql, params).fetchone()
+    with _lock:
+        return connect().execute(sql, params).fetchone()
 
 
 def execute(sql: str, params: Sequence[Any] = ()) -> sqlite3.Cursor:

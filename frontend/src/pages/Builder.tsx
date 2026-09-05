@@ -60,22 +60,22 @@ export default function Builder() {
     try {
       const q = await fn()
       setQuote(q)
-      const [rec, co] = await Promise.all([
+      setBusy(false)
+      // Refresh recommendations and coaching in background without blocking steppers
+      Promise.all([
         api.recommend(q.ref).catch(() => null),
         api.coach(q.ref).catch(() => null),
-      ])
-      if (rec) { setSuggestions(rec.suggestions); setBasis(rec.basis); setFiltered(rec.filtered_by_margin_floor) }
-      setCoach(co)
+      ]).then(([rec, co]) => {
+        if (rec) { setSuggestions(rec.suggestions); setBasis(rec.basis); setFiltered(rec.filtered_by_margin_floor) }
+        if (co) setCoach(co)
+      })
       return q
     } catch (e: any) {
-      // A 409 here means the quote left DRAFT — say so plainly rather than
-      // failing silently and leaving the rep wondering why nothing moved.
       setError(e?.message?.includes('409')
         ? 'This quotation is no longer editable — it has left Draft.'
         : `Could not update the quotation (${e?.message ?? 'unknown error'}).`)
-      return null
-    } finally {
       setBusy(false)
+      return null
     }
   }, [])
 

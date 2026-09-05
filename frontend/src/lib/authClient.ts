@@ -103,8 +103,23 @@ export async function request<T>(
   clearTimeout(timer)
 
   if (res.status === 401) {
-    // Global interceptor: one broadcast, one teardown. Individual callers do
-    // not each get to decide what an expired session means.
+    // If a non-auth request received 401, verify with /auth/me before declaring session expired.
+    // This prevents transient blips from evicting active users during quick UI mutations.
+    if (path !== '/auth/me' && path !== '/auth/login' && token) {
+      try {
+        const verifyRes = await fetch(`${BASE}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (verifyRes.ok) {
+          let detail: any = null
+          try { detail = (await res.json()).detail } catch { /* ignore */ }
+          throw new ApiError(401, detail, 'Unauthorized action.')
+        }
+      } catch (checkErr) {
+        if (checkErr instanceof ApiError) throw checkErr
+      }
+    }
+
     tokenStore.clear()
     window.dispatchEvent(new CustomEvent(SESSION_EXPIRED))
     throw new ApiError(401, null, 'Your session has expired. Please sign in again.')

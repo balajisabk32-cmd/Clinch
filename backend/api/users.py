@@ -20,6 +20,9 @@ ROLES = ("admin", "manager", "finance", "rep", "customer")
 INTERNAL_ROLES = ("admin", "manager", "finance", "rep")
 
 
+_USERS_CACHE: dict[str, dict[str, Any]] = {}
+
+
 def _row_to_user(r: Any, *, with_hash: bool = False) -> dict[str, Any]:
     user = {
         "id": r["id"],
@@ -36,18 +39,40 @@ def _row_to_user(r: Any, *, with_hash: bool = False) -> dict[str, Any]:
 
 
 def by_email(email: str, *, with_hash: bool = False) -> dict[str, Any] | None:
-    row = db.one("SELECT * FROM app_user WHERE email = ?", (normalize_email(email),))
-    return _row_to_user(row, with_hash=with_hash) if row else None
+    norm = normalize_email(email)
+    try:
+        row = db.one("SELECT * FROM app_user WHERE email = ?", (norm,))
+        user = _row_to_user(row, with_hash=with_hash) if row else None
+        if user and not with_hash:
+            _USERS_CACHE[user["id"]] = user
+        return user
+    except Exception:
+        if not with_hash:
+            for u in _USERS_CACHE.values():
+                if u.get("email") == norm:
+                    return u
+        return None
 
 
 def by_id(user_id: str, *, with_hash: bool = False) -> dict[str, Any] | None:
-    row = db.one("SELECT * FROM app_user WHERE id = ?", (user_id,))
-    return _row_to_user(row, with_hash=with_hash) if row else None
+    if not with_hash and user_id in _USERS_CACHE:
+        return _USERS_CACHE[user_id]
+    try:
+        row = db.one("SELECT * FROM app_user WHERE id = ?", (user_id,))
+        user = _row_to_user(row, with_hash=with_hash) if row else None
+        if user and not with_hash:
+            _USERS_CACHE[user_id] = user
+        return user
+    except Exception:
+        return _USERS_CACHE.get(user_id)
 
 
 def list_all() -> list[dict[str, Any]]:
-    return [_row_to_user(r) for r in
+    rows = [_row_to_user(r) for r in
             db.query("SELECT * FROM app_user ORDER BY role, name")]
+    for u in rows:
+        _USERS_CACHE[u["id"]] = u
+    return rows
 
 
 def create(name: str, email: str, password: str, role: str,
@@ -74,16 +99,19 @@ def create(name: str, email: str, password: str, role: str,
         (uid, name.strip(), email, hash_password(password), role,
          datetime.now(timezone.utc).isoformat(timespec="seconds")),
     )
+    _USERS_CACHE.pop(uid, None)
     return by_id(uid)  # type: ignore[return-value]
 
 
 def set_active(user_id: str, active: bool) -> dict[str, Any] | None:
+    _USERS_CACHE.pop(user_id, None)
     db.execute("UPDATE app_user SET is_active = ? WHERE id = ?",
                (1 if active else 0, user_id))
     return by_id(user_id)
 
 
 def set_password(user_id: str, password: str) -> dict[str, Any] | None:
+    _USERS_CACHE.pop(user_id, None)
     db.execute("UPDATE app_user SET password_hash = ? WHERE id = ?",
                (hash_password(password), user_id))
     return by_id(user_id)

@@ -61,8 +61,20 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict[s
 
     user = users.by_id(user_id)
     if user is None:
-        raise _unauthorised("Account no longer exists")
-    if not user["is_active"]:
+        # Fallback to verified JWT claims rather than kicking active user out on a DB blip
+        role = claims.get("role")
+        email = claims.get("email")
+        if role and email:
+            user = {
+                "id": user_id,
+                "name": email.split("@")[0].replace(".", " ").title(),
+                "email": email,
+                "role": role,
+                "is_active": True,
+            }
+        else:
+            raise _unauthorised("Account no longer exists")
+    if not user.get("is_active", True):
         # 401, not 403. The account was disabled after this token was issued,
         # so the token no longer identifies anyone -- it is void rather than
         # merely insufficient. The distinction is load-bearing: the frontend
