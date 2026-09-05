@@ -1,102 +1,40 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { App as AdminApp } from '../admin/App'
 import { ThemeProvider } from '../admin/context/ThemeContext'
 import { ClinchStoreProvider } from '../admin/context/ClinchStoreContext'
+import { useAuth } from '../context/AuthContext'
 import '../admin/css/admin.css'
 
-interface UserSession {
-  name: string
-  email: string
-  role: 'CUSTOMER' | 'MANAGER' | 'REP' | 'ADMIN'
-  title?: string
-  badge?: string
-}
+/**
+ * Admin governance console.
+ *
+ * Identity comes from AuthContext, which is backed by a JWT the server
+ * re-validates against the database on every request. This screen used to read
+ * `dealflow_user` from localStorage and, when it found nothing, invent a "Dave
+ * Admin" session and write it back — so anyone who typed the URL was admin. It
+ * also offered a "Switch to Dave Admin (Full Control)" button that did the same
+ * thing on demand. Both are gone; the route guard (ADMIN_ONLY) decides who gets
+ * here, and the API refuses anyone it does not independently recognise as admin.
+ */
 
 export default function AdminPortal() {
-  const navigate = useNavigate()
-  const [currentUser, setCurrentUser] = useState<UserSession | null>(null)
-  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
-
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('dealflow_user')
-      if (stored) {
-        const parsed = JSON.parse(stored) as UserSession
-        setCurrentUser(parsed)
-      } else {
-        // Fallback default admin session
-        const defaultAdmin: UserSession = {
-          name: 'Dave Admin',
-          email: 'admin@dealflow360.com',
-          role: 'ADMIN',
-          title: 'Master Systems Administrator',
-          badge: 'Master Platform Control'
-        }
-        localStorage.setItem('dealflow_user', JSON.stringify(defaultAdmin))
-        localStorage.setItem('dealflow_active_role', 'ADMIN')
-        setCurrentUser(defaultAdmin)
-      }
-    } catch {
-      const defaultAdmin: UserSession = {
-        name: 'Dave Admin',
-        email: 'admin@dealflow360.com',
-        role: 'ADMIN',
-        title: 'Master Systems Administrator',
-        badge: 'Master Platform Control'
-      }
-      setCurrentUser(defaultAdmin)
-    } finally {
-      setIsCheckingAuth(false)
-    }
-  }, [navigate])
-
-  if (isCheckingAuth) {
-    return (
-      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-[#0b1b33]">
-        <div className="flex items-center gap-3 font-medium text-sm">
-          <div className="w-4 h-4 border-2 border-[#00a3e0] border-t-transparent rounded-full animate-spin"></div>
-          <span>Verifying RevOps Admin Permissions...</span>
-        </div>
-      </div>
-    )
-  }
+  const { user } = useAuth()
 
   return (
     <div className="admin-portal-wrapper min-h-screen bg-[#f8fafc]">
-      {/* Top Banner if logged in as non-admin persona */}
-      {currentUser && currentUser.role !== 'ADMIN' && (
-        <div className="bg-[#0b1b33] text-white px-5 py-2 text-xs flex items-center justify-between z-50 relative border-b border-white/10">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-            <span>
-              Signed in as <strong>{currentUser.name}</strong> ({currentUser.role}). Viewing Admin Governance Console.
-            </span>
-          </div>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => {
-                const adminSession: UserSession = {
-                  name: 'Dave Admin',
-                  email: 'admin@dealflow360.com',
-                  role: 'ADMIN',
-                  title: 'Master Systems Administrator',
-                  badge: 'Full Master Platform Control'
-                }
-                localStorage.setItem('dealflow_user', JSON.stringify(adminSession))
-                localStorage.setItem('dealflow_active_role', 'ADMIN')
-                setCurrentUser(adminSession)
-              }}
-              className="text-[#00a3e0] hover:underline font-semibold"
-            >
-              Switch to Dave Admin (Full Control)
-            </button>
-            <Link to="/app/quotations" className="text-slate-300 hover:text-white">
-              Back to Sales Workspace
-            </Link>
-          </div>
+      <div className="bg-[#0b1b33] text-white px-5 py-2 text-xs flex items-center
+                      justify-between z-50 relative border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span>
+            Signed in as <strong>{user?.name}</strong> ({user?.role}). Administrator
+            access — changes here affect every user.
+          </span>
         </div>
-      )}
+        <Link to="/app/quotations" className="text-slate-300 hover:text-white">
+          Back to Sales Workspace
+        </Link>
+      </div>
 
       <ThemeProvider>
         <ClinchStoreProvider>

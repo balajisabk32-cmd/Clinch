@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
-from .auth import any_of, current_user, issue_token, permissions_for, require, tabs_for
+from .auth import any_of, current_user, permissions_for, require, tabs_for
 from fastapi.responses import StreamingResponse
 
 from datetime import date, timedelta
@@ -70,7 +70,7 @@ intelligence = APIRouter(tags=["intelligence"])
 
 
 @intelligence.post("/quotes/{ref}/score")
-def score(ref: str) -> dict[str, Any]:
+def score(ref: str, _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     try:
         quote, r = svc.score_for(ref)
     except KeyError:
@@ -83,7 +83,7 @@ def score(ref: str) -> dict[str, Any]:
 
 
 @intelligence.post("/quotes/{ref}/coach")
-def coach(ref: str, target_band: str = Query("AUTO")) -> dict[str, Any]:
+def coach(ref: str, target_band: str = Query("AUTO"), _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     quote = state.build_quote(ref)
     if quote is None:
         raise HTTPException(404, f"No quotation {ref}")
@@ -96,7 +96,7 @@ def coach(ref: str, target_band: str = Query("AUTO")) -> dict[str, Any]:
 
 @intelligence.post("/quotes/{ref}/recommend")
 def recommend(ref: str, limit: int = Query(4, ge=1, le=10),
-              margin_floor_pct: float = Query(25.0)) -> dict[str, Any]:
+              margin_floor_pct: float = Query(25.0), _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     quote = state.build_quote(ref)
     if quote is None:
         raise HTTPException(404, f"No quotation {ref}")
@@ -110,12 +110,12 @@ def recommend(ref: str, limit: int = Query(4, ge=1, le=10),
 
 
 @intelligence.get("/policy")
-def get_policy() -> dict[str, Any]:
+def get_policy(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     return svc._policy_dict(state.get_policy())
 
 
 @intelligence.post("/policy/simulate")
-def simulate(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+def simulate(body: dict[str, Any] = Body(default_factory=dict), _actor: dict[str, Any] = Depends(require("policy.config"))) -> dict[str, Any]:
     """THE 10X ANGLE. Nothing here is persisted -- that is the entire point."""
     return svc.simulate(body)
 
@@ -138,30 +138,14 @@ def apply_policy(body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depe
 sales = APIRouter(tags=["sales"])
 
 
-@sales.post("/auth/login")
-def login(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    email = (body.get("email") or "").lower()
-    user = next((u for u in fx.USERS if u["email"] == email), None)
-    if not user:
-        raise HTTPException(401, "Unknown user")
-    role = user["role"]
-    return {
-        "token": issue_token(user["id"], role),
-        "user": {**user, "permissions": sorted(permissions_for(role))},
-        "tabs": tabs_for(role),
-    }
-
-
-@sales.get("/auth/me")
-def whoami(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    """What the caller may do. The workspace nav is built from THIS, so the
-    menu can never offer something the server would refuse."""
-    user = current_user(authorization)
-    return {**user, "tabs": tabs_for(user["role"])}
+# NOTE: /auth/login and /auth/me now live in accounts.py, backed by bcrypt
+# hashes and JWTs. The previous implementation here matched an email against a
+# fixture list and issued a token to anyone who guessed one -- no password was
+# ever checked.
 
 
 @sales.get("/products")
-def products(category: str | None = None, q: str | None = None) -> list[dict[str, Any]]:
+def products(category: str | None = None, q: str | None = None, _actor: dict[str, Any] = Depends(require("product.view"))) -> list[dict[str, Any]]:
     rows = state.PRODUCTS
     if category:
         rows = [p for p in rows if p["category"] == category]
@@ -172,7 +156,7 @@ def products(category: str | None = None, q: str | None = None) -> list[dict[str
 
 
 @sales.get("/products/{sku}")
-def product_detail(sku: str) -> dict[str, Any]:
+def product_detail(sku: str, _actor: dict[str, Any] = Depends(require("product.view"))) -> dict[str, Any]:
     """One product with its variants and every tier price (PS A2)."""
     product = next((p for p in state.PRODUCTS if p["sku"] == sku), None)
     if product is None:
@@ -253,7 +237,7 @@ def update_product(sku: str, body: dict[str, Any] = Body(...),
 
 
 @sales.get("/pricelists")
-def pricelists() -> list[dict[str, Any]]:
+def pricelists(_actor: dict[str, Any] = Depends(require("product.view"))) -> list[dict[str, Any]]:
     return state.PRICE_LISTS
 
 
@@ -271,7 +255,7 @@ def update_pricelists(body: dict[str, Any] = Body(...),
 
 
 @sales.get("/quotes")
-def list_quotes(state_filter: str | None = Query(None, alias="state")) -> list[dict[str, Any]]:
+def list_quotes(state_filter: str | None = Query(None, alias="state"), _actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
     out = []
     for row in svc.open_pipeline():
         q, r, t = row["quote"], row["result"], row["totals"]
@@ -289,7 +273,7 @@ def list_quotes(state_filter: str | None = Query(None, alias="state")) -> list[d
 
 
 @sales.get("/quotes/{ref}")
-def quote_detail(ref: str) -> dict[str, Any]:
+def quote_detail(ref: str, _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     try:
         quote, r = svc.score_for(ref)
     except KeyError:
@@ -440,7 +424,7 @@ def submit(ref: str, actor: str = Query("A. Rao"), _actor: dict[str, Any] = Depe
 
 
 @sales.get("/approvals")
-def approvals(pending_only: bool = Query(False)) -> list[dict[str, Any]]:
+def approvals(pending_only: bool = Query(False), _actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
     rows = []
     for row in svc.open_pipeline():
         q, r = row["quote"], row["result"]
@@ -459,7 +443,7 @@ def approvals(pending_only: bool = Query(False)) -> list[dict[str, Any]]:
 
 
 @sales.get("/approvals/{ref}")
-def approval_detail(ref: str) -> dict[str, Any]:
+def approval_detail(ref: str, _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     try:
         quote, r = svc.score_for(ref)
     except KeyError:
@@ -551,7 +535,7 @@ operations = APIRouter(tags=["operations"])
 
 
 @operations.get("/warehouses")
-def warehouses() -> list[dict[str, Any]]:
+def warehouses(_actor: dict[str, Any] = Depends(require("fulfilment.view"))) -> list[dict[str, Any]]:
     """Stock per depot with the three quantities the wireframe shows.
 
     On-hand minus reserved is what a rep can actually promise; showing only
@@ -577,7 +561,7 @@ def warehouses() -> list[dict[str, Any]]:
 
 
 @operations.get("/fulfilment/queue")
-def fulfilment_queue() -> list[dict[str, Any]]:
+def fulfilment_queue(_actor: dict[str, Any] = Depends(require("fulfilment.view"))) -> list[dict[str, Any]]:
     """Orders awaiting fulfilment (wireframe screen 7, lower table).
 
     An order is fulfillable once it is approved or confirmed; the split is run
@@ -681,7 +665,7 @@ def _split_for(ref: str, objective: str) -> dict[str, Any] | None:
 
 
 @operations.post("/orders/{ref}/split")
-def split(ref: str, objective: str = Query("cost")) -> dict[str, Any]:
+def split(ref: str, objective: str = Query("cost"), _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
     """Multi-warehouse allocation (PS A4/B6), exact over the subset lattice."""
     quote = state.build_quote(ref)
     if quote is None:
@@ -710,7 +694,7 @@ def split(ref: str, objective: str = Query("cost")) -> dict[str, Any]:
 
 
 @operations.post("/orders/{ref}/consolidate")
-def consolidate(ref: str) -> dict[str, Any]:
+def consolidate(ref: str, _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
     """PS B6: consolidate remaining backorder once stock arrives."""
     quote = state.build_quote(ref)
     if quote is None:
@@ -742,7 +726,7 @@ def consolidate(ref: str) -> dict[str, Any]:
 
 
 @operations.get("/subscriptions")
-def subscriptions() -> list[dict[str, Any]]:
+def subscriptions(_actor: dict[str, Any] = Depends(require("billing.view"))) -> list[dict[str, Any]]:
     return state.SUBSCRIPTIONS
 
 
@@ -792,7 +776,7 @@ def change_subscription(sub_id: int, body: dict[str, Any] = Body(...), _actor: d
 
 
 @operations.get("/orders/{ref}/billing")
-def order_billing(ref: str) -> dict[str, Any]:
+def order_billing(ref: str, _actor: dict[str, Any] = Depends(require("billing.view"))) -> dict[str, Any]:
     """Unified hybrid ledger: one-time lines and recurring lines together."""
     quote = state.build_quote(ref)
     if quote is None:
@@ -816,7 +800,7 @@ def order_billing(ref: str) -> dict[str, Any]:
 
 
 @operations.post("/orders/{ref}/confirm")
-def confirm_order(ref: str, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+def confirm_order(ref: str, body: dict[str, Any] = Body(default_factory=dict), _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
     """APPROVED -> CONFIRMED -> FULFILLED. Rubric step 8 begins here."""
     current = state.state_of(ref)
     if ref not in state.QUOTES:
@@ -894,7 +878,7 @@ def generate_invoice(ref: str, body: dict[str, Any] = Body(default_factory=dict)
 
 
 @operations.get("/invoices")
-def invoices() -> list[dict[str, Any]]:
+def invoices(_actor: dict[str, Any] = Depends(require("billing.view"))) -> list[dict[str, Any]]:
     return state.INVOICES
 
 
@@ -1049,7 +1033,7 @@ insights = APIRouter(tags=["insights"])
 
 
 @insights.get("/dashboard")
-def dashboard() -> dict[str, Any]:
+def dashboard(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     lk = svc.leakage_report()
     pipeline = svc.open_pipeline()
     stall_days = state.get_policy().stall_days
@@ -1097,7 +1081,7 @@ def dashboard() -> dict[str, Any]:
 
 
 @insights.get("/activity")
-def activity(limit: int = Query(12, ge=1, le=100)) -> list[dict[str, Any]]:
+def activity(limit: int = Query(12, ge=1, le=100), _actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
     """Recent platform activity, straight off the append-only audit log.
 
     The admin dashboard previously rendered a hand-written feed naming people
@@ -1269,7 +1253,7 @@ async def stream():
 
 
 @infra.post("/admin/reset")
-def reset() -> dict[str, Any]:
+def reset(_actor: dict[str, Any] = Depends(require("admin.reset"))) -> dict[str, Any]:
     """Demo guardrail. Must be fast enough to use mid-sentence on stage."""
     elapsed = state.restore()
     state.publish({"type": "reset"})

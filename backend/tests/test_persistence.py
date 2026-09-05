@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 from api import db, repository, state
 from api.main import app
 
-from .conftest import ADMIN, FINANCE, MANAGER
+from .conftest import ADMIN, FINANCE, MANAGER, REP
 
 client = TestClient(app)
 
@@ -71,13 +71,13 @@ def test_wal_mode_is_on():
 # --------------------------------------------------------------------------- #
 
 def test_quote_edits_survive_a_restart():
-    client.post("/quotes/Q-1042/lines", json={"sku": "DOCK-01", "qty": 3})
-    client.patch("/quotes/Q-1042", json={"order_discount_pct": 4.5})
-    before = client.get("/quotes/Q-1042").json()
+    client.post("/quotes/Q-1042/lines", headers=REP, json={"sku": "DOCK-01", "qty": 3})
+    client.patch("/quotes/Q-1042", headers=REP, json={"order_discount_pct": 4.5})
+    before = client.get("/quotes/Q-1042", headers=ADMIN).json()
 
     _reboot()
 
-    after = client.get("/quotes/Q-1042").json()
+    after = client.get("/quotes/Q-1042", headers=ADMIN).json()
     assert len(after["lines"]) == len(before["lines"])
     assert after["order_discount_pct"] == 4.5
     assert any(l["sku"] == "DOCK-01" for l in after["lines"])
@@ -86,7 +86,7 @@ def test_quote_edits_survive_a_restart():
 
 
 def test_state_transitions_survive_a_restart():
-    client.post("/quotes/Q-1042/submit")
+    client.post("/quotes/Q-1042/submit", headers=REP)
     assert state.state_of("Q-1042") == "PENDING_MANAGER"
     _reboot()
     assert state.state_of("Q-1042") == "PENDING_MANAGER"
@@ -94,7 +94,7 @@ def test_state_transitions_survive_a_restart():
 
 def test_the_audit_trail_survives_and_keeps_its_order():
     """The ordering IS the audit trail — a reload that scrambles it is useless."""
-    client.post("/quotes/Q-1042/submit")
+    client.post("/quotes/Q-1042/submit", headers=REP)
     client.post("/approvals/Q-1042/action", headers=MANAGER,
                 json={"action": "approve", "actor": "M. Shah"})
     before = [e["event_type"] for e in state.audit_for("Q-1042")]
@@ -119,11 +119,11 @@ def test_stock_movements_survive_a_restart():
 
 
 def test_policy_changes_survive_a_restart():
-    policy = client.get("/policy").json()
+    policy = client.get("/policy", headers=ADMIN).json()
     client.put("/policy", headers=ADMIN,
                json={"category_ceiling": {**policy["category_ceiling"], "Services": 7.5}})
     _reboot()
-    assert client.get("/policy").json()["category_ceiling"]["Services"] == 7.5
+    assert client.get("/policy", headers=ADMIN).json()["category_ceiling"]["Services"] == 7.5
 
 
 def test_catalogue_changes_survive_a_restart():
@@ -131,15 +131,15 @@ def test_catalogue_changes_survive_a_restart():
         "sku": "PERSIST-1", "name": "Durability Widget", "category": "Hardware",
         "list_price": 500, "cost": 200})
     _reboot()
-    assert any(p["sku"] == "PERSIST-1" for p in client.get("/products").json())
+    assert any(p["sku"] == "PERSIST-1" for p in client.get("/products", headers=ADMIN).json())
     row = db.one("SELECT * FROM product_variant WHERE sku = 'PERSIST-1'")
     assert row is not None and row["list_price"] == 500
 
 
 def test_invoice_and_payment_survive_a_restart():
-    client.post("/quotes/Q-1042/submit")
+    client.post("/quotes/Q-1042/submit", headers=REP)
     client.post("/approvals/Q-1042/action", headers=MANAGER, json={"action": "approve"})
-    client.post("/orders/Q-1042/confirm")
+    client.post("/orders/Q-1042/confirm", headers=FINANCE)
     inv = client.post("/orders/Q-1042/invoice", headers=FINANCE).json()
     client.post(f"/invoices/{inv['ref']}/payment", headers=FINANCE,
                 json={"amount": inv["amount"]})
@@ -153,10 +153,10 @@ def test_invoice_and_payment_survive_a_restart():
 
 def test_portal_comments_survive_a_restart():
     state.set_state("Q-1042", "APPROVED")
-    client.post("/portal/acme-q1042-7f3a9c/request",
+    client.post("/portal/acme-q1042-7f3a9c/request", headers=ADMIN,
                 json={"line_id": 1, "counter_discount_pct": 26.0, "comment": "Keep this"})
     _reboot()
-    body = client.get("/portal/acme-q1042-7f3a9c").json()
+    body = client.get("/portal/acme-q1042-7f3a9c", headers=ADMIN).json()
     assert any(c["body"] == "Keep this" for c in body["comments"])
 
 
@@ -165,22 +165,22 @@ def test_portal_comments_survive_a_restart():
 # --------------------------------------------------------------------------- #
 
 def test_reset_restores_golden_state_from_the_snapshot():
-    client.post("/quotes/Q-1042/lines", json={"sku": "DOCK-01", "qty": 9})
-    client.post("/quotes/Q-1042/submit")
+    client.post("/quotes/Q-1042/lines", headers=REP, json={"sku": "DOCK-01", "qty": 9})
+    client.post("/quotes/Q-1042/submit", headers=REP)
 
-    body = client.post("/admin/reset").json()
+    body = client.post("/admin/reset", headers=ADMIN).json()
 
     assert body["ok"] is True
     assert body["elapsed_ms"] < 2000, "must be usable mid-sentence on stage"
     assert state.state_of("Q-1042") == "DRAFT"
-    assert len(client.get("/quotes/Q-1042").json()["lines"]) == 3
+    assert len(client.get("/quotes/Q-1042", headers=ADMIN).json()["lines"]) == 3
     # And the database agrees with memory, not just the cache.
     assert db.one("SELECT state FROM sale_order WHERE ref='Q-1042'")["state"] == "DRAFT"
 
 
 def test_reset_also_clears_derived_records():
     client.post("/orders/Q-1044/allocate", headers=FINANCE, json={})
-    client.post("/admin/reset")
+    client.post("/admin/reset", headers=ADMIN)
     assert state.ALLOCATIONS == {}
     assert state.STOCK["Main Warehouse"]["LP14"]["reserved"] == 18
     assert db.one("SELECT COUNT(*) n FROM allocation")["n"] == 0
@@ -197,8 +197,8 @@ def test_golden_snapshot_exists_on_disk():
 
 def test_simulator_is_still_fast_with_persistence_wired_in():
     """Adding durability must not put I/O on the Policy Simulator's path."""
-    policy = client.get("/policy").json()
-    sim = client.post("/policy/simulate", json={
+    policy = client.get("/policy", headers=ADMIN).json()
+    sim = client.post("/policy/simulate", headers=ADMIN, json={
         "category_ceiling": {**policy["category_ceiling"], "Services": 8.0}}).json()
     assert sim["elapsed_ms"] < 400
     assert sim["escalated"] >= 3
@@ -208,6 +208,6 @@ def test_a_read_does_not_write():
     """GETs must not trigger a flush; only mutations persist."""
     before = db.one("SELECT COUNT(*) n FROM deal_events")["n"]
     for _ in range(5):
-        client.get("/quotes")
-        client.get("/dashboard")
+        client.get("/quotes", headers=ADMIN)
+        client.get("/dashboard", headers=ADMIN)
     assert db.one("SELECT COUNT(*) n FROM deal_events")["n"] == before

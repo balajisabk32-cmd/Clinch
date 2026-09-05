@@ -7,7 +7,8 @@
  * hardcoding it into the landing page would quietly make that claim false.
  */
 
-const BASE = import.meta.env.DEV ? '/api' : 'http://localhost:8000'
+import { request as authedRequest } from './authClient'
+
 
 export type Band = 'AUTO' | 'MANAGER' | 'FINANCE'
 
@@ -65,21 +66,13 @@ export interface StatusData {
   endpoints: Array<{ method: string; path: string; owner: string; impl: 'real' | 'stub'; note: string }>
 }
 
+/**
+ * All application requests go through the authenticated client, so the bearer
+ * token is attached in exactly one place and a 401 tears the session down in
+ * exactly one place. Two request paths would mean two ways to be signed out.
+ */
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const ctrl = new AbortController()
-  // Never let a hung request freeze a screen during a demo.
-  const timer = setTimeout(() => ctrl.abort(), 4000)
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      ...init,
-      signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-    })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-    return (await res.json()) as T
-  } finally {
-    clearTimeout(timer)
-  }
+  return authedRequest<T>(path, init ?? {})
 }
 
 export interface QuoteLine {

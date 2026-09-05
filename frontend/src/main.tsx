@@ -1,155 +1,120 @@
-import { lazy, type ReactElement, StrictMode, Suspense } from 'react'
+import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+
+import { AuthProvider } from './context/AuthContext'
+import { AuthLoading, ProtectedRoute, PublicOnlyRoute } from './components/ProtectedRoute'
+import { ErrorBoundary } from './components/ErrorBoundary'
+
 import Landing from './pages/Landing'
 import Login from './pages/Login'
-import Quotations from './pages/Quotations'
-import Builder from './pages/Builder'
-import DealHealth from './pages/DealHealth'
-import Approvals from './pages/Approvals'
-import Fulfilment from './pages/Fulfilment'
-import Products from './pages/Products'
-import ProductDetail from './pages/ProductDetail'
-import Reports from './pages/Reports'
 import Portal from './pages/Portal'
 import Dashboard from './pages/Dashboard'
-import Settings from './pages/Settings'
-import Invoices from './pages/Invoices'
-import Subscriptions from './pages/Subscriptions'
+import Quotations from './pages/Quotations'
+import Builder from './pages/Builder'
+import Approvals from './pages/Approvals'
+import Fulfilment from './pages/Fulfilment'
 import FulfilmentDetail from './pages/FulfilmentDetail'
-import { ErrorBoundary } from './components/ErrorBoundary'
+import Subscriptions from './pages/Subscriptions'
+import Invoices from './pages/Invoices'
+import DealHealth from './pages/DealHealth'
+import Reports from './pages/Reports'
+import Products from './pages/Products'
+import ProductDetail from './pages/ProductDetail'
+import Settings from './pages/Settings'
+import AdminUsers from './pages/AdminUsers'
+import Profile from './pages/Profile'
 import './index.css'
 
 const AdminPortal = lazy(() => import('./pages/AdminPortal'))
 
-function RoleGuard({
-  allowedRoles,
-  children,
-  redirectTo = '/app/quotations',
-  featureName,
-}: {
-  allowedRoles: Array<'CUSTOMER' | 'MANAGER' | 'REP' | 'ADMIN'>
-  children: ReactElement
-  redirectTo?: string
-  featureName?: string
-}) {
-  const user = (() => {
-    try {
-      const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
-      return stored ? JSON.parse(stored) : { name: 'Alice Sales', role: 'REP' }
-    } catch {
-      return { name: 'Alice Sales', role: 'REP' }
-    }
-  })()
+/*
+ * Role map, mirroring the server's permission matrix (api/auth.py).
+ *
+ * These guards are for the person using the app: they keep someone from
+ * clicking into a screen that would only refuse them. They are NOT the control
+ * — every endpoint behind each screen re-checks the caller's role against the
+ * database, so editing localStorage buys nothing but a 403.
+ */
+const ALL_INTERNAL = ['admin', 'manager', 'finance', 'rep']
+const APPROVERS = ['admin', 'manager', 'finance']
+const OPERATIONS = ['admin', 'finance']
+const POLICY = ['admin', 'manager']
+const ADMIN_ONLY = ['admin']
 
-  if (!allowedRoles.includes(user.role)) {
-    return (
-      <div className="min-h-screen bg-bg flex items-center justify-center p-6">
-        <div className="max-w-md w-full rounded-2xl bg-surface border border-line p-6 text-center shadow-lift">
-          <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-600 flex items-center justify-center mx-auto mb-4 font-mono font-bold text-lg">
-            !
-          </div>
-          <h2 className="font-display text-lg font-bold text-fg mb-1">Access Restricted</h2>
-          <p className="text-[13px] text-fg-3 mb-5 leading-relaxed">
-            You are signed in as <strong>{user.name}</strong> ({user.role}). {featureName ? `${featureName} is` : 'This area is'} reserved for {allowedRoles.join(' / ')}.
-          </p>
-          <div className="flex gap-2 justify-center">
-            <a
-              href={redirectTo}
-              className="rounded-full bg-fg text-white px-4 py-2 text-[12.5px] font-semibold hover:bg-accent transition-all"
-            >
-              Return to My Dashboard
-            </a>
-            <a
-              href="/login"
-              className="rounded-full bg-surface-2 text-fg-2 px-4 py-2 text-[12.5px] font-semibold hover:bg-surface-3 transition-all"
-            >
-              Switch Role
-            </a>
-          </div>
-        </div>
-      </div>
-    )
-  }
+const guard = (element: React.ReactElement, roles: string[]) => (
+  <ProtectedRoute allowedRoles={roles}>{element}</ProtectedRoute>
+)
 
-  return children
-}
+/*
+ * Reuse the root across hot updates.
+ *
+ * main.tsx re-executes whenever Vite hot-updates something it imports, and a
+ * second createRoot() call on the same DOM node makes React lose track of the
+ * tree it already owns -- which surfaces as "removeChild: the node to be
+ * removed is not a child of this node" and an ErrorBoundary screen, mid-demo,
+ * with nothing actually wrong with the app. Production runs this module once,
+ * so this only ever matters while developing -- which is exactly when it bites.
+ */
+const container = document.getElementById('root')!
+const w = window as unknown as { __clinchRoot?: ReturnType<typeof createRoot> }
+const root = w.__clinchRoot ?? (w.__clinchRoot = createRoot(container))
 
-createRoot(document.getElementById('root')!).render(
+root.render(
   <StrictMode>
     <ErrorBoundary>
       <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
-        {/* Customer surface. Deliberately OUTSIDE the /app workspace tree:
-            a customer never reaches an internal route, and the payload they
-            receive is field-redacted on the server (PS §7). */}
-        <Route path="/portal" element={<Portal />} />
-        {/* Workspace, pipeline, quotation builder */}
-        <Route path="/app" element={<Navigate to="/app/quotations" replace />} />
-        <Route path="/app/quotations" element={<Quotations view="list" />} />
-        <Route
-          path="/app/pipeline"
-          element={
-            <RoleGuard allowedRoles={['REP', 'MANAGER', 'ADMIN']} featureName="Pipeline Governance">
-              <Quotations view="pipeline" />
-            </RoleGuard>
-          }
-        />
-        <Route path="/app/quotations/:ref" element={<Builder />} />
-        {/* Approvals Queue Dashboard */}
-        <Route
-          path="/app/approvals"
-          element={
-            <RoleGuard allowedRoles={['MANAGER', 'ADMIN']} featureName="Approvals Queue">
-              <Approvals />
-            </RoleGuard>
-          }
-        />
-        {/* Fulfilment & Delivery Tracking Dashboard */}
-        <Route path="/app/fulfilment" element={<Fulfilment />} />
-        <Route path="/app/fulfilment/:ref" element={<FulfilmentDetail />} />
-        <Route path="/app/invoices" element={<Invoices />} />
-        <Route path="/app/subscriptions" element={<Subscriptions />} />
-        <Route path="/app/dashboard" element={<Dashboard />} />
-        <Route path="/app/settings" element={<Settings />} />
-        <Route path="/app/products" element={<Products />} />
-        <Route path="/app/products/:sku" element={<ProductDetail />} />
-        <Route path="/app/reports" element={<Reports />} />
-        {/* Deal Health & Risk Intelligence Dashboard */}
-        <Route
-          path="/app/health"
-          element={
-            <RoleGuard allowedRoles={['MANAGER', 'ADMIN']} featureName="Executive Deal Health">
-              <DealHealth />
-            </RoleGuard>
-          }
-        />
-        {/* Admin Portal (Same-Server Integrated RevOps Governance) */}
-        <Route
-          path="/app/admin"
-          element={
-            <RoleGuard allowedRoles={['ADMIN']} featureName="RevOps Master Admin Portal">
-              <Suspense
-                fallback={
-                  <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center text-[#0b1b33]">
-                    <div className="flex items-center gap-3 font-medium text-sm">
-                      <div className="w-4 h-4 border-2 border-[#00a3e0] border-t-transparent rounded-full animate-spin"></div>
-                      <span>Loading RevOps Admin Portal...</span>
-                    </div>
-                  </div>
-                }
-              >
+        <AuthProvider>
+          <Routes>
+            {/* ── Public ─────────────────────────────────────────────── */}
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+
+            {/* Customer surface: deliberately OUTSIDE the /app tree and outside
+                the internal shell. Access is by signed, single-quote token, so
+                it carries no role guard of its own. */}
+            <Route path="/portal" element={<Portal />} />
+            <Route path="/portal/:token" element={<Portal />} />
+
+            {/* ── Internal workspace ─────────────────────────────────── */}
+            <Route path="/app" element={<Navigate to="/app/dashboard" replace />} />
+            <Route path="/app/dashboard" element={guard(<Dashboard />, ALL_INTERNAL)} />
+            <Route path="/app/quotations" element={guard(<Quotations view="list" />, ALL_INTERNAL)} />
+            <Route path="/app/pipeline" element={guard(<Quotations view="pipeline" />, ALL_INTERNAL)} />
+            <Route path="/app/quotations/:ref" element={guard(<Builder />, ALL_INTERNAL)} />
+            <Route path="/app/health" element={guard(<DealHealth />, ALL_INTERNAL)} />
+            <Route path="/app/products" element={guard(<Products />, ALL_INTERNAL)} />
+            <Route path="/app/products/:sku" element={guard(<ProductDetail />, ALL_INTERNAL)} />
+
+            {/* Approvals: manager signs off at tier one, finance at tier two. */}
+            <Route path="/app/approvals" element={guard(<Approvals />, APPROVERS)} />
+
+            {/* Fulfilment and money: finance commits stock and settles invoices. */}
+            <Route path="/app/fulfilment" element={guard(<Fulfilment />, ALL_INTERNAL)} />
+            <Route path="/app/fulfilment/:ref" element={guard(<FulfilmentDetail />, OPERATIONS)} />
+            <Route path="/app/subscriptions" element={guard(<Subscriptions />, OPERATIONS)} />
+            <Route path="/app/invoices" element={guard(<Invoices />, OPERATIONS)} />
+
+            {/* Reporting and governance policy. */}
+            <Route path="/app/reports" element={guard(<Reports />, APPROVERS)} />
+            <Route path="/app/settings" element={guard(<Settings />, POLICY)} />
+
+            {/* Profile page for all internal users */}
+            <Route path="/app/profile" element={guard(<Profile />, ALL_INTERNAL)} />
+
+            {/* ── Admin only ─────────────────────────────────────────── */}
+            <Route path="/app/users" element={guard(<AdminUsers />, ADMIN_ONLY)} />
+            <Route path="/app/admin" element={guard(
+              <Suspense fallback={<AuthLoading label="Loading the admin console…" />}>
                 <AdminPortal />
-              </Suspense>
-            </RoleGuard>
-          }
-        />
-        <Route path="/admin" element={<Navigate to="/app/admin" replace />} />
-        {/* Fallback route */}
-        <Route path="/app/*" element={<Navigate to="/app/quotations" replace />} />
-      </Routes>
+              </Suspense>, ADMIN_ONLY)} />
+            <Route path="/admin" element={<Navigate to="/app/admin" replace />} />
+            <Route path="/admin/users" element={<Navigate to="/app/users" replace />} />
+
+            <Route path="/app/*" element={<Navigate to="/app/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>
   </StrictMode>,

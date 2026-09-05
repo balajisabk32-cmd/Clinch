@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ApiError, request } from '../lib/authClient'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -14,6 +15,7 @@ import { Band, ContributionBar } from '../components/ui'
 import { ErrorBar, Workspace } from '../components/Workspace'
 import { UpsellPanel } from '../components/UpsellPanel'
 import { EASE_CSS } from '../lib/motion'
+import { useAuth } from '../context/AuthContext'
 
 const CATEGORIES = ['Hardware', 'Software', 'Services', 'Subscriptions'] as const
 
@@ -121,14 +123,9 @@ export default function Builder() {
     })
   }, [quote?.lines])
 
-  const user = (() => {
-    try {
-      const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
-      return stored ? JSON.parse(stored) : { name: 'Alice Sales', role: 'REP' }
-    } catch {
-      return { name: 'Alice Sales', role: 'REP' }
-    }
-  })()
+  // Identity comes from the verified session; localStorage is not an
+  // authority on who anyone is.
+  const { user } = useAuth()
 
   if (!quote) {
     return (
@@ -160,17 +157,23 @@ export default function Builder() {
     if (!quote) return
     setBusy(true)
     try {
-      await fetch(`/api/approvals/${quote.ref}/action`, {
+      await request(`/approvals/${quote.ref}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, actor: user.name }),
+        body: JSON.stringify({ action, actor: user?.name }),
       })
-      const label = action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Returned to Rep'
+      const label = action === 'approve' ? 'Approved'
+                  : action === 'reject' ? 'Rejected' : 'Returned to Rep'
       setFlash(`Quotation ${quote.ref} ${label}.`)
       setTimeout(() => navigate('/app/approvals'), 1200)
-    } catch {
-      setFlash('Manager governance action recorded.')
-      setTimeout(() => navigate('/app/approvals'), 1200)
+    } catch (err) {
+      // Previously this said "Manager governance action recorded." on ANY
+      // failure -- including a 403 -- and then navigated away as if it had
+      // worked. Say what actually happened and stay put.
+      setFlash(err instanceof ApiError
+        ? (err.status === 403
+            ? 'Your role is not permitted to action this quotation.'
+            : err.message)
+        : 'Could not record that action.')
     } finally {
       setBusy(false)
     }
@@ -191,7 +194,7 @@ export default function Builder() {
         )}
 
         {/* ── Manager Governance Top Bar (Only for Managers reviewing pending quotes) ── */}
-        {user.role === 'MANAGER' && quote.state === 'PENDING_MANAGER' && (
+        {user?.role === 'manager' && quote.state === 'PENDING_MANAGER' && (
           <div className="rounded-2xl bg-amber-500/10 border border-amber-500/25 p-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <AlertTriangle size={20} className="text-amber-700 shrink-0" />
@@ -241,7 +244,7 @@ export default function Builder() {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-display text-[22px] font-bold text-fg leading-none">
-                {user.role === 'CUSTOMER' ? 'Official Quotation' : quote.customer}
+                {user?.role === 'customer' ? 'Official Quotation' : quote.customer}
               </h1>
               <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[10px]
                                font-semibold tracking-wider text-fg-2">
@@ -266,7 +269,7 @@ export default function Builder() {
             </div>
 
             {/* Role-specific Primary Action Button */}
-            {user.role === 'CUSTOMER' ? (
+            {user?.role === 'customer' ? (
               <button
                 onClick={handleCustomerAccept}
                 disabled={busy || quote.state === 'CONFIRMED' || quote.state === 'FULFILLED'}
@@ -318,7 +321,7 @@ export default function Builder() {
         </header>
 
         {/* ── Rep Allowance Guardrail HUD (Visible to Sales Reps) ── */}
-        {user.role === 'REP' && (
+        {user?.role === 'rep' && (
           <section className="rounded-2xl bg-surface border border-black/[.06] p-4 shadow-lift">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-2.5">
               <div className="flex items-center gap-2">
@@ -576,7 +579,7 @@ export default function Builder() {
 
           {/* ── RIGHT: Customer Deal Room Card OR Internal Margin/Risk Intelligence ── */}
           <aside className="flex flex-col gap-4 xl:sticky xl:top-[72px]">
-            {user.role === 'CUSTOMER' ? (
+            {user?.role === 'customer' ? (
               /* Buyer Deal Room Summary (Strictly no internal margin/risk metrics) */
               <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5 flex flex-col gap-4">
                 <div className="flex items-center justify-between pb-3 border-b border-line">
@@ -706,7 +709,7 @@ export default function Builder() {
                   ))}
 
                   {/* Counterfactual coaching — only for reps to optimize discount */}
-                  {user.role === 'REP' && coach?.available && (
+                  {user?.role === 'rep' && coach?.available && (
                     <div className="rounded-xl bg-accent-wash ring-1 ring-accent/20 p-3">
                       <div className="font-mono text-[9.5px] uppercase tracking-eyebrow text-accent mb-1.5">
                         To skip approval

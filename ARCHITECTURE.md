@@ -338,7 +338,84 @@ Restores golden state in **0.19 ms**. This is a demo guardrail, not a convenienc
 
 ---
 
-## 7. Request Walkthroughs
+## 7. Access Control & Identity (`core/security.py`, `api/deps.py`, `api/accounts.py`)
+
+### 7.1 Plain English
+
+Nobody gets in without a password, and what you can do is decided by the server
+every single time you ask — not by what your browser claims you are.
+
+There is **no public sign-up**. Reps, managers and finance staff cannot register
+themselves; an administrator creates their account. Customers never get an
+account at all — they receive a signed link to one quotation.
+
+### 7.2 Technical
+
+| Concern | How |
+|---|---|
+| Password storage | `bcrypt`, cost factor 12, per-password salt. Nothing reversible is stored. |
+| Password policy | Enforced in `core/security.validate_password_strength` **on the API**, before hashing. The form shows the same rules live, but the form is a courtesy — the server is the check. |
+| Email | RFC-practical regex, lowercased before both storage and lookup, `UNIQUE` at the DB level. |
+| Session | JWT (`HS256`) with `sub`, `email`, `role`, `iat`, `exp`; 8-hour expiry; sent as `Authorization: Bearer <token>`. |
+| Every request | `deps.get_current_user` decodes the token **and re-reads the user from the database**. A role change or a deactivation takes effect on the next request, not the next login. |
+| Authorisation | `PERMISSIONS` in `api/auth.py` maps role → permission set; each endpoint declares `Depends(require("..."))`. |
+| Navigation | `/auth/login` and `/auth/me` return `tabs`, computed from the same permission set. The nav cannot drift from what the API allows, because it is derived from it. |
+
+### 7.3 Two status codes that are not interchangeable
+
+- **401** — you are not (or are no longer) anyone. No token, expired token,
+  tampered signature, deleted account, **or a deactivated account presenting a
+  token issued before it was switched off**. The browser client ends the session
+  on 401 and returns you to `/login` with an explanation.
+- **403** — you are someone, but not someone who may do this. Rendered as a real
+  access-denied screen, *not* a redirect: bouncing a manager back to the page
+  carrying the admin link is how redirect loops are born.
+
+The one deliberate asymmetry: signing in to a **deactivated** account returns
+403, because at that point the caller has already proven the password, so
+"contact your administrator" is more useful than a generic refusal and leaks
+nothing to someone who does not already hold valid credentials. A wrong password
+never reaches that line — it is a uniform 401, so the login endpoint cannot be
+used to enumerate which addresses exist.
+
+### 7.4 The hole this closed
+
+Mutating endpoints were all correctly gated. **The reads were not.** `GET
+/quotes`, `/approvals`, `/dashboard`, `/products`, `/warehouses`, `/invoices`
+and sixteen others answered anyone who could reach the port — the entire
+pipeline, every customer, every margin — and `POST /admin/reset` would wipe the
+database for them too. The tests could not see it, because tests send tokens.
+
+`tests/test_no_anonymous_endpoints.py` now walks the app's **own route table**
+and asserts every route refuses an anonymous caller, with a short `PUBLIC` list
+that each entry has to justify. It therefore also covers endpoints written after
+it — which a per-endpoint test never would.
+
+### 7.5 Seeded accounts
+
+```
+admin@clinch.io    ClinchAdmin2026!#    admin
+shah@clinch.io     MgrShah2026!#        manager
+menon@clinch.io    FinMenon2026!#       finance
+rao@clinch.io      RepRao2026!#         rep
+```
+
+Created by `backend/seed_users.py`. Real hashes, no fixtures, no bypass.
+
+### 7.6 Verifying it
+
+```bash
+cd dealflow360/backend && ../.venv/Scripts/python.exe verify_auth.py
+```
+
+39 checks against the **running** server over real HTTP — invalid passwords,
+role boundaries, anonymous reads, tampered signatures, deactivation. The pytest
+suite proves the same properties in-process; this proves the thing you actually
+demo behaves that way.
+
+---
+
+## 8. Request Walkthroughs
 
 ### "Rep changes a discount"
 
@@ -376,7 +453,7 @@ POST /portal/{token}/request  { line_id, counter_discount_pct }
 
 ---
 
-## 8. Numbers to Have Memorised
+## 9. Numbers to Have Memorised
 
 | Thing | Value |
 |---|---|
@@ -393,7 +470,7 @@ POST /portal/{token}/request  { line_id, counter_discount_pct }
 
 ---
 
-## 9. Judge Q&A Drill
+## 10. Judge Q&A Drill
 
 | Question | Answer |
 |---|---|
@@ -408,7 +485,7 @@ POST /portal/{token}/request  { line_id, counter_discount_pct }
 
 ---
 
-## 10. What's Real vs Stubbed — be honest about this
+## 11. What's Real vs Stubbed — be honest about this
 
 Judges respect a clear answer far more than a vague one. `GET /_status` shows the live board.
 
@@ -422,7 +499,7 @@ Note the stubs aren't dumb: `submit` routes off the **real score**, the dashboar
 
 ---
 
-## 11. Glossary — you must be able to define these cold
+## 12. Glossary — you must be able to define these cold
 
 | Term | One-line definition |
 |---|---|
@@ -445,7 +522,7 @@ Note the stubs aren't dumb: `submit` routes off the **real score**, the dashboar
 
 ---
 
-## 12. File Index
+## 13. File Index
 
 | File | Lines | What it owns |
 |---|---|---|
@@ -458,6 +535,13 @@ Note the stubs aren't dumb: `submit` routes off the **real score**, the dashboar
 | [`api/state.py`](backend/api/state.py) | 144 | Policy, states, audit log, SSE, reset |
 | [`api/registry.py`](backend/api/registry.py) | 100 | Real-vs-stub integration board |
 | [`backend/verify.py`](backend/verify.py) | 60 | **Pre-demo smoke check — run before every rehearsal** |
+| [`core/security.py`](backend/core/security.py) | — | bcrypt hashing, password policy, JWT mint/verify |
+| [`api/deps.py`](backend/api/deps.py) | — | `get_current_user` — re-reads the user from the DB every request |
+| [`api/accounts.py`](backend/api/accounts.py) | — | `/auth/*` and admin user provisioning |
+| [`api/users.py`](backend/api/users.py) | — | `app_user` table access |
+| [`backend/seed_users.py`](backend/seed_users.py) | — | Seeds the four real accounts |
+| [`backend/verify_auth.py`](backend/verify_auth.py) | — | **39 live HTTP auth checks — run before every rehearsal** |
+| [`backend/audit_routes.py`](backend/audit_routes.py) | — | Prints every route and whether it is guarded |
 | [`CONTRACTS.md`](CONTRACTS.md) | — | What the team codes against |
 
 ### Commands
@@ -470,12 +554,26 @@ cd dealflow360/backend && ../.venv/Scripts/python.exe verify.py
 cd dealflow360/backend && ../.venv/Scripts/python.exe -m pytest -q
 ```
 
+```bash
+cd dealflow360/backend && ../.venv/Scripts/python.exe verify_auth.py
+```
+
 ---
 
-## 13. Known Gaps — say these before a judge finds them
+## 14. Known Gaps — say these before a judge finds them
 
-1. **Frontend not started.** Next up: Quotation Builder, then the Policy Simulator screen.
-2. **19 endpoints still stubbed** — see §10 for the honest framing.
-3. **In-memory state**, not SQLite yet. Response shapes are frozen, so the swap is invisible to the UI.
-4. **Narrator is template-based**, not LLM. Deliberate: the LLM is an upgrade behind a 3s timeout, never a dependency. The template output is often better anyway.
-5. **Warehouse split is greedy**, not yet the exact 2^W subset enumeration (Santhosh's task).
+1. **Approvals are visible to every internal role, not scoped per rep.** A rep
+   can read the whole pipeline, not just their own deals. The PS asks that reps
+   "track approval status", so visibility is intended — but row-level scoping to
+   the signing-in rep is not built. Quotes carry `rep_id`; the app accounts are
+   not yet mapped onto it.
+2. **Narrator is template-based**, not LLM. Deliberate: the LLM is an upgrade
+   behind a 3s timeout, never a dependency. The template output is often better.
+3. **JWT secret is per-process unless `CLINCH_JWT_SECRET` is set** — restarting
+   the API invalidates outstanding sessions. Correct for a demo, wrong for a
+   deployment with more than one worker.
+4. **No refresh tokens and no rotation.** An 8-hour access token, then sign in
+   again. Adequate for the scope; not what you would ship to a real sales floor.
+5. **Admin panel write-back is partial** — warehouses, stock adjustment,
+   replenishment rules and plan templates read live data but have no write
+   endpoints yet.

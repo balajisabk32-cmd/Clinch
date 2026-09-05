@@ -46,10 +46,9 @@ def seed_database() -> None:
         "INSERT INTO res_partner (name, tier, portal_email) VALUES (?,?,?)",
         [(name, meta["tier"], meta["email"]) for name, meta in fx.CUSTOMERS.items()],
     )
-    db.executemany(
-        "INSERT INTO app_user (id, name, email, role) VALUES (?,?,?,?)",
-        [(u["id"], u["name"], u["email"], u["role"]) for u in fx.USERS],
-    )
+    # Accounts are NOT seeded from fixtures: they carry password hashes and are
+    # provisioned by seed.py / the admin console instead. Re-seeding them here
+    # would overwrite real credentials with role rows that cannot log in.
     db.executemany(
         """INSERT INTO product_variant
            (sku, name, category, list_price, cost, uom, tax_pct, is_recurring,

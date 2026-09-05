@@ -17,7 +17,7 @@ from api import fixtures as fx
 from api import state
 from api.main import app
 from api.schemas import FORBIDDEN_PORTAL_KEYS
-from .conftest import FINANCE, MANAGER
+from .conftest import ADMIN, FINANCE, MANAGER, REP
 
 client = TestClient(app)
 
@@ -34,27 +34,29 @@ def clean():
 def test_step_1_login_and_seed_data_present():
     """Step 1: sign in, and confirm the backend setup exists — a discount tier,
     a warehouse, and a subscription plan."""
-    me = client.post("/auth/login", json={"email": "rao@dealflow.example"})
+    me = client.post("/auth/login", json={
+        "email": "rao@clinch.io", "password": "RepRao2026!#"})
     assert me.status_code == 200
     assert me.json()["user"]["role"] == "rep"
+    assert me.json()["access_token"].count(".") == 2
 
-    policy = client.get("/policy").json()
+    policy = client.get("/policy", headers=ADMIN).json()
     assert policy["tier_ceiling"]["Gold"] == 15.0          # discount tier
     assert policy["category_ceiling"]["Services"] == 10.0  # category ceiling
 
-    warehouses = client.get("/warehouses").json()
+    warehouses = client.get("/warehouses", headers=MANAGER).json()
     assert len(warehouses) >= 2                            # warehouse
 
-    subs = client.get("/subscriptions").json()
+    subs = client.get("/subscriptions", headers=FINANCE).json()
     assert len(subs) >= 1                                  # subscription plan
 
-    products = client.get("/products").json()
+    products = client.get("/products", headers=REP).json()
     assert {p["category"] for p in products} >= {"Hardware", "Services", "Subscriptions"}
 
 
 def test_step_2_over_discounted_line_is_recognised():
     """Step 2: add a product line with a discount higher than normally allowed."""
-    q = client.get("/quotes/Q-1042").json()
+    q = client.get("/quotes/Q-1042", headers=ADMIN).json()
     svc = next(l for l in q["lines"] if l["sku"] == "SVC-ONSITE")
     assert svc["discount_pct"] == 18.0
     assert svc["ceiling"] == 10.0
@@ -65,7 +67,7 @@ def test_step_3_approval_is_requested_automatically():
     """Step 3: the quotation asks for manager approval BY ITSELF — the rep never
     presses a 'request approval' button."""
     assert state.state_of("Q-1042") == "DRAFT"
-    res = client.post("/quotes/Q-1042/submit").json()
+    res = client.post("/quotes/Q-1042/submit", headers=REP).json()
 
     assert res["auto_routed"] is True
     assert res["state"] == "PENDING_MANAGER"
@@ -77,15 +79,15 @@ def test_step_3_approval_is_requested_automatically():
 def test_step_4_upsell_updates_the_total_and_margin_right_away():
     """Step 4: accept one upsell suggestion, confirm order total and margin
     update immediately."""
-    before = client.get("/quotes/Q-1042").json()
-    rec = client.post("/quotes/Q-1042/recommend").json()
+    before = client.get("/quotes/Q-1042", headers=ADMIN).json()
+    rec = client.post("/quotes/Q-1042/recommend", headers=ADMIN).json()
     assert rec["basis"] == "co-purchase"
     assert rec["suggestions"], "a laptop in the cart must produce real signal"
 
     top = rec["suggestions"][0]
     assert top["lift"] > 1.0 and top["margin_pct"] >= 25.0
 
-    after = client.post("/quotes/Q-1042/lines",
+    after = client.post("/quotes/Q-1042/lines", headers=REP,
                         json={"sku": top["sku"], "qty": 1}).json()
     assert len(after["lines"]) == len(before["lines"]) + 1
     assert after["total"] != before["total"]
@@ -96,7 +98,7 @@ def test_step_5_stock_splits_across_two_warehouses_with_backorder():
     """Step 5: confirm stock is pulled from the correct warehouse, splitting
     across two when needed."""
     for objective in ("cost", "shipments"):
-        r = client.post(f"/orders/Q-1044/split?objective={objective}").json()
+        r = client.post(f"/orders/Q-1044/split?objective={objective}", headers=ADMIN).json()
         depots = {a["warehouse"] for a in r["allocations"] if a["sku"] == "LP14"}
         assert len(depots) == 2, f"{objective}: split must be forced across both depots"
         assert r["backorders"], "remaining units must be backordered, not silently dropped"
@@ -104,7 +106,7 @@ def test_step_5_stock_splits_across_two_warehouses_with_backorder():
         assert r["subsets_evaluated"] >= 3, "allocation must be searched, not first-fit"
 
     # And the consolidation prompt actually ships the remainder.
-    con = client.post("/orders/Q-1044/consolidate").json()
+    con = client.post("/orders/Q-1044/consolidate", headers=ADMIN).json()
     assert sum(a["qty"] for a in con["allocations"]) > 0
     assert con["fully_allocated"] is True
 
@@ -112,7 +114,7 @@ def test_step_5_stock_splits_across_two_warehouses_with_backorder():
 def test_step_6_one_time_and_recurring_bill_separately_on_one_order():
     """Step 6: a one-time product and a recurring subscription on the same order
     are billed correctly and separately."""
-    ledger = client.get("/orders/Q-1042/billing").json()
+    ledger = client.get("/orders/Q-1042/billing", headers=ADMIN).json()
     assert ledger["one_time_total"] > 0
     assert ledger["recurring_total"] > 0, "Q-1042 carries a Care Plan subscription"
     # Invoiced today is the one-time portion only; the subscription follows its
@@ -136,11 +138,11 @@ def test_step_7_portal_counter_offer_reenters_approval():
     state.set_state("Q-1042", "APPROVED")
 
     # The portal payload must not carry internal economics over the wire.
-    raw = client.get("/portal/acme-q1042-7f3a9c").text.lower()
+    raw = client.get("/portal/acme-q1042-7f3a9c", headers=ADMIN).text.lower()
     for key in FORBIDDEN_PORTAL_KEYS:
         assert f'"{key}"' not in raw, f"portal leaked '{key}'"
 
-    res = client.post("/portal/acme-q1042-7f3a9c/request",
+    res = client.post("/portal/acme-q1042-7f3a9c/request", headers=ADMIN,
                       json={"line_id": 1, "counter_discount_pct": 28.0,
                             "comment": "Can we do 28% on the setup service?"}).json()
     assert res["re_entered_approval"] is True
@@ -155,12 +157,12 @@ def test_step_8_invoice_payment_flips_status_to_paid():
     """Step 8: confirm the order, record a payment, check the invoice status
     updates — the step most teams never reach."""
     # Walk the state machine the way the app does.
-    client.post("/quotes/Q-1042/submit")
+    client.post("/quotes/Q-1042/submit", headers=REP)
     client.post("/approvals/Q-1042/action", headers=MANAGER,
                 json={"action": "approve", "actor": "M. Shah"})
     assert state.state_of("Q-1042") == "APPROVED"
 
-    client.post("/orders/Q-1042/confirm")
+    client.post("/orders/Q-1042/confirm", headers=FINANCE)
     assert state.state_of("Q-1042") == "FULFILLED"
 
     inv = client.post("/orders/Q-1042/invoice", headers=FINANCE).json()
@@ -194,8 +196,8 @@ def test_illegal_transitions_are_refused_at_every_stage():
 
 def test_whole_walkthrough_is_repeatable_after_reset():
     """The demo must be re-runnable in seconds between judging panels."""
-    client.post("/quotes/Q-1042/submit")
-    body = client.post("/admin/reset").json()
+    client.post("/quotes/Q-1042/submit", headers=REP)
+    body = client.post("/admin/reset", headers=ADMIN).json()
     assert body["elapsed_ms"] < 2000
     assert state.state_of("Q-1042") == "DRAFT"
-    assert len(client.get("/quotes/Q-1042").json()["lines"]) == 3
+    assert len(client.get("/quotes/Q-1042", headers=ADMIN).json()["lines"]) == 3

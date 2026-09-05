@@ -1,9 +1,21 @@
 import React from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../../context/AuthContext';
 import { Menu, Search, Moon, Sun, Bell, ChevronDown } from 'lucide-react';
 
 export function Topbar({ currentTitle, onToggleMobileSidebar, onOpenSearch }) {
   const { theme, toggleTheme } = useTheme();
+  // The signed-in administrator, not a hardcoded "Dave Admin" -- showing a name
+  // that belongs to nobody makes every audit trail on this screen a fiction.
+  const { user } = useAuth();
+  const initials = (user?.name || '?')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+  const ROLE_TITLE = {
+    admin: 'Platform Administrator',
+    manager: 'Sales Manager',
+    finance: 'Finance / Operations',
+    rep: 'Sales Representative',
+  };
 
   return (
     <header className="app-topbar">
@@ -54,10 +66,10 @@ export function Topbar({ currentTitle, onToggleMobileSidebar, onOpenSearch }) {
 
         {/* User Profile */}
         <div className="user-profile-menu">
-          <div className="user-avatar" style={{ background: 'linear-gradient(135deg, #00a3e0 0%, #0284c7 100%)', color: '#ffffff', fontWeight: 'bold' }}>DA</div>
+          <div className="user-avatar" style={{ background: 'linear-gradient(135deg, #00a3e0 0%, #0284c7 100%)', color: '#ffffff', fontWeight: 'bold' }}>{initials}</div>
           <div className="user-details">
-            <span className="user-name">Dave Admin</span>
-            <span className="user-role">RevOps Administrator</span>
+            <span className="user-name">{user?.name}</span>
+            <span className="user-role">{ROLE_TITLE[user?.role] || user?.role}</span>
           </div>
           <ChevronDown className="icon icon-sm" size={14} style={{ color: 'var(--text-muted)' }} />
         </div>

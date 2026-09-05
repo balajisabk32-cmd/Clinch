@@ -17,7 +17,7 @@ const BASE = import.meta.env.DEV ? '/api' : 'http://localhost:8000'
 function authHeaders() {
   let token = null
   try {
-    token = localStorage.getItem('dealflow_token')
+    token = localStorage.getItem('clinch_token')
   } catch {
     /* private mode — fall through unauthenticated */
   }

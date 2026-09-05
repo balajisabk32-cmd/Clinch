@@ -22,6 +22,7 @@ interface Quote {
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [dash, setDash] = useState<any>(null)
   const [error, setError] = useState<string | null>(null)
@@ -36,24 +37,45 @@ export default function Dashboard() {
   const pending = quotes.filter(q => q.state.startsWith('PENDING'))
   const open = quotes.filter(q => !['PAID', 'REJECTED'].includes(q.state))
   const atRisk = quotes.filter(q => q.is_stalled || q.risk_band === 'FINANCE')
+  const userRole = user?.role ?? 'rep'
+  const canApprove = ['admin', 'manager', 'finance'].includes(userRole)
 
-  const CARDS = [
-    {
-      label: 'Pending Approvals', value: pending.length,
-      sub: `${inr(pending.reduce((a, q) => a + q.total, 0))} awaiting sign-off`,
-      to: '/app/approvals', tone: 'text-band-manager',
-    },
-    {
-      label: 'Open Quotations', value: open.length,
-      sub: `${inr(open.reduce((a, q) => a + q.total, 0))} in the pipeline`,
-      to: '/app/quotations', tone: 'text-fg',
-    },
-    {
-      label: 'At-Risk Deals', value: atRisk.length,
-      sub: atRisk.length ? 'Stalled or routed to Finance' : 'Nothing flagged',
-      to: '/app/health', tone: atRisk.length ? 'text-band-finance' : 'text-band-auto',
-    },
-  ]
+  // Show only cards that this user's role is authorized to access
+  const CARDS = canApprove
+    ? [
+        {
+          label: 'Pending Approvals', value: pending.length,
+          sub: `${inr(pending.reduce((a, q) => a + q.total, 0))} awaiting sign-off`,
+          to: '/app/approvals', tone: 'text-band-manager',
+        },
+        {
+          label: 'Open Quotations', value: open.length,
+          sub: `${inr(open.reduce((a, q) => a + q.total, 0))} in the pipeline`,
+          to: '/app/quotations', tone: 'text-fg',
+        },
+        {
+          label: 'At-Risk Deals', value: atRisk.length,
+          sub: atRisk.length ? 'Stalled or routed to Finance' : 'Nothing flagged',
+          to: '/app/health', tone: atRisk.length ? 'text-band-finance' : 'text-band-auto',
+        },
+      ]
+    : [
+        {
+          label: 'Open Quotations', value: open.length,
+          sub: `${inr(open.reduce((a, q) => a + q.total, 0))} in active draft`,
+          to: '/app/quotations', tone: 'text-fg',
+        },
+        {
+          label: 'Active Pipeline', value: quotes.filter(q => q.state !== 'REJECTED').length,
+          sub: 'Deals advancing through lifecycle',
+          to: '/app/pipeline', tone: 'text-accent',
+        },
+        {
+          label: 'Deal Health', value: atRisk.length,
+          sub: atRisk.length ? `${atRisk.length} deals require attention` : 'All deals healthy',
+          to: '/app/health', tone: atRisk.length ? 'text-band-finance' : 'text-band-auto',
+        },
+      ]
 
   // Most recently touched quotations stand in for the activity feed, so the
   // list can never disagree with the pipeline it is summarising.
@@ -82,15 +104,27 @@ export default function Dashboard() {
             >
               + New Quotation
             </button>
-            <button
-              onClick={() => navigate('/app/approvals')}
-              className="rounded-full ring-1 ring-black/[.08] bg-surface px-4 py-2
-                         font-display text-[12.5px] font-semibold text-fg
-                         hover:ring-accent/40 hover:text-accent"
-              style={{ transition: `all 320ms ${EASE_CSS}` }}
-            >
-              View Approvals
-            </button>
+            {canApprove ? (
+              <button
+                onClick={() => navigate('/app/approvals')}
+                className="rounded-full ring-1 ring-black/[.08] bg-surface px-4 py-2
+                           font-display text-[12.5px] font-semibold text-fg
+                           hover:ring-accent/40 hover:text-accent"
+                style={{ transition: `all 320ms ${EASE_CSS}` }}
+              >
+                View Approvals
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/app/pipeline')}
+                className="rounded-full ring-1 ring-black/[.08] bg-surface px-4 py-2
+                           font-display text-[12.5px] font-semibold text-fg
+                           hover:ring-accent/40 hover:text-accent"
+                style={{ transition: `all 320ms ${EASE_CSS}` }}
+              >
+                View Pipeline
+              </button>
+            )}
           </div>
         </header>
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ApiError, request } from '../lib/authClient'
 import {
   CheckCircle2,
   XCircle,
@@ -15,6 +16,7 @@ import { inr } from '../lib/api'
 import { Band } from '../components/ui'
 import { ErrorBar, Workspace } from '../components/Workspace'
 import { EASE_CSS } from '../lib/motion'
+import { useAuth } from '../context/AuthContext'
 
 interface ApprovalItem {
   ref: string
@@ -41,27 +43,19 @@ export default function Approvals() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [busyRef, setBusyRef] = useState<string | null>(null)
 
-  const user = (() => {
-    try {
-      const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
-      return stored ? JSON.parse(stored) : { name: 'Bob Manager', role: 'MANAGER' }
-    } catch {
-      return { name: 'Bob Manager', role: 'MANAGER' }
-    }
-  })()
+  // Identity comes from the verified session; localStorage is not an
+  // authority on who anyone is.
+  const { user } = useAuth()
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       // 1. Fetch approvals list from backend
-      const res = await fetch('/api/approvals')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const approvalsData: any[] = await res.json()
+      const approvalsData = await request<any[]>('/approvals')
 
       // 2. Fetch full quotes to get financial totals and rep info
-      const quotesRes = await fetch('/api/quotes')
-      const quotesData: any[] = quotesRes.ok ? await quotesRes.json() : []
+      const quotesData = await request<any[]>('/quotes')
       const quotesMap = new Map(quotesData.map(q => [q.ref, q]))
 
       const enriched: ApprovalItem[] = approvalsData.map(a => {
@@ -84,80 +78,13 @@ export default function Approvals() {
         }
       })
       setItems(enriched)
-    } catch {
-      // Graceful fallback with realistic seed items if backend is offline
-      setItems([
-        {
-          ref: 'Q-1039',
-          customer: 'Beta Industries',
-          tier: 'Gold',
-          rep: 'M. Shah',
-          state: 'PENDING_MANAGER',
-          total: 24381.16,
-          risk_score: 22.1,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 1,
-          breach_detail: 'Discount 22.0% requested on Hardware (rep allowance max 15%)',
-        },
-        {
-          ref: 'Q-1050',
-          customer: 'Beta Industries',
-          tier: 'Gold',
-          rep: 'A. Rao',
-          state: 'PENDING_MANAGER',
-          total: 13775.32,
-          risk_score: 21.6,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 3,
-          breach_detail: 'Stacking line + order discount (6.6 pts over rep ceiling)',
-        },
-        {
-          ref: 'Q-1054',
-          customer: 'Vertex Labs',
-          tier: 'Silver',
-          rep: 'K. Iyer',
-          state: 'PENDING_MANAGER',
-          total: 6757.86,
-          risk_score: 57.9,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 1,
-          breach_detail: 'Single-order margin 18.5% below standard threshold',
-        },
-        {
-          ref: 'Q-1053',
-          customer: 'Delta LLC',
-          tier: 'Bronze',
-          rep: 'M. Shah',
-          state: 'PENDING_FINANCE',
-          total: 13769.42,
-          risk_score: 91.0,
-          risk_band: 'FINANCE',
-          stage: 'Finance',
-          assigned_to: 'Finance Director',
-          days_inactive: 2,
-          breach_detail: 'Credit risk flag & 32% aggressive discount requested',
-        },
-        {
-          ref: 'Q-1059',
-          customer: 'Orion Systems',
-          tier: 'Gold',
-          rep: 'A. Rao',
-          state: 'PENDING_MANAGER',
-          total: 1239.0,
-          risk_score: 21.1,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 0,
-          breach_detail: 'Custom payment terms requested without finance pre-check',
-        },
-      ])
+    } catch (err) {
+      // No seeded stand-in list. Inventing approvals when the server is
+      // unreachable is worse than showing nothing: the queue is the record of
+      // what needs sign-off, and a fabricated one invites someone to action a
+      // quote that does not exist.
+      setItems([])
+      setError(err instanceof ApiError ? err.message : 'Could not load the approvals queue.')
     } finally {
       setLoading(false)
     }
@@ -172,24 +99,23 @@ export default function Approvals() {
     setError(null)
     setActionSuccess(null)
     try {
-      const res = await fetch(`/api/approvals/${ref}/action`, {
+      await request(`/approvals/${ref}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, actor: user.name }),
+        body: JSON.stringify({ action, actor: user?.name }),
       })
-      if (!res.ok) {
-        updateLocalState(ref, action)
-      } else {
-        await res.json()
-        updateLocalState(ref, action)
-      }
-      const label = action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Sent back to Rep'
+      updateLocalState(ref, action)
+      const label = action === 'approve' ? 'Approved'
+                  : action === 'reject' ? 'Rejected' : 'Sent back to Rep'
       setActionSuccess(`Quotation ${ref} successfully ${label}.`)
       setTimeout(() => setActionSuccess(null), 4000)
-    } catch {
-      updateLocalState(ref, action)
-      setActionSuccess(`Quotation ${ref} updated locally (${action}).`)
-      setTimeout(() => setActionSuccess(null), 4000)
+    } catch (err) {
+      // A refusal is the governance model working. Reporting it as success and
+      // mutating local state would show an approval that never happened.
+      setError(err instanceof ApiError
+        ? (err.status === 403
+            ? `Your role is not permitted to ${action} this quotation.`
+            : err.message)
+        : `Could not ${action} ${ref}.`)
     } finally {
       setBusyRef(null)
     }
@@ -272,7 +198,7 @@ export default function Approvals() {
               {managerQueueCount}
             </div>
             <div className="text-[11.5px] text-fg-3 mt-1.5 font-mono">
-              Assigned to {user.name}
+              Assigned to {user?.name}
             </div>
           </div>
 

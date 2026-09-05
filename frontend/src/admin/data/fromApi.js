@@ -22,8 +22,21 @@ const BASE = import.meta.env.DEV ? '/api' : 'http://localhost:8000'
 async function get(path) {
   const ctrl = new AbortController()
   const timer = setTimeout(() => ctrl.abort(), 5000)
+  // Reads are authenticated too. They used to go out bare, which worked only
+  // because the read endpoints were anonymous -- meaning the whole pipeline,
+  // every customer and every margin was readable by anyone who could reach the
+  // port. The endpoints now require a token, so one must be sent.
+  let token = null
   try {
-    const res = await fetch(`${BASE}${path}`, { signal: ctrl.signal })
+    token = localStorage.getItem('clinch_token')
+  } catch {
+    /* private mode -- fall through unauthenticated and surface the 401 */
+  }
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      signal: ctrl.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
     if (!res.ok) throw new Error(`${path} -> ${res.status}`)
     return await res.json()
   } finally {

@@ -57,7 +57,15 @@ CREATE TABLE IF NOT EXISTS res_partner (
   currency TEXT DEFAULT 'INR', portal_email TEXT);
 
 CREATE TABLE IF NOT EXISTS app_user (
-  id TEXT PRIMARY KEY, name TEXT, email TEXT UNIQUE, role TEXT NOT NULL);
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin','manager','finance','rep','customer')),
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  last_login_at TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_app_user_email ON app_user(email);
 
 CREATE TABLE IF NOT EXISTS product_variant (
   sku TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,
@@ -141,7 +149,30 @@ def connect() -> sqlite3.Connection:
             _conn.execute("PRAGMA synchronous=NORMAL")
             _conn.executescript(SCHEMA)
             _conn.commit()
+            migrate(_conn)
         return _conn
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Bring an existing database up to the current schema.
+
+    CREATE TABLE IF NOT EXISTS is a no-op against a table that already exists,
+    so a shipped schema change would silently do nothing on any deployment that
+    had run before -- the failure then surfaces much later as "no such column",
+    far from its cause. This runs on every connect and is idempotent.
+    """
+    def columns(table: str) -> set[str]:
+        return {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+
+    # app_user gained credentials. Rows written before that had no password at
+    # all and could never authenticate, so recreating the table loses nothing
+    # real -- and it avoids SQLite's refusal to add NOT NULL columns without a
+    # default. Accounts are re-provisioned by seed_users.py.
+    existing = columns("app_user")
+    if existing and "password_hash" not in existing:
+        conn.execute("DROP TABLE app_user")
+        conn.executescript(SCHEMA)
+        conn.commit()
 
 
 def close() -> None:
@@ -184,10 +215,13 @@ def wipe() -> None:
     """Empty every table without dropping the schema."""
     with _lock:
         conn = connect()
+        # app_user is deliberately absent: `reset()` restores demo DATA, and
+        # wiping the credential table would sign everyone out and delete the
+        # only administrator every time someone pressed the reset button.
         for t in ("deal_events", "portal_comment", "account_move", "subscription",
                   "allocation", "sale_order_line", "sale_order", "stock_move",
                   "stock_quant", "warehouse", "policy", "price_list",
-                  "product_variant", "app_user", "res_partner"):
+                  "product_variant", "res_partner"):
             conn.execute(f"DELETE FROM {t}")
         conn.execute("DELETE FROM sqlite_sequence")
         conn.commit()
