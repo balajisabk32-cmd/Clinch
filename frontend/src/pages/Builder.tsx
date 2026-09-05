@@ -13,10 +13,12 @@ import {
 import { api, inr, type Coach, type Product, type QuoteDetail, type Suggestion } from '../lib/api'
 import { Band, ContributionBar } from '../components/ui'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
+import { StockIndicator } from '../components/StockIndicator'
 import { ErrorBar, Workspace } from '../components/Workspace'
 import { UpsellPanel } from '../components/UpsellPanel'
 import { EASE_CSS } from '../lib/motion'
 import { useAuth } from '../context/AuthContext'
+import { cn } from '../lib/cn'
 
 const CATEGORIES = ['Hardware', 'Software', 'Services', 'Subscriptions'] as const
 
@@ -201,6 +203,34 @@ export default function Builder() {
     }
   }
 
+  const [revisionModalOpen, setRevisionModalOpen] = useState(false)
+  const [revisionNote, setRevisionNote] = useState('')
+
+  const sendRevision = async () => {
+    if (!quote) return
+    const note = revisionNote.trim()
+    if (note.length < 10) return
+    setBusy(true)
+    try {
+      await request(`/quotes/${quote.ref}/return-revision`, {
+        method: 'POST',
+        body: JSON.stringify({ manager_notes: note }),
+      })
+      setFlash(`Quotation ${quote.ref} returned to ${quote.rep} with revision notes.`)
+      setRevisionModalOpen(false)
+      setRevisionNote('')
+      setTimeout(() => navigate('/app/approvals'), 1200)
+    } catch (err) {
+      setFlash(err instanceof ApiError
+        ? (err.status === 403
+            ? 'Your role is not permitted to return this quotation.'
+            : err.message)
+        : 'Could not return quotation.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const tone = marginTone(quote.margin_pct)
 
   return (
@@ -212,6 +242,51 @@ export default function Builder() {
           <div className="flex items-center gap-2.5 rounded-xl bg-band-autoWash border border-band-auto/25 px-4 py-3 text-[13px] text-band-auto font-medium animate-fadeIn">
             <CheckCircle2 size={16} className="text-band-auto shrink-0" />
             <span>{flash}</span>
+          </div>
+        )}
+
+        {/* ── Approval audit ───────────────────────────────────────────────
+            Who signed this off, and when. The server stamps these from the
+            approver's token, so the name here is the account that acted rather
+            than a display string the client supplied. */}
+        {quote.approved_by_name && (
+          <div className="panel rail rail-auto px-4 py-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <ShieldCheck size={15} className="text-band-auto shrink-0" />
+            <span className="text-[13px] text-fg">
+              Approved by <b className="font-semibold">{quote.approved_by_name}</b>
+              {quote.approved_by_role && (
+                <span className="text-fg-2"> ({quote.approved_by_role})</span>
+              )}
+            </span>
+            {quote.approved_at && (
+              <span className="font-mono text-[11.5px] text-fg-3">
+                on {new Date(quote.approved_at).toLocaleString('en-IN', {
+                  day: '2-digit', month: 'short', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit',
+                })}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* ── Returned for revision ────────────────────────────────────────
+            The manager's note, verbatim and in full. This is the whole reason
+            the deal is back on the rep's desk, so it is not truncated and not
+            hidden behind a tooltip. */}
+        {quote.revision_requested && quote.manager_revision_notes && (
+          <div className="panel rail rail-manager px-4 py-3 flex items-start gap-2.5">
+            <AlertTriangle size={16} className="text-band-manager shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="font-display text-[13.5px] font-semibold text-band-manager">
+                Returned for revision
+              </div>
+              <p className="text-[13px] text-fg mt-1 leading-relaxed">
+                {quote.manager_revision_notes}
+              </p>
+              <p className="text-[11.5px] text-fg-3 mt-1.5">
+                Make the change and submit again — it will re-route automatically.
+              </p>
+            </div>
           </div>
         )}
 
@@ -250,13 +325,69 @@ export default function Builder() {
                 <span>Reject</span>
               </button>
               <button
-                onClick={() => handleManagerAction('return')}
+                onClick={() => { setRevisionModalOpen(true); setRevisionNote('') }}
                 disabled={busy}
                 className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-band-managerWash text-band-manager border border-band-manager px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
               >
                 <RotateCcw size={13} />
                 <span>Request Rep Revision</span>
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Return for revision modal (Message box for review sending) ── */}
+        {revisionModalOpen && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-fg/25 backdrop-blur-[2px] px-5"
+            role="dialog" aria-modal="true" aria-label="Return for revision"
+            onClick={e => { if (e.target === e.currentTarget) setRevisionModalOpen(false) }}
+          >
+            <div className="w-full max-w-[520px] rounded-2xl bg-surface ring-1 ring-black/[.08] shadow-lift-lg p-6 flex flex-col gap-4 animate-fadeIn">
+              <div>
+                <h2 className="font-display text-[18px] font-bold text-fg tracking-tight">
+                  Return {quote.ref} for revision
+                </h2>
+                <p className="text-[12.5px] text-fg-2 mt-1.5 leading-relaxed">
+                  {quote.customer} · Total: <AnimatedNumber value={quote.total} format="inr" flash={false} /> · Escalated by {quote.rep}
+                </p>
+              </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                  Revision instructions for {quote.rep}
+                </span>
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={revisionNote}
+                  onChange={e => setRevisionNote(e.target.value)}
+                  placeholder="Explain what needs to change (e.g. Reduce discount on Rack Server R740 to 15% to meet Hardware allowance)..."
+                  className="rounded-lg bg-surface px-3.5 py-2.5 text-[13.5px] text-fg resize-y ring-1 ring-black/[.09] outline-none focus:ring-accent/45 placeholder:text-fg-4"
+                />
+                <span className={`text-[11.5px] ${
+                  revisionNote.trim().length >= 10 ? 'text-fg-3' : 'text-band-manager'}`}>
+                  {revisionNote.trim().length < 10
+                    ? `At least 10 characters — ${quote.rep} sees this note on their Action required banner.`
+                    : `${quote.rep} sees this note on their Action required banner.`}
+                </span>
+              </label>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={sendRevision}
+                  disabled={revisionNote.trim().length < 10 || busy}
+                  className="rounded-full bg-fg text-white px-5 py-2.5 font-display text-[13px] font-semibold hover:shadow-lift-lg active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {busy ? 'Returning…' : 'Return to rep'}
+                </button>
+                <button
+                  onClick={() => setRevisionModalOpen(false)}
+                  className="rounded-full ring-1 ring-black/[.08] bg-surface px-4 py-2.5 font-display text-[13px] font-medium text-fg-2 hover:text-fg"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -504,48 +635,114 @@ export default function Builder() {
                       <th>SKU</th>
                       <th>Category</th>
                       <th className="text-right">List price</th>
-                      <th className="w-8"></th>
+                      <th className="text-center w-28">In quote</th>
+                      <th className="w-16 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {catalogue.map(p => (
-                      <tr
-                        key={p.sku}
-                        onClick={() => editable && !busy && apply(() => api.addLine(ref, p.sku, 1, 0))}
-                        className={editable && !busy
-                          ? 'cursor-pointer group'
-                          : 'opacity-45 cursor-not-allowed'}
-                      >
-                        <td className="text-fg font-medium">
-                          {p.name}
-                          {p.is_promoted && (
-                            <span className="ml-1.5 rounded-sm bg-band-managerWash text-band-manager
-                                             px-1 py-px font-mono text-[9px] font-semibold align-middle">
-                              PROMO
-                            </span>
+                    {catalogue.map(p => {
+                      const line = quote.lines?.find(l => l.sku === p.sku)
+                      const inQuoteQty = line?.qty ?? 0
+                      return (
+                        <tr
+                          key={p.sku}
+                          onClick={() => {
+                            if (!editable || busy) return
+                            if (line) {
+                              apply(() => api.patchLine(ref, line.id, { qty: line.qty + 1 }))
+                            } else {
+                              apply(() => api.addLine(ref, p.sku, 1, 0))
+                            }
+                          }}
+                          className={cn(
+                            editable && !busy ? 'cursor-pointer group' : 'opacity-45 cursor-not-allowed',
+                            inQuoteQty > 0 && 'bg-accent/[0.04]'
                           )}
-                          {p.is_recurring && (
-                            <span className="ml-1.5 font-mono text-[9px] uppercase tracking-wider text-fg-4">
-                              recurring
-                            </span>
-                          )}
-                        </td>
-                        <td><span className="key text-fg-3">{p.sku}</span></td>
-                        <td className="text-fg-3">{p.category}</td>
-                        <td className="num text-fg-2">
-                          <AnimatedNumber value={p.list_price} format="inr" flash={false} />
-                        </td>
-                        <td className="text-right">
-                          <span className="font-mono text-[11px] text-accent opacity-0
-                                           group-hover:opacity-100 transition-opacity">
-                            + Add
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                        >
+                          <td className="text-fg font-medium">
+                            <div className="flex items-center flex-wrap gap-1.5">
+                              <span>{p.name}</span>
+                              {p.is_promoted && (
+                                <span className="ml-1.5 rounded-sm bg-band-managerWash text-band-manager
+                                                 px-1 py-px font-mono text-[9px] font-semibold align-middle">
+                                  PROMO
+                                </span>
+                              )}
+                              {p.is_recurring && (
+                                <span className="ml-1.5 font-mono text-[9px] uppercase tracking-wider text-fg-4">
+                                  recurring
+                                </span>
+                              )}
+                              {inQuoteQty > 0 && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 border border-accent/30 px-2 py-0.5 font-mono text-[10px] font-bold text-accent">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                                  Qty: {inQuoteQty}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td><span className="key text-fg-3">{p.sku}</span></td>
+                          <td className="text-fg-3">{p.category}</td>
+                          <td className="num text-fg-2">
+                            <AnimatedNumber value={p.list_price} format="inr" flash={false} />
+                          </td>
+                          <td className="text-center" onClick={e => e.stopPropagation()}>
+                            {inQuoteQty > 0 ? (
+                              <div className="inline-flex items-center gap-1 bg-surface-2 border border-black/[.08] rounded-md px-1.5 py-0.5 shadow-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editable || busy || !line) return
+                                    if (line.qty > 1) {
+                                      apply(() => api.patchLine(ref, line.id, { qty: line.qty - 1 }))
+                                    } else {
+                                      apply(() => api.deleteLine(ref, line.id))
+                                    }
+                                  }}
+                                  disabled={!editable || busy}
+                                  title="Decrease quantity"
+                                  className="w-5 h-5 rounded hover:bg-surface-3 text-fg-2 hover:text-fg font-mono text-[11px] font-bold flex items-center justify-center transition-colors disabled:opacity-40"
+                                >
+                                  -
+                                </button>
+                                <span className="font-mono text-[11.5px] font-bold text-accent px-1 min-w-[20px] text-center">
+                                  {inQuoteQty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editable || busy || !line) return
+                                    apply(() => api.patchLine(ref, line.id, { qty: line.qty + 1 }))
+                                  }}
+                                  disabled={!editable || busy}
+                                  title="Increase quantity"
+                                  className="w-5 h-5 rounded hover:bg-surface-3 text-fg-2 hover:text-fg font-mono text-[11px] font-bold flex items-center justify-center transition-colors disabled:opacity-40"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="font-mono text-[11px] text-fg-4">—</span>
+                            )}
+                          </td>
+                          <td className="text-right">
+                            {inQuoteQty > 0 ? (
+                              <span className="font-mono text-[11px] text-accent font-semibold">
+                                + Add
+                              </span>
+                            ) : (
+                              <span className="font-mono text-[11px] text-accent opacity-0
+                                               group-hover:opacity-100 transition-opacity">
+                                + Add
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
                     {catalogue.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="py-6 text-center text-[12.5px] text-fg-3">
+                        <td colSpan={6} className="py-6 text-center text-[12.5px] text-fg-3">
                           No products match “{search}”.
                         </td>
                       </tr>
@@ -595,6 +792,11 @@ export default function Builder() {
                                 {l.sku} · {l.category} · {inr(l.list_price)}
                                 {l.is_recurring && ' · recurring'}
                               </div>
+                              {/* Live ATP at the quantity on this line. A
+                                  subscription has no shelf, so it gets none. */}
+                              {!l.is_recurring && (
+                                <StockIndicator sku={l.sku} qty={l.qty} className="mt-1" />
+                              )}
                             </td>
 
                             {/* Quantity stepper (PS B3: adjust quantities +/-) */}

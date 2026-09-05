@@ -220,6 +220,32 @@ MANAGER_TO_REPS: dict[str, list[str]] = {
 }
 
 
+def is_rep_managed_by(rep_id_or_name: str | None, manager_name_or_id: str | None) -> bool:
+    """Check whether a rep belongs to the specified manager."""
+    if not rep_id_or_name or not manager_name_or_id:
+        return False
+    mgr = REP_TO_MANAGER.get(rep_id_or_name)
+    if mgr:
+        return (mgr == manager_name_or_id or
+                mgr.lower() in manager_name_or_id.lower() or
+                manager_name_or_id.lower() in mgr.lower())
+    for m_name, reps in MANAGER_TO_REPS.items():
+        if m_name == manager_name_or_id or m_name.lower() in manager_name_or_id.lower() or manager_name_or_id.lower() in m_name.lower():
+            if rep_id_or_name in reps:
+                return True
+    return False
+
+
+def get_manager_assigned_reps(manager_name_or_id: str | None) -> list[str]:
+    """Return the list of rep names for a manager."""
+    if not manager_name_or_id:
+        return []
+    for m_name, reps in MANAGER_TO_REPS.items():
+        if m_name == manager_name_or_id or m_name.lower() in manager_name_or_id.lower() or manager_name_or_id.lower() in m_name.lower():
+            return list(reps)
+    return []
+
+
 def discounts_for(median: float, mad: float, deals: int) -> list[float]:
     """Build a history whose REALISED median and MAD hit the targets.
 

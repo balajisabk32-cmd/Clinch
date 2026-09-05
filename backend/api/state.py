@@ -120,6 +120,52 @@ def reset(persist: bool = True) -> None:
         ))
 
 
+def record_approval(ref: str, *, user_id: str, name: str, role: str) -> None:
+    """Stamp who signed a quotation off, on the quotation itself.
+
+    deal_events keeps the full history and stays the source of truth. This is a
+    denormalised copy so "who approved this, and when" is a single read rather
+    than a scan back through an append-only log, and so the field survives into
+    the quote detail response the UI renders.
+    """
+    row = QUOTES.get(ref)
+    if row is None:
+        return
+    row["approved_by_id"] = user_id
+    row["approved_by_name"] = name
+    row["approved_by_role"] = role
+    row["approved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Approving clears any outstanding revision request: the thing the manager
+    # asked for has now been dealt with one way or the other.
+    row["revision_requested"] = False
+
+
+def request_revision(ref: str, *, notes: str) -> None:
+    """Send a quotation back to its rep with a coaching note."""
+    row = QUOTES.get(ref)
+    if row is None:
+        return
+    row["manager_revision_notes"] = notes
+    row["revision_requested"] = True
+    # An earlier approval no longer stands once the deal is reopened.
+    row["approved_by_id"] = None
+    row["approved_by_name"] = None
+    row["approved_by_role"] = None
+    row["approved_at"] = None
+
+
+def approval_meta(ref: str) -> dict[str, Any]:
+    row = QUOTES.get(ref) or {}
+    return {
+        "approved_by_id": row.get("approved_by_id"),
+        "approved_by_name": row.get("approved_by_name"),
+        "approved_by_role": row.get("approved_by_role"),
+        "approved_at": row.get("approved_at"),
+        "manager_revision_notes": row.get("manager_revision_notes"),
+        "revision_requested": bool(row.get("revision_requested")),
+    }
+
+
 def state_of(ref: str) -> str:
     return QUOTE_STATE.get(ref, "DRAFT")
 
@@ -306,6 +352,12 @@ def on_hand(warehouse: str, sku: str) -> int:
     return q["on_hand"] if q else 0
 
 
+def record_move(warehouse: str, sku: str, kind: str, qty: int,
+                ref: str | None = None) -> None:
+    """Public alias for _move, for callers outside this module."""
+    _move(warehouse, sku, kind, qty, ref or "*")
+
+
 def _move(warehouse: str, sku: str, kind: str, qty: int, ref: str) -> None:
     STOCK_MOVES.append(dict(
         warehouse=warehouse, sku=sku, kind=kind, qty=qty, order_ref=ref,
@@ -420,6 +472,9 @@ def boot() -> None:
     from . import db, repository
 
     db.connect()
+    # Reference rows first, and on every path: a database seeded before plans
+    # existed, or restored from an older golden snapshot, still needs them.
+    repository.ensure_reference_data()
     if db.has_data():
         repository.load_into(_module())
         return
@@ -437,6 +492,10 @@ def restore() -> float:
 
     started = time.perf_counter()
     if db.restore_golden():
+        # The snapshot may predate any reference row added since it was taken,
+        # and restore replaces the database wholesale -- so re-assert them
+        # before loading, or a reset mid-demo empties the price book.
+        repository.ensure_reference_data()
         repository.load_into(_module())
     else:
         reset(persist=False)

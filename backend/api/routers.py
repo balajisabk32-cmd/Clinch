@@ -203,6 +203,28 @@ def create_product(body: dict[str, Any] = Body(...),
         # a negative-margin order as a hard Finance escalation, so say so now.
         pass
 
+    # Which depot the opening stock lands in. Defaulting silently to "Main
+    # Warehouse" -- as this did -- put every new product in one building
+    # regardless of what the person creating it intended, and there was no way
+    # to say otherwise.
+    depots = [w["name"] for w in fx.WAREHOUSES]
+    warehouse = body.get("initial_warehouse") or (depots[0] if depots else "Main Warehouse")
+    if warehouse not in depots:
+        raise HTTPException(422, {
+            "error": "unknown_warehouse", "allowed": depots,
+            "message": f"{warehouse!r} is not a warehouse. Choose one of: {', '.join(depots)}."})
+
+    stock_qty = int(body.get("initial_stock_qty", body.get("stock_total", 0)) or 0)
+    if stock_qty < 0:
+        raise HTTPException(422, {"error": "bad_stock",
+                                  "message": "Opening stock cannot be negative."})
+
+    # Free-form key/value options: {"color": "Space Gray", "storage": "512GB"}.
+    attributes = body.get("attribute_values") or {}
+    if attributes and not isinstance(attributes, dict):
+        raise HTTPException(422, {"error": "bad_attributes",
+                                  "message": "Variant options must be name/value pairs."})
+
     product = dict(
         sku=sku, name=body.get("name") or sku,
         category=body.get("category", "Hardware"),
@@ -211,19 +233,28 @@ def create_product(body: dict[str, Any] = Body(...),
         is_recurring=bool(body.get("is_recurring")),
         recurrence=body.get("recurrence"),
         is_promoted=bool(body.get("is_promoted")),
-        stock_total=int(body.get("stock_total", 0)),
+        stock_total=stock_qty,
         description=body.get("description", ""),
         variants=body.get("variants", []),
+        attribute_values=attributes,
+        initial_warehouse=warehouse,
+        initial_stock_qty=stock_qty,
     )
     state.PRODUCTS.append(product)
     state.sync_by_sku()
-    stock_qty = int(body.get("stock_total", 50))
     if stock_qty > 0:
-        state.STOCK.setdefault("Main Warehouse", {})[sku] = {
+        # The opening quant. `reserved` starts at zero: nothing can be spoken
+        # for on a product that did not exist a moment ago.
+        state.STOCK.setdefault(warehouse, {})[sku] = {
             "on_hand": stock_qty,
             "reserved": 0,
         }
-    state.record("*", _actor.get("id", "admin"), "admin", "product_created", reason=sku)
+        # Through the same recorder every other stock movement uses, so the
+        # opening balance appears in the ledger rather than materialising
+        # untraceably on the shelf.
+        state.record_move(warehouse, sku, "receive", stock_qty)
+    state.record("*", _actor.get("name", "admin"), "admin", "product_created",
+                 reason=f"{sku} — {stock_qty} units into {warehouse}")
     return product
 
 
@@ -263,14 +294,22 @@ def update_pricelists(body: dict[str, Any] = Body(...),
 
 @sales.get("/quotes")
 def list_quotes(state_filter: str | None = Query(None, alias="state"), _actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
+    is_mgr = _actor.get("role") == "manager"
+    actor_name = _actor.get("name", "")
     out = []
     for row in svc.open_pipeline():
         q, r, t = row["quote"], row["result"], row["totals"]
         if state_filter and row["state"] != state_filter:
             continue
+        rep_name = fx.REP_NAME.get(q.rep_id, q.rep_id)
+        if is_mgr and not (fx.is_rep_managed_by(rep_name, actor_name) or fx.is_rep_managed_by(q.rep_id, actor_name)):
+            continue
         out.append(dict(
             ref=q.ref, customer=q.customer, tier=q.tier,
-            rep=fx.REP_NAME.get(q.rep_id, q.rep_id), state=row["state"],
+            rep=rep_name, state=row["state"],
+            revision_requested=state.approval_meta(q.ref)["revision_requested"],
+            manager_revision_notes=state.approval_meta(q.ref)["manager_revision_notes"],
+            approved_by_name=state.approval_meta(q.ref)["approved_by_name"],
             total=t["total"], risk_score=r.score, risk_band=r.band,
             last_activity_at=state.last_activity(q.ref),
             days_inactive=row["days_idle"],
@@ -312,6 +351,10 @@ def quote_detail(ref: str, _actor: dict[str, Any] = Depends(require("quote.view"
             cost=l.cost, margin=round(l.margin, 2),
             ceiling=over_by_sku[l.sku]["allowed"], over=over_by_sku[l.sku]["over"],
         ) for i, l in enumerate(quote.lines)],
+        # Who approved this and when, plus any outstanding coaching note. The
+        # UI renders these directly; without them the approval badge would have
+        # to reconstruct the answer by scanning the audit log client-side.
+        **state.approval_meta(ref),
     )
 
 
@@ -430,7 +473,15 @@ def submit(ref: str, actor: str = Query("A. Rao"), _actor: dict[str, Any] = Depe
         _conflict(ref, current, target)
 
     state.set_state(ref, target)
-    state.record(ref, actor, "rep", "submitted",
+    # Resubmitting answers the manager's note, so the flag clears here. Leaving
+    # it set would keep the deal in the rep's "Action required" tab forever and
+    # show the old coaching note against a quote that has already changed.
+    was_revision = state.approval_meta(ref)["revision_requested"]
+    if was_revision:
+        row = state.QUOTES.get(ref)
+        if row is not None:
+            row["revision_requested"] = False
+    state.record(ref, actor, "rep", "resubmitted" if was_revision else "submitted",
                  reason=f"score {r.score} -> {r.band}")
     return {"ref": ref, "state": target, "risk_score": r.score,
             "risk_band": r.band, "auto_routed": True,
@@ -440,6 +491,8 @@ def submit(ref: str, actor: str = Query("A. Rao"), _actor: dict[str, Any] = Depe
 
 @sales.get("/approvals")
 def approvals(pending_only: bool = Query(False), _actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
+    is_mgr = _actor.get("role") == "manager"
+    actor_name = _actor.get("name", "")
     rows = []
     for row in svc.open_pipeline():
         q, r = row["quote"], row["result"]
@@ -448,6 +501,8 @@ def approvals(pending_only: bool = Query(False), _actor: dict[str, Any] = Depend
             continue
         rep_name = fx.REP_NAME.get(q.rep_id, q.rep_id)
         assigned_mgr = fx.REP_TO_MANAGER.get(q.rep_id, fx.REP_TO_MANAGER.get(rep_name, "M. Shah"))
+        if is_mgr and not (assigned_mgr == actor_name or fx.is_rep_managed_by(rep_name, actor_name) or fx.is_rep_managed_by(q.rep_id, actor_name)):
+            continue
         rows.append(dict(
             ref=q.ref, customer=q.customer, tier=q.tier, state=st,
             risk_score=r.score, risk_band=r.band,
@@ -498,6 +553,7 @@ def approval_detail(ref: str, _actor: dict[str, Any] = Depends(require("quote.vi
         narrative=svc.narrate(quote, r, fx.days_idle(ref)),
         audit=state.audit_for(ref),
         allowed_transitions=LEGAL_TRANSITIONS.get(current, []),
+        **state.approval_meta(ref),
     )
 
 
@@ -508,7 +564,12 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
         return cached
 
     action = body.get("action")
-    actor = body.get("actor", "M. Shah")
+    # The approver is the authenticated caller. This previously read
+    # `body.get("actor", "M. Shah")` -- a client-supplied display name with a
+    # hardcoded fallback -- which made the approval trail worth nothing: anyone
+    # entitled to approve could sign the record with any name, and a request
+    # that simply omitted the field was attributed to M. Shah whoever sent it.
+    actor = _actor.get("name") or _actor.get("email") or "Unknown"
     current = state.state_of(ref)
 
     # Reviewers act only on quotations that are actually awaiting review. The
@@ -541,10 +602,61 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
 
     state.set_state(ref, target)
     role = "finance" if current == "PENDING_FINANCE" else "manager"
+    if target == "APPROVED":
+        state.record_approval(ref, user_id=_actor.get("id", ""), name=actor, role=role)
     state.record(ref, actor, role, action + "d", reason=body.get("reason"))
     result = {"ref": ref, "state": target,
-              "allowed_transitions": LEGAL_TRANSITIONS[target]}
+              "allowed_transitions": LEGAL_TRANSITIONS[target],
+              **state.approval_meta(ref)}
     return state.remember(body.get("idempotency_key"), result)
+
+
+@sales.post("/quotes/{ref}/return-revision")
+def return_for_revision(
+    ref: str, body: dict[str, Any] = Body(...),
+    _actor: dict[str, Any] = Depends(any_of("approval.manager", "approval.finance")),
+) -> dict[str, Any]:
+    """Send a quotation back to its rep with a note saying what to change.
+
+    Separate from the generic `return` action because the note is the point.
+    A deal that comes back with no explanation costs the rep a phone call and
+    the reviewer a second look at the same problem, so the note is REQUIRED and
+    a token gesture ("no", "fix") is refused: ten characters is roughly the
+    shortest string that can name a line and a number.
+    """
+    notes = (body.get("manager_notes") or "").strip()
+    if len(notes) < 10:
+        raise HTTPException(422, {
+            "error": "note_required",
+            "message": ("Explain what needs to change — at least 10 characters. "
+                        "The rep sees this note and nothing else."),
+        })
+
+    current = state.state_of(ref)
+    if current not in ("PENDING_MANAGER", "PENDING_FINANCE"):
+        raise HTTPException(409, {
+            "error": "not_awaiting_approval", "ref": ref, "current_state": current,
+            "message": f"{ref} is {current}; it is not awaiting review.",
+        })
+    if ref not in state.QUOTES:
+        raise HTTPException(404, f"No quotation {ref}")
+
+    # Back to DRAFT, with a flag rather than a new state. A distinct
+    # RETURNED_FOR_REVISION state would have to be threaded through every
+    # transition, guard and filter that already understands DRAFT, and would
+    # differ from it in no way that the engine cares about -- the rep edits it
+    # and resubmits either way. The flag is what the UI needs to tell the two
+    # apart, and it clears the moment the quote is resubmitted.
+    if not is_legal(current, "DRAFT"):
+        _conflict(ref, current, "DRAFT")
+    state.set_state(ref, "DRAFT")
+    state.request_revision(ref, notes=notes)
+
+    role = "finance" if current == "PENDING_FINANCE" else "manager"
+    actor = _actor.get("name") or _actor.get("email") or "Unknown"
+    state.record(ref, actor, role, "returned", reason=notes)
+    return {"ref": ref, "state": "DRAFT", "returned_by": actor,
+            **state.approval_meta(ref)}
 
 
 # =========================================================================== #
@@ -1056,6 +1168,14 @@ insights = APIRouter(tags=["insights"])
 def dashboard(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     lk = svc.leakage_report()
     pipeline = svc.open_pipeline()
+    is_mgr = _actor.get("role") == "manager"
+    actor_name = _actor.get("name", "")
+    if is_mgr:
+        pipeline = [
+            r for r in pipeline
+            if fx.is_rep_managed_by(r["quote"].rep_id, actor_name) or
+               fx.is_rep_managed_by(fx.REP_NAME.get(r["quote"].rep_id, r["quote"].rep_id), actor_name)
+        ]
     stall_days = state.get_policy().stall_days
 
     pipeline_value = sum(r["totals"]["total"] for r in pipeline)
@@ -1415,17 +1535,22 @@ def _enrich_closed_deal(cq: Quote, idx: int) -> dict[str, Any]:
     )
 
 
-def _all_deal_health_deals() -> list[dict[str, Any]]:
+def _all_deal_health_deals(manager_name: str | None = None) -> list[dict[str, Any]]:
     pipeline = svc.open_pipeline()
     stall_days = state.get_policy().stall_days
     active = [_enrich_pipeline_deal(row, stall_days) for row in pipeline]
     closed = [_enrich_closed_deal(cq, i) for i, cq in enumerate(fx.closed_as_quotes()[:35])]
-    return active + closed
+    all_deals = active + closed
+    if manager_name:
+        return [d for d in all_deals if fx.is_rep_managed_by(d.get("salesRepName"), manager_name)]
+    return all_deals
 
 
 @insights.get("/deal-health/dashboard")
 def deal_health_dashboard(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
-    deals = _all_deal_health_deals()
+    is_mgr = _actor.get("role") == "manager"
+    actor_name = _actor.get("name", "") if is_mgr else None
+    deals = _all_deal_health_deals(actor_name)
     counts = {"HEALTHY": 0, "AT_RISK": 0, "STALLED": 0, "CLOSED_LOST": 0}
     by_stage: dict[str, int] = {}
     for d in deals:
@@ -1469,6 +1594,8 @@ def deal_health_dashboard(_actor: dict[str, Any] = Depends(require("quote.view")
     for profile in fx.REP_PROFILES:
         rep_id = profile["id"]
         rep_name = profile["name"]
+        if is_mgr and not (fx.is_rep_managed_by(rep_name, actor_name) or fx.is_rep_managed_by(rep_id, actor_name)):
+            continue
         base_history = list(fx.history_for(rep_id))
         active_discs = [
             round(100.0 * r["totals"]["discount_total"] / r["totals"]["subtotal"], 1)
@@ -1517,7 +1644,8 @@ def deal_health_dashboard(_actor: dict[str, Any] = Depends(require("quote.view")
 
 @insights.get("/deal-health/deals")
 def deal_health_deals(_actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
-    return _all_deal_health_deals()
+    mgr_name = _actor.get("name", "") if _actor.get("role") == "manager" else None
+    return _all_deal_health_deals(mgr_name)
 
 
 # =========================================================================== #

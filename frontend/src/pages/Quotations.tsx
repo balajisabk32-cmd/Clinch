@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
-import { CheckCircle2, LayoutGrid, Rows3, Search } from 'lucide-react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2, LayoutGrid, Rows3, Search } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../lib/api'
 import { Band } from '../components/ui'
@@ -26,16 +26,31 @@ interface Row {
   ref: string; customer: string; tier: string; rep: string; state: string
   total: number; risk_score: number; risk_band: string
   days_inactive: number; is_stalled: boolean
+  revision_requested?: boolean
+  manager_revision_notes?: string | null
+  approved_by_name?: string | null
 }
 
 /** Kanban stages, in lifecycle order (PS B2). */
-const STAGES = [
-  { key: 'DRAFT', label: 'Draft' },
-  { key: 'PENDING_MANAGER', label: 'Pending Approval' },
-  { key: 'PENDING_FINANCE', label: 'Pending Finance' },
+/* Kanban columns, in lifecycle order (PS B2).
+
+   "Revision required" is not a state on the server -- it is DRAFT carrying a
+   manager's note. It gets its own column because those two are the same thing
+   to the engine and completely different things to a rep: one is work not
+   started, the other is work handed back with a reason. */
+const STAGES: Array<{ key: string; label: string; match?: (r: Row) => boolean }> = [
+  { key: 'REVISION', label: 'Revision required',
+    match: r => r.state === 'DRAFT' && !!r.revision_requested },
+  { key: 'DRAFT', label: 'Draft',
+    match: r => r.state === 'DRAFT' && !r.revision_requested },
+  { key: 'PENDING_MANAGER', label: 'Pending manager' },
+  { key: 'PENDING_FINANCE', label: 'Pending finance' },
   { key: 'APPROVED', label: 'Approved' },
   { key: 'NEGOTIATION', label: 'Negotiation' },
   { key: 'CONFIRMED', label: 'Confirmed' },
+  { key: 'FULFILLED', label: 'Fulfilled' },
+  { key: 'SETTLED', label: 'Invoiced / paid',
+    match: r => r.state === 'INVOICED' || r.state === 'PAID' },
 ]
 
 const CUSTOMERS = ['Acme Corp', 'Beta Industries', 'Nova Retail', 'Zenith Co',
@@ -49,16 +64,56 @@ const railFor = (r: Row) =>
 
 export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipeline' }) {
   const navigate = useNavigate()
-  const location = useLocation() as { state?: { flash?: string } }
+  const location = useLocation() as unknown as
+    { pathname: string; state?: { flash?: string } }
   const [flash, setFlash] = useState<string | null>(location.state?.flash ?? null)
   const { user } = useAuth()
   const isRep = user?.role === 'rep'
   const [rows, setRows] = useState<Row[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState<'list' | 'pipeline'>(view)
+  /* The URL is the single source of truth for which view is showing.
+     This was `useState(view)`, which reads the prop once on mount -- and
+     because /app/quotations and /app/pipeline render the SAME component at the
+     same position in the tree, React Router reuses the instance rather than
+     remounting it. The prop changed, the state did not, and clicking "Pipeline"
+     in the top nav moved the URL while leaving the table on screen. That is the
+     dead button. Deriving from the location cannot drift, and it also makes the
+     view linkable and survivable across a refresh. */
+  const [params, setParams] = useSearchParams()
+  const mode: 'list' | 'pipeline' =
+    location.pathname.endsWith('/pipeline') ? 'pipeline'
+      : params.get('view') === 'pipeline' ? 'pipeline'
+        : params.get('view') === 'table' ? 'list'
+          : view
+
+  const setMode = (next: 'list' | 'pipeline') => {
+    if (location.pathname.endsWith('/pipeline')) {
+      // Leaving the dedicated pipeline URL: go to the list route rather than
+      // hanging ?view=table off /app/pipeline, which would read as a
+      // contradiction in the address bar.
+      navigate(next === 'pipeline' ? '/app/pipeline' : '/app/quotations')
+    } else {
+      setParams(next === 'pipeline' ? { view: 'pipeline' } : {}, { replace: true })
+    }
+  }
   const [newFor, setNewFor] = useState(CUSTOMERS[0])
   const [query, setQuery] = useState('')
+
+  /* Lifecycle tabs. A rep opening this screen wants one of four questions
+     answered -- what needs me, what am I waiting on, what is done, everything
+     -- and a single flat list answers none of them without scanning. */
+  const TABS = [
+    { key: 'all',      label: 'All deals',   match: (_r: Row) => true },
+    { key: 'action',   label: 'Action required',
+      match: (r: Row) => r.state === 'DRAFT' && !!r.revision_requested },
+    { key: 'queue',    label: 'In approval',
+      match: (r: Row) => r.state.startsWith('PENDING') },
+    { key: 'done',     label: 'Confirmed & fulfilled',
+      match: (r: Row) => ['CONFIRMED', 'FULFILLED', 'INVOICED', 'PAID'].includes(r.state) },
+  ] as const
+  const tab = (params.get('tab') ?? 'all') as (typeof TABS)[number]['key']
+  const activeTab = TABS.find(t => t.key === tab) ?? TABS[0]
 
   const load = useCallback(() => {
     api.quotes().then(r => { setRows(r); setError(null) })
@@ -81,16 +136,18 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
   // served, field-redacted /portal payload. Filtering in the browser would
   // still transmit every quotation over the wire (PS §7).
   const displayRows = useMemo(() => {
+    const scoped = rows.filter(activeTab.match)
     const q = query.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter(r =>
+    if (!q) return scoped
+    return scoped.filter(r =>
       r.customer.toLowerCase().includes(q) ||
       r.ref.toLowerCase().includes(q) ||
       r.rep.toLowerCase().includes(q) ||
       r.state.toLowerCase().includes(q))
-  }, [rows, query])
+  }, [rows, query, activeTab])
 
   const bookValue = displayRows.reduce((a, r) => a + r.total, 0)
+  const returned = rows.filter(r => r.state === 'DRAFT' && r.revision_requested)
 
   /* Pipeline card. Chamfer-free on purpose: inside a column these are list
      items, and six chamfers per column would be noise rather than signal. */
@@ -147,10 +204,68 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
           </div>
         )}
 
+        {/* Returned deals lead, because they are the only ones with someone
+            waiting on this rep. The note is shown in full: a truncated
+            instruction is an instruction the rep has to go and ask about. */}
+        {returned.length > 0 && tab !== 'action' && (
+          <button
+            onClick={() => setParams({ tab: 'action' }, { replace: true })}
+            className="text-left rounded-xl bg-band-managerWash border border-band-manager/25
+                       px-4 py-3 flex items-start gap-2.5 hover:border-band-manager/45
+                       transition-colors"
+          >
+            <AlertTriangle size={16} className="text-band-manager shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-band-manager">
+                {returned.length} quotation{returned.length > 1 ? 's' : ''} returned for revision
+              </div>
+              <p className="text-[12.5px] text-band-manager/90 mt-0.5 leading-relaxed">
+                “{returned[0].manager_revision_notes}”
+                {returned.length > 1 && ` · and ${returned.length - 1} more`}
+              </p>
+            </div>
+          </button>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1">
+          {TABS.map(t => {
+            const n = rows.filter(t.match).length
+            const isAction = t.key === 'action' && n > 0
+            return (
+              <button
+                key={t.key}
+                onClick={() => setParams(t.key === 'all' ? {} : { tab: t.key }, { replace: true })}
+                aria-pressed={tab === t.key}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1',
+                  'text-[11.5px] font-medium transition-colors duration-150',
+                  tab === t.key ? 'bg-fg text-white'
+                    : isAction ? 'bg-band-managerWash text-band-manager hover:brightness-95'
+                      : 'text-fg-3 hover:text-fg hover:bg-surface-2',
+                )}
+              >
+                {t.label}
+                <span className={cn('font-mono text-[10px] tabular-nums',
+                                    tab === t.key ? 'text-white/70' : 'opacity-70')}>
+                  {n}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
         <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">
-            {mode === 'pipeline' ? 'Pipeline' : 'Quotations'}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">
+              {mode === 'pipeline' ? 'Pipeline' : 'Quotations'}
+            </h1>
+            {user?.role === 'manager' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 border border-accent/25 px-2.5 py-0.5 font-mono text-[11px] font-bold text-accent">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                {user.name}'s Reps
+              </span>
+            )}
+          </div>
           <p className="text-[12px] text-fg-3 flex items-baseline gap-1">
             <AnimatedNumber value={displayRows.length} format="int" className="text-[12px]" />
             {' '}in governance cycle ·
@@ -232,7 +347,8 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
             <div className="grid gap-2.5"
                  style={{ gridTemplateColumns: `repeat(${STAGES.length}, minmax(196px, 1fr))` }}>
               {STAGES.map(st => {
-                const inStage = displayRows.filter(r => r.state === st.key)
+                const inStage = displayRows.filter(
+                  st.match ? st.match : r => r.state === st.key)
                 const stageValue = inStage.reduce((a, r) => a + r.total, 0)
                 return (
                   <div key={st.key} className="flex flex-col gap-2 min-w-0">

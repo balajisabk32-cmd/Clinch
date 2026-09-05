@@ -28,7 +28,11 @@ const CATEGORIES = ['Hardware', 'Software', 'Services', 'Subscriptions'] as cons
 const BLANK = {
   sku: '', name: '', category: 'Hardware', list_price: '', cost: '',
   uom: 'Each', tax_pct: '18', is_recurring: false, recurrence: 'monthly',
+  initial_warehouse: '', initial_stock_qty: '0',
 }
+
+/** Variant options as typed key/value pairs, e.g. Color / Space Gray. */
+type Option = { key: string; value: string }
 
 export default function Products() {
   const navigate = useNavigate()
@@ -43,6 +47,8 @@ export default function Products() {
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState<Record<string, any>>({ ...BLANK })
   const [busy, setBusy] = useState(false)
+  const [depots, setDepots] = useState<string[]>([])
+  const [options, setOptions] = useState<Option[]>([{ key: '', value: '' }])
 
   const load = useCallback(() => {
     Promise.all([api.products(), api.pricelists()])
@@ -50,6 +56,19 @@ export default function Products() {
       .catch(e => setError(`Could not load the catalogue (${e?.message ?? 'unknown error'}).`))
   }, [])
   useEffect(load, [load])
+
+  // Depots for the storage dropdown. Failing quietly is right: an admin who
+  // briefly has no warehouse list should still be able to fill in the rest,
+  // and the server applies its own default if none is sent.
+  useEffect(() => {
+    api.warehouses()
+      .then(w => {
+        const names = (w as any[]).map(x => x.name)
+        setDepots(names)
+        setForm(f => ({ ...f, initial_warehouse: f.initial_warehouse || names[0] || '' }))
+      })
+      .catch(() => { /* dropdown falls back to the server default */ })
+  }, [])
 
   const visible = useMemo(() => {
     const n = search.trim().toLowerCase()
@@ -63,15 +82,25 @@ export default function Products() {
   const create = async () => {
     setBusy(true); setError(null)
     try {
+      const attribute_values = Object.fromEntries(
+        options.filter(o => o.key.trim() && o.value.trim())
+               .map(o => [o.key.trim(), o.value.trim()]))
+      const qty = Number(form.initial_stock_qty || 0)
       await api.createProduct({
         ...form,
         list_price: Number(form.list_price),
         cost: Number(form.cost),
         tax_pct: Number(form.tax_pct),
         recurrence: form.is_recurring ? form.recurrence : null,
+        initial_stock_qty: qty,
+        attribute_values,
       })
-      setNotice(`${form.sku.toUpperCase()} added to the catalogue.`)
-      setForm({ ...BLANK }); setCreating(false); load()
+      setNotice(
+        `${form.sku.toUpperCase()} added` +
+        (qty > 0 ? ` - ${qty} units received into ${form.initial_warehouse}.` : '.'))
+      setForm({ ...BLANK, initial_warehouse: depots[0] ?? '' })
+      setOptions([{ key: '', value: '' }])
+      setCreating(false); load()
     } catch (e: any) {
       setError(
         e?.message?.includes('403')
@@ -182,6 +211,40 @@ export default function Products() {
                 />
                 <span className="text-[13px] text-fg-2">Subscription product</span>
               </label>
+              {/* Where the opening stock lands. A subscription has no shelf,
+                  so these two are hidden for a recurring product rather than
+                  collecting a number that could never mean anything. */}
+              {!form.is_recurring && (
+                <>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                      Storage depot
+                    </span>
+                    <select
+                      value={form.initial_warehouse}
+                      onChange={e => setForm({ ...form, initial_warehouse: e.target.value })}
+                      className="rounded-lg bg-surface px-3 py-2 text-[13px] text-fg
+                                 ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
+                    >
+                      {depots.length === 0 && <option value="">Loading depots...</option>}
+                      {depots.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </label>
+                  <label className="flex flex-col gap-1.5">
+                    <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                      Initial stock
+                    </span>
+                    <input
+                      type="number" min={0} placeholder="0"
+                      value={form.initial_stock_qty}
+                      onChange={e => setForm({ ...form, initial_stock_qty: e.target.value })}
+                      className="rounded-lg bg-surface px-3 py-2 text-[13px] text-fg
+                                 ring-1 ring-black/[.08] outline-none focus:ring-accent/40
+                                 placeholder:text-fg-4"
+                    />
+                  </label>
+                </>
+              )}
               {form.is_recurring && (
                 <label className="flex flex-col gap-1.5">
                   <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
@@ -198,6 +261,57 @@ export default function Products() {
                 </label>
               )}
             </div>
+            {/* Variant options. Descriptive key/value pairs on one sellable
+                SKU - colour, storage, screen size - not separately stocked
+                units, which is why they do not create their own quants. */}
+            <div className="mt-4 pt-4 border-t border-line">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                  Variant options
+                </span>
+                <button
+                  onClick={() => setOptions(o => [...o, { key: '', value: '' }])}
+                  className="text-[11.5px] font-semibold text-accent hover:underline"
+                >
+                  + Add option
+                </button>
+              </div>
+              <div className="flex flex-col gap-2">
+                {options.map((o, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+                    <input
+                      placeholder="Option (e.g. Color)"
+                      value={o.key}
+                      onChange={e => setOptions(prev => prev.map(
+                        (x, j) => j === i ? { ...x, key: e.target.value } : x))}
+                      className="rounded-lg bg-surface px-3 py-2 text-[13px] text-fg
+                                 ring-1 ring-black/[.08] outline-none focus:ring-accent/40
+                                 placeholder:text-fg-4"
+                    />
+                    <input
+                      placeholder="Value (e.g. Space Gray)"
+                      value={o.value}
+                      onChange={e => setOptions(prev => prev.map(
+                        (x, j) => j === i ? { ...x, value: e.target.value } : x))}
+                      className="rounded-lg bg-surface px-3 py-2 text-[13px] text-fg
+                                 ring-1 ring-black/[.08] outline-none focus:ring-accent/40
+                                 placeholder:text-fg-4"
+                    />
+                    <button
+                      onClick={() => setOptions(prev =>
+                        prev.length === 1 ? [{ key: '', value: '' }]
+                                          : prev.filter((_, j) => j !== i))}
+                      aria-label="Remove option"
+                      className="w-9 rounded-lg text-fg-4 hover:text-band-finance
+                                 hover:bg-band-financeWash transition-colors"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <button
               onClick={create}
               disabled={busy || !form.sku || !form.name || !form.list_price}

@@ -217,6 +217,87 @@ export interface RegisterBody {
   city?: string; postcode?: string
 }
 
+/* ── Admin: subscription plans and rep reporting ───────────────────────── */
+
+export interface SubscriptionPlan {
+  id: number; name: string; code: string
+  billing_cycle: 'monthly' | 'quarterly' | 'yearly'
+  base_price: number; proration_rule: string
+  cancellation_notice_days: number; is_active: boolean; created_at: string
+}
+
+export interface RepScorecard {
+  rep: string; period: string
+  quotes_built: number; deals_closed_won: number; booked_revenue: number
+  avg_discount_pct: number; margin_leakage: number; outliers_flagged: number
+  avg_approval_hours: number; compliance_rate_pct: number
+  available_reps: string[]
+  deals: Array<{ ref: string; customer: string; closed_at: string
+                 approval_hours: number | null; value: number; avg_discount: number }>
+}
+
+export const adminApi = {
+  plans: (includeInactive = false) =>
+    request<SubscriptionPlan[]>(
+      `/admin/subscriptions${includeInactive ? '?include_inactive=true' : ''}`),
+
+  createPlan: (body: Partial<SubscriptionPlan>) =>
+    request<SubscriptionPlan>('/admin/subscriptions',
+      { method: 'POST', body: JSON.stringify(body) }),
+
+  updatePlan: (id: number, body: Partial<SubscriptionPlan>) =>
+    request<SubscriptionPlan>(`/admin/subscriptions/${id}`,
+      { method: 'PUT', body: JSON.stringify(body) }),
+
+  deactivatePlan: (id: number) =>
+    request<{ id: number; is_active: boolean; message: string }>(
+      `/admin/subscriptions/${id}`, { method: 'DELETE' }),
+
+  repPerformance: (rep: string, period: string) => {
+    const qs = new URLSearchParams({ period })
+    if (rep && rep !== 'All reps') qs.set('rep', rep)
+    return request<RepScorecard>(`/admin/reports/rep-performance?${qs}`)
+  },
+
+  /** Export URL. The browser fetches it with the bearer header via `download`. */
+  exportUrl: (kind: 'csv' | 'pdf', rep: string, period: string) => {
+    const qs = new URLSearchParams({ period })
+    if (rep && rep !== 'All reps') qs.set('rep', rep)
+    return `/admin/reports/rep-performance/export/${kind}?${qs}`
+  },
+}
+
+/**
+ * Download a binary export.
+ *
+ * A plain <a href> cannot carry the Authorization header, so the endpoint would
+ * answer 401 and the browser would save the error page under a .pdf name -- a
+ * file that opens to nothing. Fetching it as a blob keeps the header and lets
+ * the failure surface as a real error instead.
+ */
+export async function downloadExport(path: string, filename: string): Promise<void> {
+  const token = tokenStore.get()
+  const res = await fetch(`${BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    throw new ApiError(res.status, null,
+      res.status === 403 ? 'Only administrators can export reports.'
+        : `Export failed (${res.status}).`)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  // Revoked on the next tick: revoking synchronously can beat the click in
+  // some browsers and produce a zero-byte file.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
 export const shopApi = {
   register: (body: RegisterBody) =>
     request<{ access_token: string; token_type: string; user: AuthUser & {

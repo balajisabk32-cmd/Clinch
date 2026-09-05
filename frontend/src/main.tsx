@@ -25,6 +25,8 @@ import Products from './pages/Products'
 import ProductDetail from './pages/ProductDetail'
 import Settings from './pages/Settings'
 import AdminUsers from './pages/AdminUsers'
+import AdminSubscriptions from './pages/AdminSubscriptions'
+import AdminRepReports from './pages/AdminRepReports'
 import Shop from './pages/Shop'
 import ShopProductPage from './pages/ShopProduct'
 import Cart from './pages/Cart'
@@ -124,6 +126,15 @@ root.render(
 
             {/* ── Admin only ─────────────────────────────────────────── */}
             <Route path="/app/users" element={guard(<AdminUsers />, ADMIN_ONLY)} />
+            <Route path="/app/admin/subscriptions"
+                   element={guard(<AdminSubscriptions />, ADMIN_ONLY)} />
+            <Route path="/app/admin/reports"
+                   element={guard(<AdminRepReports />, ADMIN_ONLY)} />
+            {/* The bare /admin/* paths are what the spec and any bookmark use. */}
+            <Route path="/admin/subscriptions"
+                   element={<Navigate to="/app/admin/subscriptions" replace />} />
+            <Route path="/admin/reports"
+                   element={<Navigate to="/app/admin/reports" replace />} />
             <Route path="/admin" element={<Navigate to="/app/dashboard" replace />} />
             <Route path="/admin/users" element={<Navigate to="/app/users" replace />} />
 

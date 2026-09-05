@@ -12,6 +12,17 @@ import { request as authedRequest } from './authClient'
 
 export type Band = 'AUTO' | 'MANAGER' | 'FINANCE'
 
+export interface AvailabilityDepot {
+  warehouse: string; on_hand: number; reserved: number; available: number
+  ship_cost_weight: number; fixed_shipment_cost: number
+}
+export interface Availability {
+  sku: string; total_available: number; depot_count: number
+  depots: AvailabilityDepot[]
+  requested: number; shortfall: number; split_required: boolean
+  plan: Array<{ warehouse: string; units: number }>
+}
+
 export interface DashboardData {
   pipeline_value: number
   open_quotes: number
@@ -83,6 +94,13 @@ export interface QuoteLine {
 }
 
 export interface QuoteDetail {
+  /** Approval audit, denormalised onto the quote by the server. */
+  approved_by_id?: string | null
+  approved_by_name?: string | null
+  approved_by_role?: string | null
+  approved_at?: string | null
+  manager_revision_notes?: string | null
+  revision_requested?: boolean
   ref: string; customer: string; tier: string; rep: string; state: string
   total: number; subtotal: number; discount_total: number; tax_total: number
   total_recurring: number; margin_pct: number
@@ -166,6 +184,11 @@ export const api = {
     }),
   submit: (ref: string) => req<any>(`/quotes/${ref}/submit`, { method: 'POST' }),
   policy: () => req<any>('/policy'),
+
+  /** Live available-to-promise per depot. `qty` only shapes the split hint. */
+  availability: (skus: string[], qty = 0) =>
+    req<{ items: Record<string, Availability> }>(
+      `/inventory/availability?skus=${encodeURIComponent(skus.join(','))}&qty=${qty}`),
   applyPolicy: (body: Record<string, unknown>) =>
     req<any>('/policy', { method: 'PUT', body: JSON.stringify(body) }),
   simulate: (body: Record<string, unknown>) =>
@@ -185,6 +208,11 @@ export const api = {
   confirmOrder: (ref: string) =>
     req<any>(`/orders/${ref}/confirm`, { method: 'POST', body: '{}' }),
   invoices: () => req<any[]>('/invoices'),
+  generateInvoice: (ref: string) =>
+    req<any>(`/orders/${ref}/invoice`, { method: 'POST', body: '{}' }),
+  registerPayment: (ref: string, method: string, amount: number) =>
+    req<any>(`/invoices/${ref}/payment`,
+      { method: 'POST', body: JSON.stringify({ method, amount }) }),
   payInvoice: (ref: string, body: Record<string, unknown>) =>
     req<any>(`/invoices/${ref}/payment`, { method: 'POST', body: JSON.stringify(body) }),
   subscriptions: () => req<any[]>('/subscriptions'),

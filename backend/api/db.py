@@ -75,7 +75,16 @@ CREATE TABLE IF NOT EXISTS product_variant (
   uom TEXT DEFAULT 'Each', tax_pct REAL DEFAULT 18.0,
   is_recurring INTEGER DEFAULT 0, recurrence TEXT,
   is_promoted INTEGER DEFAULT 0, stock_total INTEGER DEFAULT 0,
-  description TEXT, variants_json TEXT DEFAULT '[]');
+  description TEXT, variants_json TEXT DEFAULT '[]',
+  -- Key/value options as JSON, e.g. {"color":"Space Gray","storage":"512GB"}.
+  -- JSON rather than a variant table because these are descriptive options on
+  -- one sellable SKU, not separately stocked units -- modelling them as rows
+  -- would imply stock is held per combination, which it is not.
+  attribute_values TEXT,
+  -- Where this product's opening stock was placed at creation. Kept for the
+  -- audit trail; live quantities always come from stock_quant, never here.
+  initial_warehouse TEXT,
+  initial_stock_qty INTEGER NOT NULL DEFAULT 0);
 
 CREATE TABLE IF NOT EXISTS price_list (
   tier TEXT NOT NULL, currency TEXT NOT NULL,
@@ -102,7 +111,18 @@ CREATE TABLE IF NOT EXISTS sale_order (
   ref TEXT PRIMARY KEY, customer TEXT NOT NULL, tier TEXT NOT NULL,
   rep TEXT NOT NULL, state TEXT NOT NULL,
   order_discount_pct REAL DEFAULT 0,
-  currency TEXT DEFAULT 'INR', fx_rate_to_base REAL DEFAULT 1.0);
+  currency TEXT DEFAULT 'INR', fx_rate_to_base REAL DEFAULT 1.0,
+  -- Who signed this off, denormalised onto the order.
+  -- deal_events already holds the full history and remains the source of
+  -- truth; these three exist so "who approved this and when" is one read
+  -- rather than a scan of an append-only log that grows without bound.
+  approved_by_id TEXT REFERENCES app_user(id),
+  approved_by_name TEXT,
+  approved_by_role TEXT,
+  approved_at TEXT,
+  -- Coaching note attached when a manager sends a quote back.
+  manager_revision_notes TEXT,
+  revision_requested INTEGER NOT NULL DEFAULT 0);
 
 CREATE TABLE IF NOT EXISTS sale_order_line (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,6 +138,18 @@ CREATE TABLE IF NOT EXISTS subscription (
   id INTEGER PRIMARY KEY, ref TEXT, customer TEXT, plan TEXT, sku TEXT,
   cycle TEXT, qty INTEGER, unit_price REAL,
   start_date TEXT, next_bill_date TEXT, status TEXT);
+
+CREATE TABLE IF NOT EXISTS subscription_plan (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  code TEXT NOT NULL UNIQUE,
+  billing_cycle TEXT NOT NULL CHECK (billing_cycle IN ('monthly','quarterly','yearly')),
+  base_price REAL NOT NULL,
+  proration_rule TEXT NOT NULL DEFAULT 'calendar_daily',
+  cancellation_notice_days INTEGER NOT NULL DEFAULT 30,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_plan_code ON subscription_plan(code);
 
 CREATE TABLE IF NOT EXISTS account_move (
   ref TEXT PRIMARY KEY, order_ref TEXT, customer TEXT, kind TEXT,
@@ -209,6 +241,26 @@ def migrate(conn: sqlite3.Connection) -> None:
             conn.commit()
         if "team" not in existing:
             conn.execute("ALTER TABLE app_user ADD COLUMN team TEXT")
+            conn.commit()
+
+    # Additive column migrations. Every one carries a default or is nullable,
+    # so an existing row stays valid without a backfill; SQLite will not add a
+    # NOT NULL column without one.
+    ADDITIONS: list[tuple[str, str, str]] = [
+        ("sale_order", "approved_by_id",         "TEXT"),
+        ("sale_order", "approved_by_name",       "TEXT"),
+        ("sale_order", "approved_by_role",       "TEXT"),
+        ("sale_order", "approved_at",            "TEXT"),
+        ("sale_order", "manager_revision_notes", "TEXT"),
+        ("sale_order", "revision_requested",     "INTEGER NOT NULL DEFAULT 0"),
+        ("product_variant", "attribute_values",  "TEXT"),
+        ("product_variant", "initial_warehouse", "TEXT"),
+        ("product_variant", "initial_stock_qty", "INTEGER NOT NULL DEFAULT 0"),
+    ]
+    for table, column, decl in ADDITIONS:
+        present = columns(table)
+        if present and column not in present:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
             conn.commit()
 
 

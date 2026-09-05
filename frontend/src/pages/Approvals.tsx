@@ -45,6 +45,11 @@ export default function Approvals() {
   const [search, setSearch] = useState('')
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [busyRef, setBusyRef] = useState<string | null>(null)
+  // Returning a deal needs a reason, so it needs a dialog. Approve and reject
+  // stay one-click: the reviewer has already read the quotation to decide.
+  const [revising, setRevising] = useState<ApprovalItem | null>(null)
+  const [revisionNote, setRevisionNote] = useState('')
+  const MIN_NOTE = 10
   // The turnaround figure was hardcoded '4.2h / 92% within SLA' while the
   // dashboard reported the real median from the same event log. Two screens
   // stating different values for one metric is worse than showing neither,
@@ -110,6 +115,33 @@ export default function Approvals() {
     load()
   }, [load])
 
+  const sendRevision = async () => {
+    if (!revising) return
+    const note = revisionNote.trim()
+    if (note.length < MIN_NOTE) return
+    setBusyRef(revising.ref)
+    setError(null)
+    try {
+      await request(`/quotes/${revising.ref}/return-revision`, {
+        method: 'POST',
+        body: JSON.stringify({ manager_notes: note }),
+      })
+      setActionSuccess(`${revising.ref} returned to the rep with your note.`)
+      setTimeout(() => setActionSuccess(null), 4000)
+      setRevising(null)
+      setRevisionNote('')
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError
+        ? (err.status === 403
+            ? 'Your role is not permitted to return this quotation.'
+            : err.message)
+        : 'Could not return that quotation.')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
   const handleAction = async (ref: string, action: 'approve' | 'reject' | 'return') => {
     setBusyRef(ref)
     setError(null)
@@ -147,6 +179,9 @@ export default function Approvals() {
 
   // Dynamic Manager and Rep options extracted from current items
   const managerOptions = useMemo(() => {
+    if (user?.role === 'manager' && user.name) {
+      return [user.name]
+    }
     const set = new Set<string>()
     items.forEach(i => {
       if (i.assigned_to && i.assigned_to !== '—') set.add(i.assigned_to)
@@ -332,27 +367,32 @@ export default function Approvals() {
 
           {/* Manager & Rep Dropdowns + Search */}
           <div className="flex flex-wrap items-center gap-2.5 ml-auto">
-            {/* Filter by Manager */}
-            <div className="flex items-center gap-1.5">
-              <label htmlFor="manager-filter" className="text-[11.5px] text-fg-3 font-medium flex items-center gap-1">
+            {/* Filter by Manager (Only needed for Admins / Finance) */}
+            {user?.role !== 'manager' ? (
+              <div className="flex items-center gap-1.5">
+                <label htmlFor="manager-filter" className="text-[11.5px] text-fg-3 font-medium flex items-center gap-1">
+                  <UserCheck size={13} className="text-accent" />
+                  <span>Manager:</span>
+                </label>
+                <select
+                  id="manager-filter"
+                  value={managerFilter}
+                  onChange={e => setManagerFilter(e.target.value)}
+                  className="rounded-lg bg-surface px-2.5 py-1 text-[12px] text-fg ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
+                >
+                  <option value="ALL">All Managers</option>
+                  {managerOptions.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-line text-[12px] text-fg">
                 <UserCheck size={13} className="text-accent" />
-                <span>Manager:</span>
-              </label>
-              <select
-                id="manager-filter"
-                value={managerFilter}
-                onChange={e => setManagerFilter(e.target.value)}
-                className="rounded-lg bg-surface px-2.5 py-1 text-[12px] text-fg ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
-              >
-                <option value="ALL">All Managers</option>
-                {user?.role === 'manager' && (
-                  <option value="MINE">Assigned to Me ({user.name})</option>
-                )}
-                {managerOptions.map(m => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
+                <span className="text-[11.5px] text-fg-3 font-medium">Cluster:</span>
+                <span className="font-semibold text-accent">{user.name}'s Reps</span>
+              </div>
+            )}
 
             {/* Filter by Rep */}
             <div className="flex items-center gap-1.5">
@@ -385,6 +425,70 @@ export default function Approvals() {
             </div>
           </div>
         </div>
+
+        {/* Return for revision. A modal rather than an inline field because
+            the note is mandatory and the reviewer should not be able to fire
+            the action by reflex from the row. */}
+        {revising && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-fg/25 backdrop-blur-[2px] px-5"
+            role="dialog" aria-modal="true" aria-label="Return for revision"
+            onClick={e => { if (e.target === e.currentTarget) setRevising(null) }}
+          >
+            <div className="w-full max-w-[520px] rounded-2xl bg-surface ring-1 ring-black/[.08]
+                            shadow-lift-lg p-6 flex flex-col gap-4">
+              <div>
+                <h2 className="font-display text-[18px] font-bold text-fg tracking-tight">
+                  Return {revising.ref} for revision
+                </h2>
+                <p className="text-[12.5px] text-fg-2 mt-1.5 leading-relaxed">
+                  {revising.customer} · {inr(revising.total ?? 0)} · risk {(revising.risk_score ?? 0).toFixed(1)}
+                </p>
+              </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                  What needs to change
+                </span>
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={revisionNote}
+                  onChange={e => setRevisionNote(e.target.value)}
+                  placeholder="Reduce 17% to 14% for Laptop 14 Pro Max to meet Gold tier category limit."
+                  className="rounded-lg bg-surface px-3.5 py-2.5 text-[13.5px] text-fg resize-y
+                             ring-1 ring-black/[.09] outline-none focus:ring-accent/45
+                             placeholder:text-fg-4"
+                />
+                <span className={`text-[11.5px] ${
+                  revisionNote.trim().length >= MIN_NOTE ? 'text-fg-3' : 'text-band-manager'}`}>
+                  {revisionNote.trim().length < MIN_NOTE
+                    ? `At least ${MIN_NOTE} characters — the rep sees this note and nothing else.`
+                    : 'The rep sees this on their Action required tab.'}
+                </span>
+              </label>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={sendRevision}
+                  disabled={revisionNote.trim().length < MIN_NOTE || busyRef === revising.ref}
+                  className="rounded-full bg-fg text-white px-5 py-2.5 font-display text-[13px]
+                             font-semibold hover:shadow-lift-lg active:scale-[.98]
+                             disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {busyRef === revising.ref ? 'Returning…' : 'Return to rep'}
+                </button>
+                <button
+                  onClick={() => setRevising(null)}
+                  className="rounded-full ring-1 ring-black/[.08] bg-surface px-4 py-2.5
+                             font-display text-[13px] font-medium text-fg-2 hover:text-fg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Approvals Table */}
         <div className="rounded-2xl bg-surface border border-black/[.06] shadow-lift overflow-hidden">
@@ -498,13 +602,13 @@ export default function Approvals() {
 
                               {/* Send back to Rep Button */}
                               <button
-                                onClick={() => handleAction(item.ref, 'return')}
+                                onClick={() => { setRevising(item); setRevisionNote('') }}
                                 disabled={isBusy}
                                 title="Return to Rep for revision"
                                 className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-managerWash text-band-manager border border-band-manager px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
                               >
                                 <RotateCcw size={12} />
-                                <span>Revise</span>
+                                <span>Return</span>
                               </button>
 
                               {/* Review in Builder */}

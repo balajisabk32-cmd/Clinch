@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { api, inr, type Warehouse } from '../lib/api'
 import { ErrorBar, Workspace } from '../components/Workspace'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { EASE_CSS } from '../lib/motion'
 
 /**
@@ -32,6 +33,7 @@ interface Split {
 }
 
 export default function FulfilmentDetail() {
+  const navigate = useNavigate()
   const { ref = '' } = useParams()
   const [objective, setObjective] = useState<'cost' | 'shipments'>('cost')
   const [split, setSplit] = useState<Split | null>(null)
@@ -64,6 +66,50 @@ export default function FulfilmentDetail() {
     }
     return [...map.entries()].map(([name, v]) => ({ name, ...v }))
   }, [split])
+
+  /* What happens after the goods leave.
+     Confirming used to be the end of the screen: the order shipped, a toast
+     appeared, and the operator was left to find Invoices in the nav and search
+     for the reference by hand. The money half of quote-to-cash is the half the
+     business cares about, so the flow continues here instead of stopping. */
+  const [shipped, setShipped] = useState<any>(null)
+  const [invoice, setInvoice] = useState<any>(null)
+  const [paying, setPaying] = useState(false)
+
+  const confirmAndShip = async () => {
+    setBusy(true); setError(null)
+    try {
+      const res = await api.confirmOrder(ref)
+      setShipped(res)
+      setNotice(null)
+      load()
+    } catch (e: any) {
+      setError(e?.message?.includes('403')
+        ? 'Your role is not permitted to ship this order - this is a Finance or Admin action.'
+        : `Could not confirm fulfilment (${e?.message ?? 'unknown error'}).`)
+    } finally { setBusy(false) }
+  }
+
+  const generateInvoice = async () => {
+    setBusy(true); setError(null)
+    try {
+      setInvoice(await api.generateInvoice(ref))
+    } catch (e: any) {
+      setError(`Could not generate the invoice (${e?.message ?? 'unknown error'}).`)
+    } finally { setBusy(false) }
+  }
+
+  const registerPayment = async (method: 'Bank' | 'Cash') => {
+    if (!invoice) return
+    setPaying(true); setError(null)
+    try {
+      const paid = await api.registerPayment(invoice.ref, method, invoice.amount)
+      setInvoice(paid)
+      load()
+    } catch (e: any) {
+      setError(`Could not register the payment (${e?.message ?? 'unknown error'}).`)
+    } finally { setPaying(false) }
+  }
 
   const act = async (fn: () => Promise<any>, message: string) => {
     setBusy(true); setError(null)
@@ -316,8 +362,7 @@ export default function FulfilmentDetail() {
             Manual Override
           </button>
           <button
-            onClick={() => act(() => api.confirmOrder(ref),
-                               'Order fulfilled — reserved stock has shipped.')}
+            onClick={confirmAndShip}
             disabled={busy}
             className="rounded-full ring-1 ring-band-auto/30 bg-band-autoWash text-band-auto
                        px-5 py-2.5 font-display text-[13px] font-semibold
@@ -327,10 +372,97 @@ export default function FulfilmentDetail() {
             Confirm &amp; Ship
           </button>
           <p className="text-[12px] text-fg-3 basis-full">
-            Accepting reserves stock against this order. Confirming ships it — on-hand and
+            Accepting reserves stock against this order. Confirming ships it &mdash; on-hand and
             reserved both fall, and the movement is written to the stock ledger.
           </p>
         </div>
+
+        {/* Order logistics &amp; settlement next steps. */}
+        {shipped && (
+          <section className="panel">
+            <div className="panel-head">
+              <span className="panel-title">Order logistics &amp; settlement</span>
+              <span className="key text-fg-3">{ref}</span>
+            </div>
+
+            <div className="px-4 py-3.5 flex flex-col gap-3.5">
+              <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+                <div className="rail rail-auto flex flex-col gap-0.5">
+                  <span className="metric-label">Tracking</span>
+                  <span className="key text-fg text-[13px]">
+                    {shipped.tracking ?? `CLNCH-${ref.replace(/[^0-9]/g, '')}`}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="metric-label">Dispatched from</span>
+                  <span className="text-[12.5px] text-fg">
+                    {(shipped.shipped ?? []).length > 0
+                      ? (shipped.shipped as any[]).map(m =>
+                          `${m.qty}x ${m.sku} from ${m.warehouse}`).join(' \u00b7 ')
+                      : 'Recorded in the stock ledger'}
+                  </span>
+                </div>
+              </div>
+
+              {!invoice ? (
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={generateInvoice}
+                    disabled={busy}
+                    className="ctl ctl-primary"
+                  >
+                    Generate invoice &amp; billing schedule
+                  </button>
+                  <span className="text-[12px] text-fg-3">
+                    Raises the invoice, including any recurring lines on their own schedule.
+                  </span>
+                </div>
+              ) : (
+                <div className="rounded-lg bg-surface-2/60 ring-1 ring-black/[.05] px-3.5 py-3
+                                flex flex-wrap items-center gap-x-6 gap-y-3">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="metric-label">Invoice</span>
+                    <span className="key text-fg text-[13px]">{invoice.ref}</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="metric-label">Amount</span>
+                    <AnimatedNumber
+                      value={invoice.amount} format="inr"
+                      className="font-display text-[16px] font-bold text-fg leading-none"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="metric-label">Status</span>
+                    <span className={`font-mono text-[11px] font-semibold uppercase ${
+                      String(invoice.status).toLowerCase() === 'paid'
+                        ? 'text-band-auto' : 'text-band-manager'}`}>
+                      {invoice.status}
+                    </span>
+                  </div>
+
+                  {String(invoice.status).toLowerCase() !== 'paid' ? (
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-[12px] text-fg-3">Register payment</span>
+                      <button onClick={() => registerPayment('Bank')}
+                              disabled={paying} className="ctl">Bank</button>
+                      <button onClick={() => registerPayment('Cash')}
+                              disabled={paying} className="ctl">Cash</button>
+                    </div>
+                  ) : (
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-[12.5px] text-band-auto font-medium">
+                        Settled &mdash; this deal is closed.
+                      </span>
+                      <button onClick={() => navigate('/app/invoices')} className="ctl">
+                        View invoices
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
       </div>
     </Workspace>
   )
