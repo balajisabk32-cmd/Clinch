@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { ApiError, request } from '../lib/authClient'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import {
   CheckCircle2,
   XCircle,
@@ -16,6 +18,7 @@ import { inr } from '../lib/api'
 import { Band } from '../components/ui'
 import { ErrorBar, Workspace } from '../components/Workspace'
 import { EASE_CSS } from '../lib/motion'
+import { useAuth } from '../context/AuthContext'
 
 interface ApprovalItem {
   ref: string
@@ -46,6 +49,17 @@ export default function Approvals() {
   const [search, setSearch] = useState('')
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [busyRef, setBusyRef] = useState<string | null>(null)
+  // Returning a deal needs a reason, so it needs a dialog. Approve and reject
+  // stay one-click: the reviewer has already read the quotation to decide.
+  const [revising, setRevising] = useState<ApprovalItem | null>(null)
+  const [revisionNote, setRevisionNote] = useState('')
+  const MIN_NOTE = 10
+  // The turnaround figure was hardcoded '4.2h / 92% within SLA' while the
+  // dashboard reported the real median from the same event log. Two screens
+  // stating different values for one metric is worse than showing neither,
+  // so this reads the computed figure and the SLA claim is gone -- nothing
+  // in the engine defines an SLA to measure against.
+  const [dash, setDash] = useState<any>(null)
 
   // Reassignment modal state
   const [reassignTarget, setReassignTarget] = useState<ApprovalItem | null>(null)
@@ -68,13 +82,11 @@ export default function Approvals() {
     setError(null)
     try {
       // 1. Fetch approvals list from backend
-      const res = await fetch('/api/approvals')
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const approvalsData: any[] = await res.json()
+      const approvalsData = await request<any[]>('/approvals')
 
       // 2. Fetch full quotes to get financial totals and rep info
-      const quotesRes = await fetch('/api/quotes')
-      const quotesData: any[] = quotesRes.ok ? await quotesRes.json() : []
+      const quotesData = await request<any[]>('/quotes')
+      request<any>('/dashboard').then(setDash).catch(() => { /* header degrades */ })
       const quotesMap = new Map(quotesData.map(q => [q.ref, q]))
 
       // 3. Fetch sales reps list for reassignment dropdown
@@ -109,80 +121,13 @@ export default function Approvals() {
         }
       })
       setItems(enriched)
-    } catch {
-      // Graceful fallback with realistic seed items if backend is offline
-      setItems([
-        {
-          ref: 'Q-1039',
-          customer: 'Beta Industries',
-          tier: 'Gold',
-          rep: 'M. Shah',
-          state: 'PENDING_MANAGER',
-          total: 24381.16,
-          risk_score: 22.1,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 1,
-          breach_detail: 'Discount 22.0% requested on Hardware (rep allowance max 15%)',
-        },
-        {
-          ref: 'Q-1050',
-          customer: 'Beta Industries',
-          tier: 'Gold',
-          rep: 'A. Rao',
-          state: 'PENDING_MANAGER',
-          total: 13775.32,
-          risk_score: 21.6,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 3,
-          breach_detail: 'Stacking line + order discount (6.6 pts over rep ceiling)',
-        },
-        {
-          ref: 'Q-1054',
-          customer: 'Vertex Labs',
-          tier: 'Silver',
-          rep: 'K. Iyer',
-          state: 'PENDING_MANAGER',
-          total: 6757.86,
-          risk_score: 57.9,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 1,
-          breach_detail: 'Single-order margin 18.5% below standard threshold',
-        },
-        {
-          ref: 'Q-1053',
-          customer: 'Delta LLC',
-          tier: 'Bronze',
-          rep: 'M. Shah',
-          state: 'PENDING_FINANCE',
-          total: 13769.42,
-          risk_score: 91.0,
-          risk_band: 'FINANCE',
-          stage: 'Finance',
-          assigned_to: 'Finance Director',
-          days_inactive: 2,
-          breach_detail: 'Credit risk flag & 32% aggressive discount requested',
-        },
-        {
-          ref: 'Q-1059',
-          customer: 'Orion Systems',
-          tier: 'Gold',
-          rep: 'A. Rao',
-          state: 'PENDING_MANAGER',
-          total: 1239.0,
-          risk_score: 21.1,
-          risk_band: 'MANAGER',
-          stage: 'Sales Manager',
-          assigned_to: 'Bob Manager',
-          days_inactive: 0,
-          breach_detail: 'Custom payment terms requested without finance pre-check',
-        },
-      ])
+    } catch (err) {
+      // No seeded stand-in list. Inventing approvals when the server is
+      // unreachable is worse than showing nothing: the queue is the record of
+      // what needs sign-off, and a fabricated one invites someone to action a
+      // quote that does not exist.
+      setItems([])
+      setError(err instanceof ApiError ? err.message : 'Could not load the approvals queue.')
     } finally {
       setLoading(false)
     }
@@ -192,29 +137,55 @@ export default function Approvals() {
     load()
   }, [load])
 
+  const sendRevision = async () => {
+    if (!revising) return
+    const note = revisionNote.trim()
+    if (note.length < MIN_NOTE) return
+    setBusyRef(revising.ref)
+    setError(null)
+    try {
+      await request(`/quotes/${revising.ref}/return-revision`, {
+        method: 'POST',
+        body: JSON.stringify({ manager_notes: note }),
+      })
+      setActionSuccess(`${revising.ref} returned to the rep with your note.`)
+      setTimeout(() => setActionSuccess(null), 4000)
+      setRevising(null)
+      setRevisionNote('')
+      load()
+    } catch (err) {
+      setError(err instanceof ApiError
+        ? (err.status === 403
+            ? 'Your role is not permitted to return this quotation.'
+            : err.message)
+        : 'Could not return that quotation.')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
   const handleAction = async (ref: string, action: 'approve' | 'reject' | 'return') => {
     setBusyRef(ref)
     setError(null)
     setActionSuccess(null)
     try {
-      const res = await fetch(`/api/approvals/${ref}/action`, {
+      await request(`/approvals/${ref}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, actor: user.name }),
+        body: JSON.stringify({ action, actor: user?.name }),
       })
-      if (!res.ok) {
-        updateLocalState(ref, action)
-      } else {
-        await res.json()
-        updateLocalState(ref, action)
-      }
-      const label = action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Sent back to Rep'
+      updateLocalState(ref, action)
+      const label = action === 'approve' ? 'Approved'
+                  : action === 'reject' ? 'Rejected' : 'Sent back to Rep'
       setActionSuccess(`Quotation ${ref} successfully ${label}.`)
       setTimeout(() => setActionSuccess(null), 4000)
-    } catch {
-      updateLocalState(ref, action)
-      setActionSuccess(`Quotation ${ref} updated locally (${action}).`)
-      setTimeout(() => setActionSuccess(null), 4000)
+    } catch (err) {
+      // A refusal is the governance model working. Reporting it as success and
+      // mutating local state would show an approval that never happened.
+      setError(err instanceof ApiError
+        ? (err.status === 403
+            ? `Your role is not permitted to ${action} this quotation.`
+            : err.message)
+        : `Could not ${action} ${ref}.`)
     } finally {
       setBusyRef(null)
     }
@@ -277,11 +248,22 @@ export default function Approvals() {
     if (filter === 'RESOLVED') return !i.state.startsWith('PENDING')
     return i.state.startsWith('PENDING')
   }).filter(i => {
+    if (managerFilter === 'ALL') return true
+    if (managerFilter === 'MINE') {
+      return (user?.name && i.assigned_to === user.name) ||
+             (user?.role === 'manager' && i.state === 'PENDING_MANAGER')
+    }
+    return i.assigned_to === managerFilter
+  }).filter(i => {
+    if (repFilter === 'ALL') return true
+    return i.rep === repFilter
+  }).filter(i => {
     if (!search) return true
     const term = search.toLowerCase()
     return i.ref.toLowerCase().includes(term) ||
            i.customer.toLowerCase().includes(term) ||
-           (i.rep && i.rep.toLowerCase().includes(term))
+           (i.rep && i.rep.toLowerCase().includes(term)) ||
+           (i.assigned_to && i.assigned_to.toLowerCase().includes(term))
   })
 
   const totalPendingValue = pendingItems.reduce((acc, i) => acc + (i.total || 0), 0)
@@ -294,8 +276,8 @@ export default function Approvals() {
         {error && <ErrorBar message={error} onRetry={load} />}
 
         {actionSuccess && (
-          <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3 text-[13px] text-emerald-800 font-medium">
-            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+          <div className="flex items-center gap-2.5 rounded-xl bg-band-auto/10 border border-band-auto/25 px-4 py-3 text-[13px] text-band-auto font-medium">
+            <CheckCircle2 size={16} className="text-band-auto shrink-0" />
             <span>{actionSuccess}</span>
           </div>
         )}
@@ -328,56 +310,59 @@ export default function Approvals() {
         </header>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+        <div className="panel grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-line">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Manager Queue</span>
+              <span className="metric-label">Manager Queue</span>
               <UserCheck size={16} className="text-accent" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              {managerQueueCount}
-            </div>
+            <AnimatedNumber value={managerQueueCount} format="int"
+                            polarity="lower-better" className="metric-value" />
             <div className="text-[11.5px] text-fg-3 mt-1.5 font-mono">
-              Assigned to {user.name}
+              Assigned to {user?.name}
             </div>
           </div>
 
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Finance Escalations</span>
-              <ShieldAlert size={16} className="text-amber-600" />
+              <span className="metric-label">Finance Escalations</span>
+              <ShieldAlert size={16} className="text-band-manager" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              {financeQueueCount}
-            </div>
-            <div className="text-[11.5px] text-amber-700 mt-1.5 font-mono">
+            <AnimatedNumber value={financeQueueCount} format="int"
+                            polarity="lower-better" className="metric-value" />
+            <div className="text-[11.5px] text-band-manager mt-1.5 font-mono">
               High-discount credit reviews
             </div>
           </div>
 
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Pending Order Value</span>
-              <DollarSign size={16} className="text-emerald-600" />
+              <span className="metric-label">Pending Order Value</span>
+              <DollarSign size={16} className="text-band-auto" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              {inr(totalPendingValue)}
-            </div>
+            <AnimatedNumber value={totalPendingValue} format="inr"
+                            className="metric-value" />
             <div className="text-[11.5px] text-fg-3 mt-1.5 font-mono">
               Across {pendingItems.length} active opportunities
             </div>
           </div>
 
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Turnaround Velocity</span>
-              <Clock size={16} className="text-blue-600" />
+              <span className="metric-label">Turnaround Velocity</span>
+              <Clock size={16} className="text-accent" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              4.2h
-            </div>
-            <div className="text-[11.5px] text-emerald-600 mt-1.5 font-mono">
-              92% approved within SLA
+            {dash ? (
+              <AnimatedNumber
+                value={dash.median_approval_hours} format="dec" precision={0} suffix="h"
+                polarity="lower-better"
+                className="font-display text-[26px] font-bold text-fg leading-none"
+              />
+            ) : (
+              <div className="font-display text-[26px] font-bold text-fg-4 leading-none">—</div>
+            )}
+            <div className="text-[11.5px] text-fg-3 mt-1.5 font-mono">
+              Median, submission to sign-off
             </div>
           </div>
         </div>
@@ -387,7 +372,7 @@ export default function Approvals() {
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => setFilter('ALL')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'ALL' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -395,7 +380,7 @@ export default function Approvals() {
             </button>
             <button
               onClick={() => setFilter('MANAGER')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'MANAGER' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -403,7 +388,7 @@ export default function Approvals() {
             </button>
             <button
               onClick={() => setFilter('FINANCE')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'FINANCE' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -424,7 +409,7 @@ export default function Approvals() {
             )}
             <button
               onClick={() => setFilter('RESOLVED')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'RESOLVED' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -432,17 +417,130 @@ export default function Approvals() {
             </button>
           </div>
 
-          <div className="relative w-64">
-            <Search size={14} className="absolute left-3 top-2.5 text-fg-4" />
-            <input
-              type="text"
-              placeholder="Search quote, client, rep..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full rounded-full bg-surface-2 pl-8 pr-3 py-1.5 text-[12.5px] text-fg placeholder:text-fg-4 ring-1 ring-black/[.06] outline-none focus:ring-accent/40"
-            />
+          {/* Manager & Rep Dropdowns + Search */}
+          <div className="flex flex-wrap items-center gap-2.5 ml-auto">
+            {/* Filter by Manager (Only needed for Admins / Finance) */}
+            {user?.role !== 'manager' ? (
+              <div className="flex items-center gap-1.5">
+                <label htmlFor="manager-filter" className="text-[11.5px] text-fg-3 font-medium flex items-center gap-1">
+                  <UserCheck size={13} className="text-accent" />
+                  <span>Manager:</span>
+                </label>
+                <select
+                  id="manager-filter"
+                  value={managerFilter}
+                  onChange={e => setManagerFilter(e.target.value)}
+                  className="rounded-lg bg-surface px-2.5 py-1 text-[12px] text-fg ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
+                >
+                  <option value="ALL">All Managers</option>
+                  {managerOptions.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface border border-line text-[12px] text-fg">
+                <UserCheck size={13} className="text-accent" />
+                <span className="text-[11.5px] text-fg-3 font-medium">Cluster:</span>
+                <span className="font-semibold text-accent">{user.name}'s Reps</span>
+              </div>
+            )}
+
+            {/* Filter by Rep */}
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="rep-filter" className="text-[11.5px] text-fg-3 font-medium">
+                Rep:
+              </label>
+              <select
+                id="rep-filter"
+                value={repFilter}
+                onChange={e => setRepFilter(e.target.value)}
+                className="rounded-lg bg-surface px-2.5 py-1 text-[12px] text-fg ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
+              >
+                <option value="ALL">All Reps</option>
+                {repOptions.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-48 sm:w-56">
+              <Search size={14} className="absolute left-3 top-2 text-fg-4" />
+              <input
+                type="text"
+                placeholder="Filter quote, client, rep..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full rounded-full bg-surface-2 pl-8 pr-3 py-1 text-[12px] text-fg placeholder:text-fg-4 ring-1 ring-black/[.06] outline-none focus:ring-accent/40"
+              />
+            </div>
           </div>
         </div>
+
+        {/* Return for revision. A modal rather than an inline field because
+            the note is mandatory and the reviewer should not be able to fire
+            the action by reflex from the row. */}
+        {revising && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-fg/25 backdrop-blur-[2px] px-5"
+            role="dialog" aria-modal="true" aria-label="Return for revision"
+            onClick={e => { if (e.target === e.currentTarget) setRevising(null) }}
+          >
+            <div className="w-full max-w-[520px] rounded-2xl bg-surface ring-1 ring-black/[.08]
+                            shadow-lift-lg p-6 flex flex-col gap-4">
+              <div>
+                <h2 className="font-display text-[18px] font-bold text-fg tracking-tight">
+                  Return {revising.ref} for revision
+                </h2>
+                <p className="text-[12.5px] text-fg-2 mt-1.5 leading-relaxed">
+                  {revising.customer} · {inr(revising.total ?? 0)} · risk {(revising.risk_score ?? 0).toFixed(1)}
+                </p>
+              </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                  What needs to change
+                </span>
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={revisionNote}
+                  onChange={e => setRevisionNote(e.target.value)}
+                  placeholder="Reduce 17% to 14% for Laptop 14 Pro Max to meet Gold tier category limit."
+                  className="rounded-lg bg-surface px-3.5 py-2.5 text-[13.5px] text-fg resize-y
+                             ring-1 ring-black/[.09] outline-none focus:ring-accent/45
+                             placeholder:text-fg-4"
+                />
+                <span className={`text-[11.5px] ${
+                  revisionNote.trim().length >= MIN_NOTE ? 'text-fg-3' : 'text-band-manager'}`}>
+                  {revisionNote.trim().length < MIN_NOTE
+                    ? `At least ${MIN_NOTE} characters — the rep sees this note and nothing else.`
+                    : 'The rep sees this on their Action required tab.'}
+                </span>
+              </label>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={sendRevision}
+                  disabled={revisionNote.trim().length < MIN_NOTE || busyRef === revising.ref}
+                  className="rounded-full bg-fg text-white px-5 py-2.5 font-display text-[13px]
+                             font-semibold hover:shadow-lift-lg active:scale-[.98]
+                             disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {busyRef === revising.ref ? 'Returning…' : 'Return to rep'}
+                </button>
+                <button
+                  onClick={() => setRevising(null)}
+                  className="rounded-full ring-1 ring-black/[.08] bg-surface px-4 py-2.5
+                             font-display text-[13px] font-medium text-fg-2 hover:text-fg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Approvals Table */}
         <div className="rounded-2xl bg-surface border border-black/[.06] shadow-lift overflow-hidden">
@@ -464,6 +562,7 @@ export default function Approvals() {
                     <th className="text-left font-medium px-3 py-3">Rep</th>
                     <th className="text-right font-medium px-3 py-3">Amount</th>
                     <th className="text-left font-medium px-3 py-3">Risk Band</th>
+                    <th className="text-left font-medium px-3 py-3">Assigned Approver</th>
                     <th className="text-left font-medium px-3 py-3">Stage</th>
                     <th className="text-right font-medium px-4 py-3">Manager Actions</th>
                   </tr>
@@ -492,7 +591,7 @@ export default function Approvals() {
 
                         {/* Breach / Reason */}
                         <td className="px-3 py-3">
-                          <span className="text-[12px] text-amber-800 bg-amber-500/10 rounded-md px-2 py-1 font-medium inline-block max-w-[260px] truncate" title={item.breach_detail}>
+                          <span className="text-[12px] text-band-manager bg-band-manager/10 rounded-md px-2 py-1 font-medium inline-block max-w-[260px] truncate" title={item.breach_detail}>
                             {item.breach_detail}
                           </span>
                         </td>
@@ -529,6 +628,14 @@ export default function Approvals() {
                           <Band band={item.risk_band} />
                         </td>
 
+                        {/* Assigned Approver */}
+                        <td className="px-3 py-3 font-medium text-fg-2">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-2 text-[11.5px] text-fg-2 font-mono">
+                            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                            {item.assigned_to || (item.state === 'PENDING_FINANCE' ? 'R. Menon' : 'M. Shah')}
+                          </span>
+                        </td>
+
                         {/* Stage */}
                         <td className="px-3 py-3 font-mono text-[11.5px] text-fg-3">
                           <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-fg-2">
@@ -560,7 +667,7 @@ export default function Approvals() {
                                 onClick={() => handleAction(item.ref, 'approve')}
                                 disabled={isBusy}
                                 title="Approve quote within manager discretion"
-                                className="inline-flex items-center gap-1 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 font-medium text-[12px] shadow-sm disabled:opacity-40 transition-all active:scale-[.98]"
+                                className="inline-flex items-center gap-1 rounded-full bg-band-auto hover:bg-band-auto text-white px-3 py-1 font-medium text-[12px] shadow-sm disabled:opacity-40 transition-all active:scale-[.98]"
                               >
                                 <CheckCircle2 size={13} />
                                 <span>Approve</span>
@@ -571,7 +678,7 @@ export default function Approvals() {
                                 onClick={() => handleAction(item.ref, 'reject')}
                                 disabled={isBusy}
                                 title="Reject discount proposal"
-                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-financeWash text-band-finance border border-band-finance px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
                               >
                                 <XCircle size={13} />
                                 <span>Reject</span>
@@ -579,13 +686,13 @@ export default function Approvals() {
 
                               {/* Send back to Rep Button */}
                               <button
-                                onClick={() => handleAction(item.ref, 'return')}
+                                onClick={() => { setRevising(item); setRevisionNote('') }}
                                 disabled={isBusy}
                                 title="Return to Rep for revision"
-                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-managerWash text-band-manager border border-band-manager px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
                               >
                                 <RotateCcw size={12} />
-                                <span>Revise</span>
+                                <span>Return</span>
                               </button>
 
                               {/* Review in Builder */}

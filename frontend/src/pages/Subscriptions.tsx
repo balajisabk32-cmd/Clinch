@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api, inr } from '../lib/api'
 import { ErrorBar, Workspace } from '../components/Workspace'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { EASE_CSS } from '../lib/motion'
 
 /**
@@ -105,7 +106,7 @@ export default function Subscriptions() {
         {error && <ErrorBar message={error} onRetry={load} />}
 
         <header className="flex flex-wrap items-center gap-3">
-          <h1 className="font-display text-[22px] font-bold text-fg">Subscriptions</h1>
+          <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Subscriptions</h1>
           <div className="flex bg-surface-2 rounded-full p-1 gap-1 ml-2">
             {(['ALL', 'active', 'paused', 'cancelled'] as const).map(f => (
               <button
@@ -129,9 +130,9 @@ export default function Subscriptions() {
 
         <div className="grid lg:grid-cols-[minmax(0,1fr)_420px] gap-4 items-start">
           {/* ── List (screen 9) ──────────────────────────────────── */}
-          <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px] min-w-[600px]">
+          <section className="panel">
+            <div className="scroll-x">
+              <table className="grid-table min-w-[600px]">
                 <thead>
                   <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
                                  border-b border-line">
@@ -187,7 +188,7 @@ export default function Subscriptions() {
           {/* ── Billing detail (screen 10) ───────────────────────── */}
           {current && (
             <aside className="flex flex-col gap-4 lg:sticky lg:top-[72px]">
-              <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5
+              <section className="panel p-5
                                   flex flex-col gap-4">
                 <div>
                   <div className="font-mono text-[11px] text-accent">{current.ref}</div>
@@ -213,7 +214,8 @@ export default function Subscriptions() {
                       ))}
                       <div className="flex justify-between text-[12.5px] pt-1.5 mt-1.5 border-t border-line">
                         <span className="text-fg-3">Invoiced today</span>
-                        <b className="font-mono tabular-nums text-fg">{inr(ledger.invoice_today)}</b>
+                        <AnimatedNumber value={ledger.invoice_today} format="inr"
+                                        className="text-fg font-semibold" />
                       </div>
                     </div>
 
@@ -248,7 +250,7 @@ export default function Subscriptions() {
               </section>
 
               {/* Modify / cancel with visible proration */}
-              <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5
+              <section className="panel p-5
                                   flex flex-col gap-3">
                 <h3 className="font-display text-[14px] font-semibold text-fg">
                   Modify subscription
@@ -302,8 +304,19 @@ export default function Subscriptions() {
                         : proration.kind === 'charge' ? 'Additional charge'
                         : 'No proration'}
                     </div>
+                    {/* The figure leads; the arithmetic backs it up. A credit
+                        is money going back to the customer, so it rolls and
+                        recolours like every other changing number in Clinch. */}
+                    {proration.kind !== 'none' && (
+                      <AnimatedNumber
+                        value={Math.abs(proration.credit)}
+                        format="inr" precision={2}
+                        polarity={proration.kind === 'credit_note' ? 'higher-better' : 'lower-better'}
+                        className="font-display text-[22px] font-bold text-fg leading-none mb-1.5"
+                      />
+                    )}
                     {/* The arithmetic, shown rather than summarised. */}
-                    <p className="font-mono text-[12.5px] text-fg leading-relaxed">
+                    <p className="font-mono text-[12.5px] text-fg-2 leading-relaxed">
                       {proration.formula}
                     </p>
                     <p className="text-[11px] text-fg-3 mt-1.5">

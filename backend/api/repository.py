@@ -38,6 +38,35 @@ from . import fixtures as fx
 #  Seed  ->  database
 # --------------------------------------------------------------------------- #
 
+def ensure_reference_data() -> None:
+    """Reference rows that must exist in every database, always.
+
+    Separate from seed_database() because that only runs against an EMPTY
+    database. Subscription plans are the price book the recurring SKUs are sold
+    against, so they have to survive three things seed_database() does not
+    cover: a database that was already seeded before plans existed, a golden
+    snapshot restored by /admin/reset that predates them, and a fresh migration
+    on an existing deployment. INSERT OR IGNORE on the unique code makes
+    calling this on every boot free.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    db.executemany(
+        """INSERT OR IGNORE INTO subscription_plan
+             (name, code, billing_cycle, base_price, proration_rule,
+              cancellation_notice_days, is_active, created_at)
+           VALUES (?,?,?,?,?,?,1,?)""",
+        [(n, c, cyc, price, rule, notice, now)
+         for n, c, cyc, price, rule, notice in [
+            ("Enterprise Cloud Tier", "ENT-CLOUD",  "yearly",    180000.0, "calendar_daily", 60),
+            ("Pro Seat",              "PRO-SEAT",   "monthly",      960.0, "calendar_daily", 30),
+            ("CloudSync Storage",     "CLOUD-SYNC", "monthly",       60.0, "calendar_daily", 30),
+            ("Admin Support SLA",     "SLA-GOLD",   "quarterly",  15400.0, "full_period",    90),
+            ("Care Plan 2yr",         "CARE-2YR",   "yearly",      3240.0, "none",           30),
+         ]],
+    )
+
+
 def seed_database() -> None:
     """Write the seeded book of business into an empty database."""
     db.wipe()
@@ -46,10 +75,9 @@ def seed_database() -> None:
         "INSERT INTO res_partner (name, tier, portal_email) VALUES (?,?,?)",
         [(name, meta["tier"], meta["email"]) for name, meta in fx.CUSTOMERS.items()],
     )
-    db.executemany(
-        "INSERT INTO app_user (id, name, email, role) VALUES (?,?,?,?)",
-        [(u["id"], u["name"], u["email"], u["role"]) for u in fx.USERS],
-    )
+    # Accounts are NOT seeded from fixtures: they carry password hashes and are
+    # provisioned by seed.py / the admin console instead. Re-seeding them here
+    # would overwrite real credentials with role rows that cannot log in.
     db.executemany(
         """INSERT INTO product_variant
            (sku, name, category, list_price, cost, uom, tax_pct, is_recurring,
@@ -134,6 +162,7 @@ def load_into(state: Any) -> None:
             stock_total=r["stock_total"], description=r["description"],
             variants=json.loads(r["variants_json"] or "[]"),
         ))
+    state.sync_by_sku()
 
     state.PRICE_LISTS.clear()
     state.PRICE_LISTS.extend(
@@ -171,10 +200,22 @@ def load_into(state: Any) -> None:
         lines_by_ref.setdefault(r["order_ref"], []).append(
             dict(sku=r["sku"], qty=r["qty"], discount_pct=r["discount_pct"]))
     for r in db.query("SELECT * FROM sale_order"):
+        keys = r.keys()
         state.QUOTES[r["ref"]] = dict(
             customer=r["customer"], tier=r["tier"], rep=r["rep"],
             order_discount_pct=r["order_discount_pct"],
             lines=lines_by_ref.get(r["ref"], []),
+            # Guarded with `in keys` so a database written before the approval
+            # columns existed still loads: migrate() adds them on connect, but
+            # a golden snapshot restored mid-session can be older than that.
+            approved_by_id=r["approved_by_id"] if "approved_by_id" in keys else None,
+            approved_by_name=r["approved_by_name"] if "approved_by_name" in keys else None,
+            approved_by_role=r["approved_by_role"] if "approved_by_role" in keys else None,
+            approved_at=r["approved_at"] if "approved_at" in keys else None,
+            manager_revision_notes=(r["manager_revision_notes"]
+                                    if "manager_revision_notes" in keys else None),
+            revision_requested=bool(r["revision_requested"])
+                               if "revision_requested" in keys else False,
         )
         state.QUOTE_STATE[r["ref"]] = r["state"]
 
@@ -280,10 +321,16 @@ def flush(state: Any) -> None:
         cur.execute("DELETE FROM sale_order_line")
         cur.execute("DELETE FROM sale_order")
         cur.executemany(
-            """INSERT INTO sale_order (ref, customer, tier, rep, state, order_discount_pct)
-               VALUES (?,?,?,?,?,?)""",
+            """INSERT INTO sale_order
+                 (ref, customer, tier, rep, state, order_discount_pct,
+                  approved_by_id, approved_by_name, approved_by_role, approved_at,
+                  manager_revision_notes, revision_requested)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             [(ref, q["customer"], q["tier"], q["rep"],
-              state.QUOTE_STATE.get(ref, "DRAFT"), q.get("order_discount_pct", 0.0))
+              state.QUOTE_STATE.get(ref, "DRAFT"), q.get("order_discount_pct", 0.0),
+              q.get("approved_by_id"), q.get("approved_by_name"),
+              q.get("approved_by_role"), q.get("approved_at"),
+              q.get("manager_revision_notes"), 1 if q.get("revision_requested") else 0)
              for ref, q in state.QUOTES.items()])
         cur.executemany(
             """INSERT INTO sale_order_line (order_ref, position, sku, qty, discount_pct)

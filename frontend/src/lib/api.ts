@@ -7,9 +7,21 @@
  * hardcoding it into the landing page would quietly make that claim false.
  */
 
-const BASE = import.meta.env.DEV ? '/api' : 'http://localhost:8000'
+import { request as authedRequest } from './authClient'
+
 
 export type Band = 'AUTO' | 'MANAGER' | 'FINANCE'
+
+export interface AvailabilityDepot {
+  warehouse: string; on_hand: number; reserved: number; available: number
+  ship_cost_weight: number; fixed_shipment_cost: number
+}
+export interface Availability {
+  sku: string; total_available: number; depot_count: number
+  depots: AvailabilityDepot[]
+  requested: number; shortfall: number; split_required: boolean
+  plan: Array<{ warehouse: string; units: number }>
+}
 
 export interface DashboardData {
   pipeline_value: number
@@ -65,21 +77,13 @@ export interface StatusData {
   endpoints: Array<{ method: string; path: string; owner: string; impl: 'real' | 'stub'; note: string }>
 }
 
+/**
+ * All application requests go through the authenticated client, so the bearer
+ * token is attached in exactly one place and a 401 tears the session down in
+ * exactly one place. Two request paths would mean two ways to be signed out.
+ */
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const ctrl = new AbortController()
-  // Never let a hung request freeze a screen during a demo.
-  const timer = setTimeout(() => ctrl.abort(), 4000)
-  try {
-    const res = await fetch(`${BASE}${path}`, {
-      ...init,
-      signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
-    })
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
-    return (await res.json()) as T
-  } finally {
-    clearTimeout(timer)
-  }
+  return authedRequest<T>(path, init ?? {})
 }
 
 export interface QuoteLine {
@@ -90,6 +94,13 @@ export interface QuoteLine {
 }
 
 export interface QuoteDetail {
+  /** Approval audit, denormalised onto the quote by the server. */
+  approved_by_id?: string | null
+  approved_by_name?: string | null
+  approved_by_role?: string | null
+  approved_at?: string | null
+  manager_revision_notes?: string | null
+  revision_requested?: boolean
   ref: string; customer: string; tier: string; rep: string; state: string
   total: number; subtotal: number; discount_total: number; tax_total: number
   total_recurring: number; margin_pct: number
@@ -186,6 +197,11 @@ export const api = {
       body: JSON.stringify({ assigned_rep_id }),
     }),
   policy: () => req<any>('/policy'),
+
+  /** Live available-to-promise per depot. `qty` only shapes the split hint. */
+  availability: (skus: string[], qty = 0) =>
+    req<{ items: Record<string, Availability> }>(
+      `/inventory/availability?skus=${encodeURIComponent(skus.join(','))}&qty=${qty}`),
   applyPolicy: (body: Record<string, unknown>) =>
     req<any>('/policy', { method: 'PUT', body: JSON.stringify(body) }),
   simulate: (body: Record<string, unknown>) =>
@@ -205,6 +221,11 @@ export const api = {
   confirmOrder: (ref: string) =>
     req<any>(`/orders/${ref}/confirm`, { method: 'POST', body: '{}' }),
   invoices: () => req<any[]>('/invoices'),
+  generateInvoice: (ref: string) =>
+    req<any>(`/orders/${ref}/invoice`, { method: 'POST', body: '{}' }),
+  registerPayment: (ref: string, method: string, amount: number) =>
+    req<any>(`/invoices/${ref}/payment`,
+      { method: 'POST', body: JSON.stringify({ method, amount }) }),
   payInvoice: (ref: string, body: Record<string, unknown>) =>
     req<any>(`/invoices/${ref}/payment`, { method: 'POST', body: JSON.stringify(body) }),
   subscriptions: () => req<any[]>('/subscriptions'),
@@ -219,8 +240,8 @@ export const api = {
   // figures are computed rather than asserted, so silently substituting invented
   // numbers when the API is unreachable would make the pitch a lie. A failure
   // propagates and the screen says the engine is unreachable.
-  dealHealthDashboard: () => req<DealHealthDashboardData>('/dashboard'),
-  dealHealthDeals: () => req<EnrichedDeal[]>('/quotes'),
+  dealHealthDashboard: () => req<DealHealthDashboardData>('/deal-health/dashboard'),
+  dealHealthDeals: () => req<EnrichedDeal[]>('/deal-health/deals'),
 }
 
 export interface DealHealthSummary {

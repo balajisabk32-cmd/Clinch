@@ -117,11 +117,16 @@ def price_for(sku: str, tier: str, currency: str = "INR") -> float:
 
 
 def make_line(sku: str, qty: int, discount_pct: float = 0.0) -> Line:
-    p = BY_SKU[sku]
+    p = BY_SKU.get(sku)
+    if not p:
+        from . import state
+        p = state.get_product(sku)
+    if not p:
+        raise KeyError(f"Unknown SKU: {sku}")
     return Line(
-        sku=p["sku"], name=p["name"], category=p["category"], qty=qty,
-        list_price=p["list_price"], cost=p["cost"], discount_pct=discount_pct,
-        is_recurring=p.get("is_recurring", False),
+        sku=p["sku"], name=p.get("name") or p["sku"], category=p.get("category", "Hardware"), qty=qty,
+        list_price=float(p.get("list_price", 0.0)), cost=float(p.get("cost", 0.0)), discount_pct=float(discount_pct),
+        is_recurring=bool(p.get("is_recurring", False)),
     )
 
 
@@ -153,21 +158,77 @@ MANAGER_FOR_REP: dict[str, str | None] = {
 }
 
 # Trailing effective-discount history per rep (CLINCH.md §9).
-#
-# Distinct personalities are what make the behavioural term real rather than
-# decorative. Each profile states a target median and MAD, and the history is
-# CONSTRUCTED to realise them rather than sampled and hoped for -- otherwise the
-# Z term would be calibrated differently on every run.
 REP_PROFILES = [
-    dict(id="rep_rao",  name="A. Rao",  median=8.0,  mad=2.0, deals=42,
-         note="baseline; owns Q-1042"),
-    dict(id="rep_iyer", name="K. Iyer", median=6.0,  mad=1.5, deals=38,
-         note="disciplined; a 19% quote spikes the Z term"),
-    dict(id="rep_shah", name="M. Shah", median=13.0, mad=4.0, deals=37,
-         note="habitually loose; largest leakage contributor"),
-    dict(id="rep_nair", name="S. Nair", median=7.0,  mad=1.0, deals=3,
-         note="thin history; forces Z to be dropped and weights renormalised"),
+    dict(id="rep_rao",    name="A. Rao",    median=8.0,  mad=2.0, deals=42, note="baseline; owns Q-1042"),
+    dict(id="rep_iyer",   name="K. Iyer",   median=6.0,  mad=1.5, deals=38, note="disciplined; a 19% quote spikes the Z term"),
+    dict(id="rep_shah",   name="M. Shah",   median=13.0, mad=4.0, deals=37, note="habitually loose; largest leakage contributor"),
+    dict(id="rep_nair",   name="S. Nair",   median=7.0,  mad=1.0, deals=3,  note="thin history; forces Z to be dropped"),
+    dict(id="rep_verma",  name="V. Verma",  median=9.0,  mad=2.0, deals=0),
+    dict(id="rep_gupta",  name="R. Gupta",  median=10.0, mad=2.5, deals=0),
+    dict(id="rep_joshi",  name="S. Joshi",  median=8.5,  mad=1.8, deals=0),
+    dict(id="rep_patel",  name="D. Patel",  median=7.5,  mad=1.5, deals=0),
+    dict(id="rep_reddy",  name="N. Reddy",  median=9.5,  mad=2.2, deals=0),
+    dict(id="rep_chopra", name="M. Chopra", median=11.0, mad=3.0, deals=0),
+    dict(id="rep_mehta",  name="T. Mehta",  median=8.0,  mad=2.0, deals=0),
+    dict(id="rep_sen",    name="B. Sen",    median=6.5,  mad=1.2, deals=0),
+    dict(id="rep_bhatia", name="P. Bhatia", median=9.0,  mad=2.1, deals=0),
 ]
+
+REP_TO_MANAGER: dict[str, str] = {
+    # Cluster 1 -> M. Shah
+    "rep_rao": "M. Shah", "rep_iyer": "M. Shah", "rep_nair": "M. Shah",
+    "rep_verma": "M. Shah", "rep_shah": "M. Shah", "mgr_shah": "M. Shah",
+    "A. Rao": "M. Shah", "K. Iyer": "M. Shah", "S. Nair": "M. Shah",
+    "V. Verma": "M. Shah", "M. Shah": "M. Shah",
+
+    # Cluster 2 -> P. Deshmukh
+    "rep_gupta": "P. Deshmukh", "rep_joshi": "P. Deshmukh",
+    "rep_patel": "P. Deshmukh", "rep_reddy": "P. Deshmukh",
+    "mgr_deshmukh": "P. Deshmukh",
+    "R. Gupta": "P. Deshmukh", "S. Joshi": "P. Deshmukh",
+    "D. Patel": "P. Deshmukh", "N. Reddy": "P. Deshmukh",
+    "P. Deshmukh": "P. Deshmukh",
+
+    # Cluster 3 -> A. Kulkarni
+    "rep_chopra": "A. Kulkarni", "rep_mehta": "A. Kulkarni",
+    "rep_sen": "A. Kulkarni", "rep_bhatia": "A. Kulkarni",
+    "mgr_kulkarni": "A. Kulkarni",
+    "M. Chopra": "A. Kulkarni", "T. Mehta": "A. Kulkarni",
+    "B. Sen": "A. Kulkarni", "P. Bhatia": "A. Kulkarni",
+    "A. Kulkarni": "A. Kulkarni",
+}
+
+MANAGER_TO_REPS: dict[str, list[str]] = {
+    "M. Shah": ["A. Rao", "K. Iyer", "S. Nair", "V. Verma"],
+    "P. Deshmukh": ["R. Gupta", "S. Joshi", "D. Patel", "N. Reddy"],
+    "A. Kulkarni": ["M. Chopra", "T. Mehta", "B. Sen", "P. Bhatia"],
+}
+
+
+def is_rep_managed_by(rep_id_or_name: str | None, manager_name_or_id: str | None) -> bool:
+    """Check whether a rep belongs to the specified manager."""
+    if not rep_id_or_name or not manager_name_or_id:
+        return False
+    mgr = REP_TO_MANAGER.get(rep_id_or_name)
+    if mgr:
+        return (mgr == manager_name_or_id or
+                mgr.lower() in manager_name_or_id.lower() or
+                manager_name_or_id.lower() in mgr.lower())
+    for m_name, reps in MANAGER_TO_REPS.items():
+        if m_name == manager_name_or_id or m_name.lower() in manager_name_or_id.lower() or manager_name_or_id.lower() in m_name.lower():
+            if rep_id_or_name in reps:
+                return True
+    return False
+
+
+def get_manager_assigned_reps(manager_name_or_id: str | None) -> list[str]:
+    """Return the list of rep names for a manager."""
+    if not manager_name_or_id:
+        return []
+    for m_name, reps in MANAGER_TO_REPS.items():
+        if m_name == manager_name_or_id or m_name.lower() in manager_name_or_id.lower() or manager_name_or_id.lower() in m_name.lower():
+            return list(reps)
+    return []
 
 
 def discounts_for(median: float, mad: float, deals: int) -> list[float]:
@@ -279,6 +340,39 @@ _QUOTES: list[dict[str, Any]] = [
     dict(ref="Q-1053", customer="Delta LLC", rep="rep_shah", state="PENDING_FINANCE",
          days_idle=2,
          lines=[("SVC-INST", 2, 26.0), ("SRV-RACK", 1, 19.0), ("SVC-TRAIN", 3, 22.0)]),
+
+    # --- Cluster 1 Extra (Manager: M. Shah / Enterprise North) ------------
+    dict(ref="Q-1055", customer="Acme Corp", rep="rep_verma", state="PENDING_MANAGER",
+         days_idle=1,
+         lines=[("LP14", 4, 15.0), ("DOCK-01", 8, 14.0), ("SVC-ONSITE", 1, 12.0)]),
+
+    # --- Cluster 2 (Manager: P. Deshmukh / Strategic South) ---------------
+    dict(ref="Q-1060", customer="Zenith Co", rep="rep_gupta", state="PENDING_MANAGER",
+         days_idle=1,
+         lines=[("SRV-RACK", 2, 17.0), ("SVC-INST", 1, 14.0), ("SLA-GOLD", 1, 15.0)]),
+    dict(ref="Q-1061", customer="Nova Retail", rep="rep_joshi", state="PENDING_MANAGER",
+         days_idle=2,
+         lines=[("LP14", 5, 14.0), ("DOCK-01", 10, 15.0), ("SVC-ONSITE", 2, 12.0)]),
+    dict(ref="Q-1062", customer="Acme Corp", rep="rep_patel", state="DRAFT",
+         days_idle=0,
+         lines=[("SW-DESIGN", 15, 8.0), ("SW-CLOUD", 20, 6.0)]),
+    dict(ref="Q-1063", customer="Delta LLC", rep="rep_reddy", state="APPROVED",
+         days_idle=1,
+         lines=[("MON-27", 6, 6.0), ("DOCK-01", 6, 5.0)]),
+
+    # --- Cluster 3 (Manager: A. Kulkarni / Commercial West) ---------------
+    dict(ref="Q-1070", customer="Orion Systems", rep="rep_chopra", state="PENDING_MANAGER",
+         days_idle=1,
+         lines=[("SVC-TRAIN", 4, 15.0), ("SRV-RACK", 1, 16.0), ("SW-SECURE", 2, 11.0)]),
+    dict(ref="Q-1071", customer="Beta Industries", rep="rep_mehta", state="PENDING_MANAGER",
+         days_idle=3,
+         lines=[("SVC-ONSITE", 6, 13.0), ("LP14", 3, 16.0), ("SLA-GOLD", 1, 14.0)]),
+    dict(ref="Q-1072", customer="Vertex Labs", rep="rep_sen", state="DRAFT",
+         days_idle=0,
+         lines=[("SW-BI", 5, 9.0), ("SVC-TRAIN", 2, 8.0)]),
+    dict(ref="Q-1073", customer="Zenith Co", rep="rep_bhatia", state="APPROVED",
+         days_idle=2,
+         lines=[("MON-27", 10, 5.0), ("DOCK-01", 10, 5.0)]),
 ]
 
 

@@ -18,10 +18,10 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
-from .auth import any_of, current_user, issue_token, permissions_for, require, tabs_for
+from .auth import any_of, current_user, permissions_for, require, tabs_for
 from fastapi.responses import StreamingResponse
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from engine.billing import (
     Subscription as BSub, billing_schedule, build_ledger, prorate,
@@ -30,8 +30,7 @@ from engine.fulfilment import (
     DemandLine, Warehouse, consolidate_backorders, split_order,
 )
 from engine.recommender import recommend as run_recommender
-from engine.scoring import coach as run_coach
-from engine.scoring import score_quote
+from engine.scoring import Quote, coach as run_coach, score_quote
 
 from . import fixtures as fx
 from . import services as svc
@@ -70,7 +69,7 @@ intelligence = APIRouter(tags=["intelligence"])
 
 
 @intelligence.post("/quotes/{ref}/score")
-def score(ref: str) -> dict[str, Any]:
+def score(ref: str, _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     try:
         quote, r = svc.score_for(ref)
     except KeyError:
@@ -83,7 +82,7 @@ def score(ref: str) -> dict[str, Any]:
 
 
 @intelligence.post("/quotes/{ref}/coach")
-def coach(ref: str, target_band: str = Query("AUTO")) -> dict[str, Any]:
+def coach(ref: str, target_band: str = Query("AUTO"), _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     quote = state.build_quote(ref)
     if quote is None:
         raise HTTPException(404, f"No quotation {ref}")
@@ -96,7 +95,7 @@ def coach(ref: str, target_band: str = Query("AUTO")) -> dict[str, Any]:
 
 @intelligence.post("/quotes/{ref}/recommend")
 def recommend(ref: str, limit: int = Query(4, ge=1, le=10),
-              margin_floor_pct: float = Query(25.0)) -> dict[str, Any]:
+              margin_floor_pct: float = Query(25.0), _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     quote = state.build_quote(ref)
     if quote is None:
         raise HTTPException(404, f"No quotation {ref}")
@@ -110,12 +109,12 @@ def recommend(ref: str, limit: int = Query(4, ge=1, le=10),
 
 
 @intelligence.get("/policy")
-def get_policy() -> dict[str, Any]:
+def get_policy(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     return svc._policy_dict(state.get_policy())
 
 
 @intelligence.post("/policy/simulate")
-def simulate(body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+def simulate(body: dict[str, Any] = Body(default_factory=dict), _actor: dict[str, Any] = Depends(require("policy.config"))) -> dict[str, Any]:
     """THE 10X ANGLE. Nothing here is persisted -- that is the entire point."""
     return svc.simulate(body)
 
@@ -138,30 +137,14 @@ def apply_policy(body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depe
 sales = APIRouter(tags=["sales"])
 
 
-@sales.post("/auth/login")
-def login(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
-    email = (body.get("email") or "").lower()
-    user = next((u for u in fx.USERS if u["email"] == email), None)
-    if not user:
-        raise HTTPException(401, "Unknown user")
-    role = user["role"]
-    return {
-        "token": issue_token(user["id"], role),
-        "user": {**user, "permissions": sorted(permissions_for(role))},
-        "tabs": tabs_for(role),
-    }
-
-
-@sales.get("/auth/me")
-def whoami(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    """What the caller may do. The workspace nav is built from THIS, so the
-    menu can never offer something the server would refuse."""
-    user = current_user(authorization)
-    return {**user, "tabs": tabs_for(user["role"])}
+# NOTE: /auth/login and /auth/me now live in accounts.py, backed by bcrypt
+# hashes and JWTs. The previous implementation here matched an email against a
+# fixture list and issued a token to anyone who guessed one -- no password was
+# ever checked.
 
 
 @sales.get("/products")
-def products(category: str | None = None, q: str | None = None) -> list[dict[str, Any]]:
+def products(category: str | None = None, q: str | None = None, _actor: dict[str, Any] = Depends(require("product.view"))) -> list[dict[str, Any]]:
     rows = state.PRODUCTS
     if category:
         rows = [p for p in rows if p["category"] == category]
@@ -172,7 +155,7 @@ def products(category: str | None = None, q: str | None = None) -> list[dict[str
 
 
 @sales.get("/products/{sku}")
-def product_detail(sku: str) -> dict[str, Any]:
+def product_detail(sku: str, _actor: dict[str, Any] = Depends(require("product.view"))) -> dict[str, Any]:
     """One product with its variants and every tier price (PS A2)."""
     product = next((p for p in state.PRODUCTS if p["sku"] == sku), None)
     if product is None:
@@ -220,6 +203,28 @@ def create_product(body: dict[str, Any] = Body(...),
         # a negative-margin order as a hard Finance escalation, so say so now.
         pass
 
+    # Which depot the opening stock lands in. Defaulting silently to "Main
+    # Warehouse" -- as this did -- put every new product in one building
+    # regardless of what the person creating it intended, and there was no way
+    # to say otherwise.
+    depots = [w["name"] for w in fx.WAREHOUSES]
+    warehouse = body.get("initial_warehouse") or (depots[0] if depots else "Main Warehouse")
+    if warehouse not in depots:
+        raise HTTPException(422, {
+            "error": "unknown_warehouse", "allowed": depots,
+            "message": f"{warehouse!r} is not a warehouse. Choose one of: {', '.join(depots)}."})
+
+    stock_qty = int(body.get("initial_stock_qty", body.get("stock_total", 0)) or 0)
+    if stock_qty < 0:
+        raise HTTPException(422, {"error": "bad_stock",
+                                  "message": "Opening stock cannot be negative."})
+
+    # Free-form key/value options: {"color": "Space Gray", "storage": "512GB"}.
+    attributes = body.get("attribute_values") or {}
+    if attributes and not isinstance(attributes, dict):
+        raise HTTPException(422, {"error": "bad_attributes",
+                                  "message": "Variant options must be name/value pairs."})
+
     product = dict(
         sku=sku, name=body.get("name") or sku,
         category=body.get("category", "Hardware"),
@@ -228,12 +233,28 @@ def create_product(body: dict[str, Any] = Body(...),
         is_recurring=bool(body.get("is_recurring")),
         recurrence=body.get("recurrence"),
         is_promoted=bool(body.get("is_promoted")),
-        stock_total=int(body.get("stock_total", 0)),
+        stock_total=stock_qty,
         description=body.get("description", ""),
         variants=body.get("variants", []),
+        attribute_values=attributes,
+        initial_warehouse=warehouse,
+        initial_stock_qty=stock_qty,
     )
     state.PRODUCTS.append(product)
-    state.record("*", _actor.get("id", "admin"), "admin", "product_created", reason=sku)
+    state.sync_by_sku()
+    if stock_qty > 0:
+        # The opening quant. `reserved` starts at zero: nothing can be spoken
+        # for on a product that did not exist a moment ago.
+        state.STOCK.setdefault(warehouse, {})[sku] = {
+            "on_hand": stock_qty,
+            "reserved": 0,
+        }
+        # Through the same recorder every other stock movement uses, so the
+        # opening balance appears in the ledger rather than materialising
+        # untraceably on the shelf.
+        state.record_move(warehouse, sku, "receive", stock_qty)
+    state.record("*", _actor.get("name", "admin"), "admin", "product_created",
+                 reason=f"{sku} — {stock_qty} units into {warehouse}")
     return product
 
 
@@ -248,12 +269,13 @@ def update_product(sku: str, body: dict[str, Any] = Body(...),
     for k, v in body.items():
         if k in editable:
             product[k] = v
+    state.sync_by_sku()
     state.record("*", _actor.get("id", "admin"), "admin", "product_updated", reason=sku)
     return product_detail(sku)
 
 
 @sales.get("/pricelists")
-def pricelists() -> list[dict[str, Any]]:
+def pricelists(_actor: dict[str, Any] = Depends(require("product.view"))) -> list[dict[str, Any]]:
     return state.PRICE_LISTS
 
 
@@ -489,6 +511,10 @@ def quote_detail(ref: str) -> dict[str, Any]:
             cost=l.cost, margin=round(l.margin, 2),
             ceiling=over_by_sku[l.sku]["allowed"], over=over_by_sku[l.sku]["over"],
         ) for i, l in enumerate(quote.lines)],
+        # Who approved this and when, plus any outstanding coaching note. The
+        # UI renders these directly; without them the approval badge would have
+        # to reconstruct the answer by scanning the audit log client-side.
+        **state.approval_meta(ref),
     )
 
 
@@ -522,12 +548,19 @@ def _guard_editable(ref: str) -> None:
 
 @sales.post("/quotes")
 def create_quote(body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depends(require("quote.edit"))) -> dict[str, Any]:
+    if _actor.get("role") != "rep":
+        raise HTTPException(status_code=403, detail={
+            "error": "forbidden",
+            "role": _actor.get("role"),
+            "message": "Only sales representatives are permitted to create quotations.",
+        })
     customer = body.get("customer")
     if customer not in fx.CUSTOMERS:
         raise HTTPException(422, f"Unknown customer {customer!r}")
-    ref = state.create_quote(customer, body.get("rep", "rep_rao"))
-    state.record(ref, fx.REP_NAME.get(body.get("rep", "rep_rao"), "A. Rao"),
-                 "rep", "created", reason=f"new quotation for {customer}")
+    rep_id = _actor.get("id", body.get("rep", "rep_rao"))
+    rep_name = _actor.get("name", fx.REP_NAME.get(rep_id, "A. Rao"))
+    ref = state.create_quote(customer, rep_id)
+    state.record(ref, rep_name, "rep", "created", reason=f"new quotation for {customer}")
     return quote_detail(ref)
 
 
@@ -537,10 +570,11 @@ def add_line(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str, Any] 
         raise HTTPException(404, f"No quotation {ref}")
     _guard_editable(ref)
     sku = body.get("sku")
-    if sku not in fx.BY_SKU:
+    product = state.get_product(sku)
+    if not product:
         raise HTTPException(422, f"Unknown product {sku!r}")
     state.add_line(ref, sku, int(body.get("qty", 1)), float(body.get("discount_pct", 0)))
-    state.record(ref, body.get("actor", "A. Rao"), "rep", "line_added", reason=sku)
+    state.record(ref, body.get("actor", _actor.get("name", "A. Rao")), "rep", "line_added", reason=sku)
     return _rebuilt(ref)
 
 
@@ -599,7 +633,15 @@ def submit(ref: str, actor: str = Query("A. Rao"), _actor: dict[str, Any] = Depe
         _conflict(ref, current, target)
 
     state.set_state(ref, target)
-    state.record(ref, actor, "rep", "submitted",
+    # Resubmitting answers the manager's note, so the flag clears here. Leaving
+    # it set would keep the deal in the rep's "Action required" tab forever and
+    # show the old coaching note against a quote that has already changed.
+    was_revision = state.approval_meta(ref)["revision_requested"]
+    if was_revision:
+        row = state.QUOTES.get(ref)
+        if row is not None:
+            row["revision_requested"] = False
+    state.record(ref, actor, "rep", "resubmitted" if was_revision else "submitted",
                  reason=f"score {r.score} -> {r.band}")
     return {"ref": ref, "state": target, "risk_score": r.score,
             "risk_band": r.band, "auto_routed": True,
@@ -670,6 +712,8 @@ def approval_detail(ref: str) -> dict[str, Any]:
             return "approved"
         return "pending" if current == "PENDING_FINANCE" else "skipped"
 
+    rep_name = fx.REP_NAME.get(quote.rep_id, quote.rep_id)
+    assigned_mgr = fx.REP_TO_MANAGER.get(quote.rep_id, fx.REP_TO_MANAGER.get(rep_name, "M. Shah"))
     steps = [dict(role="Sales Manager", status=step_status("Sales Manager"),
                   actor=manager_name if step_status("Sales Manager") == "approved" else None)]
     if needs_finance:
@@ -689,6 +733,7 @@ def approval_detail(ref: str) -> dict[str, Any]:
         narrative=svc.narrate(quote, r, fx.days_idle(ref)),
         audit=state.audit_for(ref),
         allowed_transitions=LEGAL_TRANSITIONS.get(current, []),
+        **state.approval_meta(ref),
     )
 
 
@@ -865,7 +910,12 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
         return cached
 
     action = body.get("action")
-    actor = body.get("actor", "M. Shah")
+    # The approver is the authenticated caller. This previously read
+    # `body.get("actor", "M. Shah")` -- a client-supplied display name with a
+    # hardcoded fallback -- which made the approval trail worth nothing: anyone
+    # entitled to approve could sign the record with any name, and a request
+    # that simply omitted the field was attributed to M. Shah whoever sent it.
+    actor = _actor.get("name") or _actor.get("email") or "Unknown"
     current = state.state_of(ref)
 
     # Reviewers act only on quotations that are actually awaiting review. The
@@ -898,6 +948,8 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
 
     state.set_state(ref, target)
     role = "finance" if current == "PENDING_FINANCE" else "manager"
+    if target == "APPROVED":
+        state.record_approval(ref, user_id=_actor.get("id", ""), name=actor, role=role)
     state.record(ref, actor, role, action + "d", reason=body.get("reason"))
 
     # Sync back to dealflow360.sqlite
@@ -937,8 +989,57 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
         pass
 
     result = {"ref": ref, "state": target,
-              "allowed_transitions": LEGAL_TRANSITIONS[target]}
+              "allowed_transitions": LEGAL_TRANSITIONS[target],
+              **state.approval_meta(ref)}
     return state.remember(body.get("idempotency_key"), result)
+
+
+@sales.post("/quotes/{ref}/return-revision")
+def return_for_revision(
+    ref: str, body: dict[str, Any] = Body(...),
+    _actor: dict[str, Any] = Depends(any_of("approval.manager", "approval.finance")),
+) -> dict[str, Any]:
+    """Send a quotation back to its rep with a note saying what to change.
+
+    Separate from the generic `return` action because the note is the point.
+    A deal that comes back with no explanation costs the rep a phone call and
+    the reviewer a second look at the same problem, so the note is REQUIRED and
+    a token gesture ("no", "fix") is refused: ten characters is roughly the
+    shortest string that can name a line and a number.
+    """
+    notes = (body.get("manager_notes") or "").strip()
+    if len(notes) < 10:
+        raise HTTPException(422, {
+            "error": "note_required",
+            "message": ("Explain what needs to change — at least 10 characters. "
+                        "The rep sees this note and nothing else."),
+        })
+
+    current = state.state_of(ref)
+    if current not in ("PENDING_MANAGER", "PENDING_FINANCE"):
+        raise HTTPException(409, {
+            "error": "not_awaiting_approval", "ref": ref, "current_state": current,
+            "message": f"{ref} is {current}; it is not awaiting review.",
+        })
+    if ref not in state.QUOTES:
+        raise HTTPException(404, f"No quotation {ref}")
+
+    # Back to DRAFT, with a flag rather than a new state. A distinct
+    # RETURNED_FOR_REVISION state would have to be threaded through every
+    # transition, guard and filter that already understands DRAFT, and would
+    # differ from it in no way that the engine cares about -- the rep edits it
+    # and resubmits either way. The flag is what the UI needs to tell the two
+    # apart, and it clears the moment the quote is resubmitted.
+    if not is_legal(current, "DRAFT"):
+        _conflict(ref, current, "DRAFT")
+    state.set_state(ref, "DRAFT")
+    state.request_revision(ref, notes=notes)
+
+    role = "finance" if current == "PENDING_FINANCE" else "manager"
+    actor = _actor.get("name") or _actor.get("email") or "Unknown"
+    state.record(ref, actor, role, "returned", reason=notes)
+    return {"ref": ref, "state": "DRAFT", "returned_by": actor,
+            **state.approval_meta(ref)}
 
 
 # =========================================================================== #
@@ -949,7 +1050,7 @@ operations = APIRouter(tags=["operations"])
 
 
 @operations.get("/warehouses")
-def warehouses() -> list[dict[str, Any]]:
+def warehouses(_actor: dict[str, Any] = Depends(require("fulfilment.view"))) -> list[dict[str, Any]]:
     """Stock per depot with the three quantities the wireframe shows.
 
     On-hand minus reserved is what a rep can actually promise; showing only
@@ -975,7 +1076,7 @@ def warehouses() -> list[dict[str, Any]]:
 
 
 @operations.get("/fulfilment/queue")
-def fulfilment_queue() -> list[dict[str, Any]]:
+def fulfilment_queue(_actor: dict[str, Any] = Depends(require("fulfilment.view"))) -> list[dict[str, Any]]:
     """Orders awaiting fulfilment (wireframe screen 7, lower table).
 
     An order is fulfillable once it is approved or confirmed; the split is run
@@ -1079,7 +1180,7 @@ def _split_for(ref: str, objective: str) -> dict[str, Any] | None:
 
 
 @operations.post("/orders/{ref}/split")
-def split(ref: str, objective: str = Query("cost")) -> dict[str, Any]:
+def split(ref: str, objective: str = Query("cost"), _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
     """Multi-warehouse allocation (PS A4/B6), exact over the subset lattice."""
     quote = state.build_quote(ref)
     if quote is None:
@@ -1108,7 +1209,7 @@ def split(ref: str, objective: str = Query("cost")) -> dict[str, Any]:
 
 
 @operations.post("/orders/{ref}/consolidate")
-def consolidate(ref: str) -> dict[str, Any]:
+def consolidate(ref: str, _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
     """PS B6: consolidate remaining backorder once stock arrives."""
     quote = state.build_quote(ref)
     if quote is None:
@@ -1140,7 +1241,7 @@ def consolidate(ref: str) -> dict[str, Any]:
 
 
 @operations.get("/subscriptions")
-def subscriptions() -> list[dict[str, Any]]:
+def subscriptions(_actor: dict[str, Any] = Depends(require("billing.view"))) -> list[dict[str, Any]]:
     return state.SUBSCRIPTIONS
 
 
@@ -1190,7 +1291,7 @@ def change_subscription(sub_id: int, body: dict[str, Any] = Body(...), _actor: d
 
 
 @operations.get("/orders/{ref}/billing")
-def order_billing(ref: str) -> dict[str, Any]:
+def order_billing(ref: str, _actor: dict[str, Any] = Depends(require("billing.view"))) -> dict[str, Any]:
     """Unified hybrid ledger: one-time lines and recurring lines together."""
     quote = state.build_quote(ref)
     if quote is None:
@@ -1214,7 +1315,7 @@ def order_billing(ref: str) -> dict[str, Any]:
 
 
 @operations.post("/orders/{ref}/confirm")
-def confirm_order(ref: str, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+def confirm_order(ref: str, body: dict[str, Any] = Body(default_factory=dict), _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
     """APPROVED -> CONFIRMED -> FULFILLED. Rubric step 8 begins here."""
     current = state.state_of(ref)
     if ref not in state.QUOTES:
@@ -1292,7 +1393,7 @@ def generate_invoice(ref: str, body: dict[str, Any] = Body(default_factory=dict)
 
 
 @operations.get("/invoices")
-def invoices() -> list[dict[str, Any]]:
+def invoices(_actor: dict[str, Any] = Depends(require("billing.view"))) -> list[dict[str, Any]]:
     return state.INVOICES
 
 
@@ -1447,9 +1548,17 @@ insights = APIRouter(tags=["insights"])
 
 
 @insights.get("/dashboard")
-def dashboard() -> dict[str, Any]:
+def dashboard(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     lk = svc.leakage_report()
     pipeline = svc.open_pipeline()
+    is_mgr = _actor.get("role") == "manager"
+    actor_name = _actor.get("name", "")
+    if is_mgr:
+        pipeline = [
+            r for r in pipeline
+            if fx.is_rep_managed_by(r["quote"].rep_id, actor_name) or
+               fx.is_rep_managed_by(fx.REP_NAME.get(r["quote"].rep_id, r["quote"].rep_id), actor_name)
+        ]
     stall_days = state.get_policy().stall_days
 
     pipeline_value = sum(r["totals"]["total"] for r in pipeline)
@@ -1495,7 +1604,7 @@ def dashboard() -> dict[str, Any]:
 
 
 @insights.get("/activity")
-def activity(limit: int = Query(12, ge=1, le=100)) -> list[dict[str, Any]]:
+def activity(limit: int = Query(12, ge=1, le=100), _actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
     """Recent platform activity, straight off the append-only audit log.
 
     The admin dashboard previously rendered a hand-written feed naming people
@@ -1638,6 +1747,290 @@ def reports(period: str | None = Query(None, description="today | week | month |
     )
 
 
+def _enrich_pipeline_deal(row: dict[str, Any], stall_days: int) -> dict[str, Any]:
+    q = row["quote"]
+    r = row["result"]
+    t = row["totals"]
+    curr_state = row["state"]
+    idle = row["days_idle"]
+
+    if curr_state in ("REJECTED", "CLOSED_LOST", "CANCELLED"):
+        health_cat = "CLOSED_LOST"
+    elif idle >= stall_days:
+        health_cat = "STALLED"
+    elif r.band in ("MANAGER", "FINANCE") or r.score > 25.0:
+        health_cat = "AT_RISK"
+    else:
+        health_cat = "HEALTHY"
+
+    if r.band == "FINANCE" or r.score >= 50.0:
+        risk_lvl = "HIGH"
+    elif r.band == "MANAGER" or r.score >= 20.0:
+        risk_lvl = "MEDIUM"
+    else:
+        risk_lvl = "LOW"
+
+    if r.notes:
+        risk_exp = "; ".join(r.notes)
+    else:
+        risk_exp = "Pricing is compliant and within standard policy thresholds."
+
+    products = [
+        dict(productId=l.sku, name=l.name, qty=l.qty, unitPrice=l.list_price)
+        for l in q.lines
+    ]
+
+    warehouse_split = []
+    if q.ref in state.ALLOCATIONS:
+        alloc = state.ALLOCATIONS[q.ref]
+        for a in alloc.get("allocations", []):
+            wh_name = a.get("warehouse", "Warehouse")
+            warehouse_split.append(dict(
+                warehouseId=wh_name.lower().replace(" ", "-"),
+                name=wh_name,
+                unitsAllocated=sum(item.get("qty", 0) for item in a.get("lines", [])),
+            ))
+    elif any(l.category == "Hardware" and l.qty >= 20 for l in q.lines):
+        try:
+            whs = [Warehouse(name=w["name"], ship_cost_weight=w["ship_cost_weight"], fixed_shipment_cost=w["fixed_shipment_cost"]) for w in fx.WAREHOUSES]
+            stk = {w["name"]: {sku: state.available(w["name"], sku) for sku in state.STOCK.get(w["name"], {})} for w in fx.WAREHOUSES}
+            lines = [DemandLine(sku=l.sku, name=l.name, qty=l.qty, is_physical=True) for l in q.lines if l.category == "Hardware"]
+            split_res = split_order(whs, lines, stk, objective="cost")
+            for a in split_res.allocations:
+                warehouse_split.append(dict(
+                    warehouseId=a.warehouse.name.lower().replace(" ", "-"),
+                    name=a.warehouse.name,
+                    unitsAllocated=sum(s.qty for s in a.lines),
+                ))
+        except Exception:
+            pass
+
+    sub_line = next((l for l in q.lines if l.is_recurring), None)
+    sub_dict = None
+    if sub_line:
+        sub_dict = dict(
+            planName=sub_line.name,
+            billingCycle="Annual" if ("yearly" in getattr(sub_line, "recurrence", "").lower() or "gold" in sub_line.sku.lower()) else "Monthly",
+            seats=sub_line.qty,
+            prorationNote="Pro-rata billing scheduled on order confirmation.",
+        )
+    else:
+        cust_sub = next((s for s in state.SUBSCRIPTIONS if s.get("customer") == q.customer), None)
+        if cust_sub:
+            sub_dict = dict(
+                planName=cust_sub.get("plan", "Enterprise Support"),
+                billingCycle=cust_sub.get("billing_cycle", "Monthly").capitalize(),
+                seats=cust_sub.get("seats", 5),
+                prorationNote="Active recurring contract.",
+            )
+
+    scenario_tags = []
+    if warehouse_split and len(warehouse_split) > 1:
+        scenario_tags.append("SPLIT_FULFILLMENT")
+    if sub_dict:
+        scenario_tags.append("SUBSCRIPTION")
+    if t["margin_pct"] >= 55.0:
+        scenario_tags.append("HIGH_MARGIN")
+    if r.band == "FINANCE":
+        scenario_tags.append("FINANCE_ESCALATION")
+    elif r.band == "MANAGER":
+        scenario_tags.append("MANAGER_ESCALATION")
+    if idle >= stall_days:
+        scenario_tags.append("STALLED_PIPELINE")
+    if r.contributions.get("Z", 0) > 8:
+        scenario_tags.append("BEHAVIOURAL_ANOMALY")
+    if any(l.get("over", 0) > 0 for l in r.lines):
+        scenario_tags.append("CEILING_BREACH")
+    if not scenario_tags:
+        scenario_tags.append("STANDARD_DEAL")
+
+    has_software = any(l.category == "Software" for l in q.lines)
+    upsell_opportunity = not has_software
+    suggested_upsell = [
+        dict(productId="SW-DESIGN", name="DesignSuite Licence"),
+        dict(productId="DOCK-01", name="Docking Station"),
+    ] if upsell_opportunity else []
+
+    return dict(
+        id=q.ref,
+        customerId=f"CUST-{q.customer.replace(' ', '-')}",
+        customerName=q.customer,
+        salesRepId=q.rep_id,
+        salesRepName=fx.REP_NAME.get(q.rep_id, q.rep_id),
+        products=products,
+        currency="INR",
+        grossValue=round(t.get("subtotal", 0.0), 2),
+        discountPercent=round(100.0 * t.get("discount_total", 0.0) / t.get("subtotal", 1.0), 1) if t.get("subtotal", 0.0) else 0.0,
+        value=round(t["total"], 2),
+        stage=curr_state,
+        approvalStage=r.band,
+        riskScore=round(r.score, 1),
+        riskLevel=risk_lvl,
+        riskExplanation=risk_exp,
+        createdDaysAgo=idle + 3,
+        lastActivityDaysAgo=idle,
+        createdAt=fx._ago(idle + 3),
+        lastActivityAt=state.last_activity(q.ref),
+        daysSinceLastActivity=idle,
+        healthCategory=health_cat,
+        upsellOpportunity=upsell_opportunity,
+        suggestedUpsellProducts=suggested_upsell,
+        scenarioTags=scenario_tags,
+        warehouseSplit=warehouse_split,
+        subscription=sub_dict,
+    )
+
+
+def _enrich_closed_deal(cq: Quote, idx: int) -> dict[str, Any]:
+    t = svc.totals(cq)
+    days_ago = 10 + (idx * 3) % 90
+    closed_disc_pct = round(100.0 * t.get("discount_total", 0.0) / t.get("subtotal", 1.0), 1) if t.get("subtotal", 0.0) else 0.0
+    return dict(
+        id=cq.ref,
+        customerId=f"CUST-{cq.customer.replace(' ', '-')}",
+        customerName=cq.customer,
+        salesRepId=cq.rep_id,
+        salesRepName=fx.REP_NAME.get(cq.rep_id, cq.rep_id),
+        products=[
+            dict(productId=l.sku, name=l.name, qty=l.qty, unitPrice=l.list_price)
+            for l in cq.lines
+        ],
+        currency="INR",
+        grossValue=round(t.get("subtotal", 0.0), 2),
+        discountPercent=closed_disc_pct,
+        value=round(t["total"], 2),
+        stage="CLOSED_WON",
+        approvalStage="AUTO",
+        riskScore=round(closed_disc_pct * 0.6, 1),
+        riskLevel="LOW",
+        riskExplanation="Historical settled contract. Fulfilled and fully paid.",
+        createdDaysAgo=days_ago + 5,
+        lastActivityDaysAgo=days_ago,
+        createdAt=fx._ago(days_ago + 5),
+        lastActivityAt=fx._ago(days_ago),
+        daysSinceLastActivity=days_ago,
+        healthCategory="HEALTHY",
+        upsellOpportunity=False,
+        suggestedUpsellProducts=[],
+        scenarioTags=["CLOSED_WON", "FULFILLED"],
+        warehouseSplit=[],
+        subscription=None,
+    )
+
+
+def _all_deal_health_deals(manager_name: str | None = None) -> list[dict[str, Any]]:
+    pipeline = svc.open_pipeline()
+    stall_days = state.get_policy().stall_days
+    active = [_enrich_pipeline_deal(row, stall_days) for row in pipeline]
+    closed = [_enrich_closed_deal(cq, i) for i, cq in enumerate(fx.closed_as_quotes()[:35])]
+    all_deals = active + closed
+    if manager_name:
+        return [d for d in all_deals if fx.is_rep_managed_by(d.get("salesRepName"), manager_name)]
+    return all_deals
+
+
+@insights.get("/deal-health/dashboard")
+def deal_health_dashboard(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
+    is_mgr = _actor.get("role") == "manager"
+    actor_name = _actor.get("name", "") if is_mgr else None
+    deals = _all_deal_health_deals(actor_name)
+    counts = {"HEALTHY": 0, "AT_RISK": 0, "STALLED": 0, "CLOSED_LOST": 0}
+    by_stage: dict[str, int] = {}
+    for d in deals:
+        counts[d["healthCategory"]] = counts.get(d["healthCategory"], 0) + 1
+        by_stage[d["stage"]] = by_stage.get(d["stage"], 0) + 1
+
+    open_pipeline_val = sum(d["value"] for d in deals if d["healthCategory"] != "CLOSED_LOST" and d["stage"] != "CLOSED_WON")
+    avg_disc = round(sum(d["discountPercent"] for d in deals) / len(deals), 1) if deals else 0.0
+
+    at_risk_deals = [
+        dict(
+            dealId=d["id"],
+            customerName=d["customerName"],
+            salesRep=d["salesRepName"],
+            discount=d["discountPercent"],
+            riskScore=d["riskScore"],
+            riskLevel=d["riskLevel"],
+            riskExplanation=d["riskExplanation"],
+            approvalStage=d["approvalStage"],
+            status="AT_RISK",
+        )
+        for d in deals if d["healthCategory"] == "AT_RISK"
+    ]
+    at_risk_deals.sort(key=lambda x: (x["riskScore"] or 0), reverse=True)
+
+    stalled_deals = [
+        dict(
+            dealId=d["id"],
+            customerName=d["customerName"],
+            salesRep=d["salesRepName"],
+            value=d["value"],
+            daysStalled=d["daysSinceLastActivity"],
+            status="STALLED",
+        )
+        for d in deals if d["healthCategory"] == "STALLED"
+    ]
+    stalled_deals.sort(key=lambda x: x["daysStalled"], reverse=True)
+
+    pipeline = svc.open_pipeline()
+    rep_histories = []
+    for profile in fx.REP_PROFILES:
+        rep_id = profile["id"]
+        rep_name = profile["name"]
+        if is_mgr and not (fx.is_rep_managed_by(rep_name, actor_name) or fx.is_rep_managed_by(rep_id, actor_name)):
+            continue
+        base_history = list(fx.history_for(rep_id))
+        active_discs = [
+            round(100.0 * r["totals"]["discount_total"] / r["totals"]["subtotal"], 1)
+            if r["totals"].get("subtotal") else 0.0
+            for r in pipeline if r["quote"].rep_id == rep_id
+        ]
+        all_discs = base_history + active_discs
+        avg_d = round(sum(all_discs) / len(all_discs), 1) if all_discs else 0.0
+        max_d = round(max(all_discs), 1) if all_discs else 0.0
+        rep_histories.append(dict(
+            salesRepId=rep_id,
+            salesRepName=rep_name,
+            totalDeals=len(all_discs),
+            averageDiscount=avg_d,
+            highestDiscount=max_d,
+            discountHistory=all_discs[-15:],
+        ))
+
+    summary = dict(
+        totalDeals=len(deals),
+        healthyDeals=counts["HEALTHY"],
+        atRiskDeals=counts["AT_RISK"],
+        stalledDeals=counts["STALLED"],
+        closedLostDeals=counts["CLOSED_LOST"],
+        averageDiscount=avg_disc,
+        openPipelineValue=round(open_pipeline_val, 2),
+        currency="INR",
+        generatedAt=datetime.now(timezone.utc).isoformat(),
+    )
+
+    status_distribution = dict(
+        byStage=[dict(stage=s, count=c) for s, c in sorted(by_stage.items())],
+        byHealthCategory=[dict(healthCategory=h, count=c) for h, c in counts.items()],
+        totalDeals=len(deals),
+    )
+
+    return dict(
+        summary=summary,
+        atRiskDeals=at_risk_deals,
+        stalledDeals=stalled_deals,
+        salesRepDiscountHistory=rep_histories,
+        statusDistribution=status_distribution,
+        generatedAt=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@insights.get("/deal-health/deals")
+def deal_health_deals(_actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
+    mgr_name = _actor.get("name", "") if _actor.get("role") == "manager" else None
+    return _all_deal_health_deals(mgr_name)
+
+
 # =========================================================================== #
 #  INFRASTRUCTURE
 # =========================================================================== #
@@ -1667,7 +2060,7 @@ async def stream():
 
 
 @infra.post("/admin/reset")
-def reset() -> dict[str, Any]:
+def reset(_actor: dict[str, Any] = Depends(require("admin.reset"))) -> dict[str, Any]:
     """Demo guardrail. Must be fast enough to use mid-sentence on stage."""
     elapsed = state.restore()
     state.publish({"type": "reset"})

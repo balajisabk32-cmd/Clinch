@@ -32,13 +32,9 @@ also be the person who books the revenue against them.
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 from typing import Any, Iterable
 
 from fastapi import Header, HTTPException
-
-SECRET = b"clinch-demo-session-secret"
 
 Role = str  # rep | manager | finance | admin | customer
 
@@ -66,7 +62,11 @@ PERMISSIONS: dict[Role, set[str]] = {
         "reports.view",
     },
     "admin": set(),                  # filled below — admin holds everything
-    "customer": {"portal.view"},
+    # A customer account grants authority over its own basket and its own
+    # quotations, and nothing else. None of these appear in any internal
+    # role, and no internal permission appears here -- the two sets are
+    # disjoint by construction, so there is no route both can reach.
+    "customer": {"portal.view", "shop.browse", "shop.cart", "shop.quote"},
 }
 
 ALL_PERMISSIONS: set[str] = {
@@ -77,6 +77,7 @@ ALL_PERMISSIONS: set[str] = {
     "policy.config", "product.manage", "product.view",
     "warehouse.manage", "plan.manage",
     "reports.view", "dealhealth.view", "portal.share", "admin.reset",
+    "user.manage",
 }
 PERMISSIONS["admin"] = set(ALL_PERMISSIONS)
 
@@ -108,6 +109,10 @@ TAB_PERMISSION: list[tuple[str, str, str]] = [
     ("/app/reports",       "Reports",       "reports.view"),
     ("/app/products",      "Products",      "product.view"),
     ("/app/settings",      "Settings",      "policy.config"),
+    ("/app/users",              "Users",         "user.manage"),
+    ("/app/admin/subscriptions","Plans",         "plan.manage"),
+    ("/app/admin/reports",      "Rep reports",   "user.manage"),
+    ("/app/profile",       "Profile",       "quote.view"),
 ]
 
 
@@ -130,40 +135,23 @@ def tabs_for(role: Role) -> list[dict[str, str]]:
 #  Tokens
 # --------------------------------------------------------------------------- #
 
-def issue_token(user_id: str, role: Role) -> str:
-    """`<user>.<role>.<hmac>` — signed so the role cannot be edited client-side."""
-    body = f"{user_id}.{role}"
-    sig = hmac.new(SECRET, body.encode(), hashlib.sha256).hexdigest()[:16]
-    return f"{body}.{sig}"
-
-
-def parse_token(token: str | None) -> dict[str, Any] | None:
-    if not token:
-        return None
-    token = token.removeprefix("Bearer ").strip()
-    parts = token.split(".")
-    if len(parts) != 3:
-        return None
-    user_id, role, sig = parts
-    expected = hmac.new(SECRET, f"{user_id}.{role}".encode(), hashlib.sha256).hexdigest()[:16]
-    if not hmac.compare_digest(sig, expected):
-        return None
-    return {"id": user_id, "role": role, "permissions": sorted(permissions_for(role))}
+# The legacy HMAC token pair (issue_token / parse_token) has been removed.
+# It signed `<user>.<role>.<hmac>` with a hardcoded module constant, carried no
+# expiry, and was minted without ever checking a password. Sessions are now real
+# JWTs issued by accounts.py after a bcrypt verification.
 
 
 def current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
-    """Resolve the caller.
+    """Resolve the caller from a verified JWT, or raise 401.
 
-    An unauthenticated request is treated as a REP rather than rejected: the demo
-    has to stay drivable without a login step, and rep is the LEAST privileged
-    internal role, so defaulting there fails safe. Anything that matters is
-    gated by an explicit permission below.
+    This previously returned a REP identity when no Authorization header was
+    present. That single line made every "permission-gated" endpoint in the
+    application reachable by anyone who simply omitted the header -- the guards
+    were real, but nothing was ever unauthenticated enough to hit them.
+    Anonymous is now anonymous.
     """
-    user = parse_token(authorization)
-    if user is None:
-        return {"id": "rep_rao", "role": "rep",
-                "permissions": sorted(permissions_for("rep"))}
-    return user
+    from .deps import get_current_user
+    return get_current_user(authorization)
 
 
 def require(*needed: str):

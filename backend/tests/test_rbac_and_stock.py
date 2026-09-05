@@ -11,7 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api import state
-from api.auth import issue_token, permissions_for, tabs_for
+from api.auth import permissions_for, tabs_for
+from core.security import create_access_token
 from api.main import app
 
 from .conftest import ADMIN, FINANCE, MANAGER, REP
@@ -52,7 +53,7 @@ def test_manager_sets_policy_but_cannot_settle_money():
     """A manager writes the rules; finance books the revenue. Separating those
     two is the point of a governance tool — the person who sets the limits must
     not also be the person clearing payments against them."""
-    policy = client.get("/policy").json()
+    policy = client.get("/policy", headers=ADMIN).json()
     ok = client.put("/policy", headers=MANAGER,
                     json={"category_ceiling": {**policy["category_ceiling"],
                                                "Services": 9.0}})
@@ -65,13 +66,13 @@ def test_manager_sets_policy_but_cannot_settle_money():
 
 
 def test_finance_settles_money_but_cannot_rewrite_policy():
-    policy = client.get("/policy").json()
+    policy = client.get("/policy", headers=ADMIN).json()
     denied = client.put("/policy", headers=FINANCE,
                         json={"category_ceiling": {**policy["category_ceiling"],
                                                    "Services": 30.0}})
     assert denied.status_code == 403
     # And the policy is genuinely unchanged, not merely refused at the edge.
-    assert client.get("/policy").json()["category_ceiling"]["Services"] == 10.0
+    assert client.get("/policy", headers=ADMIN).json()["category_ceiling"]["Services"] == 10.0
 
     assert client.post("/orders/Q-1044/allocate", headers=FINANCE,
                        json={}).status_code == 200
@@ -79,12 +80,9 @@ def test_finance_settles_money_but_cannot_rewrite_policy():
 
 def test_neither_manager_nor_finance_may_create_products_or_warehouses():
     """PS §3 reserves backend setup for Admin."""
-    for hdr in (MANAGER, FINANCE, REP):
-        assert "product.manage" not in permissions_for(
-            {"Authorization": hdr["Authorization"]} and
-            hdr["Authorization"].split(".")[1])
-        assert "warehouse.manage" not in permissions_for(
-            hdr["Authorization"].split(".")[1])
+    for role in ("manager", "finance", "rep"):
+        assert "product.manage" not in permissions_for(role)
+        assert "warehouse.manage" not in permissions_for(role)
     assert "product.manage" in permissions_for("admin")
     assert "warehouse.manage" in permissions_for("admin")
 
@@ -96,23 +94,50 @@ def test_admin_holds_every_permission():
 
 
 def test_customer_role_has_no_internal_reach():
-    assert permissions_for("customer") == {"portal.view"}
-    assert tabs_for("customer") == []
+    """The customer set and the internal sets must be disjoint.
+
+    A customer now holds shop.* permissions for their own basket and quotations,
+    so the old equality check (== {"portal.view"}) no longer describes the rule.
+    The rule was never "the customer has exactly one permission" — it is that no
+    permission is shared with an internal role, so there is no route both
+    populations can reach. Asserting disjointness says that directly and keeps
+    holding as either side grows.
+    """
+    customer = permissions_for("customer")
+    assert customer, "a customer with no permissions cannot use their own account"
+    assert tabs_for("customer") == [], "customers get no internal workspace tabs"
+
+    for role in ("rep", "manager", "finance", "admin"):
+        shared = customer & permissions_for(role)
+        assert not shared, f"{role} shares {shared} with customer"
+
+    # And nothing customer-facing leaked into the internal grant-everything set.
+    from api.auth import ALL_PERMISSIONS
+    assert not (customer & ALL_PERMISSIONS), (
+        f"customer permissions {customer & ALL_PERMISSIONS} are in ALL_PERMISSIONS, "
+        "which would hand every one of them to admin")
 
 
-def test_forged_token_is_rejected_and_falls_back_to_least_privilege():
-    """Editing the role inside the token must not grant anything. The signature
-    fails, the caller is treated as the least-privileged internal role, and the
-    manager-only action is refused."""
-    forged = {"Authorization": "Bearer rep_rao.admin.deadbeefdeadbeef"}
+def test_forged_token_is_rejected_outright():
+    """Editing the role inside a token grants nothing: the signature no longer
+    verifies, so the request is UNAUTHENTICATED (401) rather than authenticated
+    with fewer rights. Returning 403 here would imply we had accepted the
+    identity and merely disagreed about its permissions."""
+    import jwt as _jwt, time as _time
+    forged = {"Authorization": "Bearer " + _jwt.encode(
+        {"sub": "rep_rao", "role": "admin", "exp": int(_time.time()) + 600},
+        "attacker-key", algorithm="HS256")}
     state.set_state("Q-1042", "PENDING_MANAGER")
     assert client.post("/approvals/Q-1042/action", headers=forged,
-                       json={"action": "approve"}).status_code == 403
+                       json={"action": "approve"}).status_code == 401
 
 
 def test_valid_token_for_each_role_round_trips():
-    for role in ("rep", "manager", "finance", "admin"):
-        tok = issue_token("u1", role)
+    """A token is checked against the database, not just its own signature, so
+    each subject here must be a real provisioned account."""
+    for uid, role in (("rep_rao", "rep"), ("mgr_shah", "manager"),
+                      ("fin_menon", "finance"), ("admin_root", "admin")):
+        tok = create_access_token({"sub": uid, "role": role})
         me = client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"}).json()
         assert me["role"] == role
         assert set(me["permissions"]) == permissions_for(role)
@@ -133,10 +158,11 @@ def test_nav_is_derived_from_permissions_not_hardcoded():
 
 
 def test_login_returns_a_signed_token_and_its_permissions():
-    body = client.post("/auth/login", json={"email": "menon@dealflow.example"}).json()
+    body = client.post("/auth/login", json={
+        "email": "menon@clinch.io", "password": "FinMenon2026!#"}).json()
     assert body["user"]["role"] == "finance"
     assert "invoice.manage" in body["user"]["permissions"]
-    assert len(body["token"].split(".")) == 3
+    assert len(body["access_token"].split(".")) == 3
     assert {t["label"] for t in body["tabs"]} >= {"Invoices", "Subscriptions"}
 
 
@@ -192,7 +218,7 @@ def test_re_accepting_a_split_does_not_double_reserve():
 def test_confirming_an_order_ships_the_stock():
     state.set_state("Q-1044", "APPROVED")
     before = state.on_hand("Main Warehouse", "LP14")
-    res = client.post("/orders/Q-1044/confirm").json()
+    res = client.post("/orders/Q-1044/confirm", headers=ADMIN).json()
 
     assert res["state"] == "FULFILLED"
     assert res["shipped"], "fulfilment must actually move goods"
@@ -213,7 +239,7 @@ def test_every_movement_is_recorded_in_the_ledger():
 
 def test_warehouse_endpoint_reports_live_quantities():
     state.reserve("Main Warehouse", "LP14", 5, "Q-TEST")
-    depot = next(w for w in client.get("/warehouses").json()
+    depot = next(w for w in client.get("/warehouses", headers=ADMIN).json()
                  if w["name"] == "Main Warehouse")
     lp = next(s for s in depot["stock"] if s["sku"] == "LP14")
     assert lp["on_hand"] == 46 and lp["reserved"] == 23 and lp["available"] == 23
@@ -222,6 +248,6 @@ def test_warehouse_endpoint_reports_live_quantities():
 def test_reset_restores_the_shelf():
     state.ship("Main Warehouse", "LP14", 20, "Q-TEST")
     assert state.on_hand("Main Warehouse", "LP14") == 26
-    client.post("/admin/reset")
+    client.post("/admin/reset", headers=ADMIN)
     assert state.on_hand("Main Warehouse", "LP14") == 46
     assert state.STOCK_MOVES == []

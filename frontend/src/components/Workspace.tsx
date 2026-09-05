@@ -2,6 +2,7 @@ import { useEffect, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { EASE_CSS } from '../lib/motion'
+import { useAuth } from '../context/AuthContext'
 
 /**
  * Sales workspace shell — PS B1.
@@ -81,17 +82,40 @@ export function Workspace({
     }
   })()
 
-  const tabs = getTabsForRole(user.role)
+  const userRole = user?.role ?? 'rep'
+  const allowed = ROLE_ALLOWED_ROUTES[userRole] ?? ROLE_ALLOWED_ROUTES.rep
 
-  // PS §7: the customer surface is a genuinely separate, restricted view -- not
-  // the internal workspace with controls hidden. Hiding chrome would still
-  // render internal screens and still call internal endpoints, so a customer
-  // session is redirected out of this shell entirely.
+  // Fallback defaults if server tabs haven't loaded yet, strictly filtered by role
+  const defaultTabs = [
+    { to: '/app/dashboard', label: 'Dashboard' },
+    { to: '/app/quotations', label: 'Quotations' },
+    { to: '/app/pipeline', label: 'Pipeline' },
+    { to: '/app/approvals', label: 'Approvals' },
+    { to: '/app/fulfilment', label: 'Fulfilment' },
+    { to: '/app/subscriptions', label: 'Subscriptions' },
+    { to: '/app/invoices', label: 'Invoices' },
+    { to: '/app/health', label: 'Deal Health' },
+    { to: '/app/reports', label: 'Reports' },
+    { to: '/app/products', label: 'Products' },
+    { to: '/app/settings', label: 'Settings' },
+    { to: '/app/users', label: 'Users' },
+    { to: '/app/profile', label: 'Profile' },
+  ]
+
+  const baseTabs = (serverTabs && serverTabs.length > 0) ? serverTabs : defaultTabs
+  // Ensure profile is always present in tabs if not sent by server
+  const hasProfile = baseTabs.some(t => t.to === '/app/profile')
+  const fullTabs = hasProfile ? baseTabs : [...baseTabs, { to: '/app/profile', label: 'Profile' }]
+
+  // Filter strictly according to this user's authorized routes
+  const tabs = fullTabs.filter(t => allowed.includes(t.to))
+
+  // PS §7: the customer surface is a genuinely separate, restricted view
   useEffect(() => {
     if (user.role === 'CUSTOMER') navigate('/shop', { replace: true })
   }, [user.role, navigate])
 
-  if (user.role === 'CUSTOMER') return null
+  if (user?.role === 'customer') return null
 
   const handleSignOut = () => {
     localStorage.removeItem('dealflow_user')
@@ -149,12 +173,7 @@ export function Workspace({
               <span className="text-fg-4 text-[10px] uppercase font-mono tracking-wider ml-0.5">Switch</span>
             </button>
 
-            {/* Role-specific header controls */}
-            {user.role === 'REP' && (
-              <div className="hidden sm:inline-flex items-center rounded-full bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/20 px-3 py-1 text-[11px] font-mono font-medium">
-                Allowance: Max 15% HW / 20% SW
-              </div>
-            )}
+
 
             {onReload && (
               <button
@@ -168,30 +187,7 @@ export function Workspace({
               </button>
             )}
 
-            {user.role === 'MANAGER' && (
-              <Link
-                to="/app/approvals"
-                title="Open Pending Approvals Queue"
-                className="rounded-full px-3 py-1.5 text-[12.5px] text-fg-2 ring-1 ring-black/[.07]
-                           hover:text-accent hover:ring-accent/35 bg-surface font-medium"
-                style={{ transition: `all 320ms ${EASE_CSS}` }}
-              >
-                <span>Approvals</span>
-              </Link>
-            )}
-
-            {user.role === 'ADMIN' && (
-              <Link
-                to="/app/admin"
-                title="Launch Clinch / DealFlow360 RevOps Admin Portal"
-                className="rounded-full px-3 py-1.5 text-[12.5px] text-fg-2 ring-1 ring-black/[.07]
-                           hover:text-accent hover:ring-accent/35 bg-surface flex items-center gap-1.5 font-medium"
-                style={{ transition: `all 320ms ${EASE_CSS}` }}
-              >
-                <span>Admin Portal</span>
-              </Link>
-            )}
-
+            {/* Proper Log out button */}
             <button
               onClick={handleSignOut}
               title="Sign out of current account"

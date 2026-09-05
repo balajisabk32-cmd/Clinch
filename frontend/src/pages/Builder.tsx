@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ApiError, request } from '../lib/authClient'
 import {
   CheckCircle2,
   AlertTriangle,
@@ -11,18 +12,39 @@ import {
 } from 'lucide-react'
 import { api, inr, type Coach, type Product, type QuoteDetail, type Suggestion } from '../lib/api'
 import { Band, ContributionBar } from '../components/ui'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
+import { StockIndicator } from '../components/StockIndicator'
 import { ErrorBar, Workspace } from '../components/Workspace'
 import { UpsellPanel } from '../components/UpsellPanel'
 import { EASE_CSS } from '../lib/motion'
+import { useAuth } from '../context/AuthContext'
+import { cn } from '../lib/cn'
 
 const CATEGORIES = ['Hardware', 'Software', 'Services', 'Subscriptions'] as const
 
-/** Strict Rep Allowance ceilings by category */
-const REP_ALLOWANCES: Record<string, number> = {
-  Hardware: 15.0,
-  Software: 20.0,
-  Services: 10.0,
-  Subscriptions: 15.0,
+/**
+ * Discount ceilings are the SERVER's, fetched from /policy.
+ *
+ * They used to be a hardcoded table here, and it had drifted: this file
+ * promised reps 20% on Software and 15% on Subscriptions while the engine
+ * enforced 15% and 12%. A rep would build what the screen called a compliant
+ * quote and watch it escalate anyway — the worst kind of wrong, because the
+ * tool actively misled the person following it.
+ *
+ * It also ignored tier. The effective ceiling is min(tier, category), so a
+ * Gold customer caps at 14% no matter how generous the category is.
+ */
+interface PolicyShape {
+  tier_ceiling: Record<string, number>
+  category_ceiling: Record<string, number>
+}
+
+const ceilingFor = (policy: PolicyShape | null, tier: string, category: string) => {
+  if (!policy) return null
+  return Math.min(
+    policy.tier_ceiling?.[tier] ?? 100,
+    policy.category_ceiling?.[category] ?? 100,
+  )
 }
 
 /** Margin health drives the bar's colour. Semantic, not decorative. */
@@ -42,11 +64,14 @@ export default function Builder() {
   const [basis, setBasis] = useState('none')
   const [filtered, setFiltered] = useState(0)
   const [coach, setCoach] = useState<Coach | null>(null)
-  const [cat, setCat] = useState<(typeof CATEGORIES)[number]>('Hardware')
+  const [cat, setCat] = useState<'All' | (typeof CATEGORIES)[number]>('All')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [policy, setPolicy] = useState<PolicyShape | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
+  const [revisionModalOpen, setRevisionModalOpen] = useState(false)
+  const [revisionNote, setRevisionNote] = useState('')
 
   /**
    * Every mutation returns the fully recomputed quotation, so one call keeps the
@@ -58,22 +83,22 @@ export default function Builder() {
     try {
       const q = await fn()
       setQuote(q)
-      const [rec, co] = await Promise.all([
+      setBusy(false)
+      // Refresh recommendations and coaching in background without blocking steppers
+      Promise.all([
         api.recommend(q.ref).catch(() => null),
         api.coach(q.ref).catch(() => null),
-      ])
-      if (rec) { setSuggestions(rec.suggestions); setBasis(rec.basis); setFiltered(rec.filtered_by_margin_floor) }
-      setCoach(co)
+      ]).then(([rec, co]) => {
+        if (rec) { setSuggestions(rec.suggestions); setBasis(rec.basis); setFiltered(rec.filtered_by_margin_floor) }
+        if (co) setCoach(co)
+      })
       return q
     } catch (e: any) {
-      // A 409 here means the quote left DRAFT — say so plainly rather than
-      // failing silently and leaving the rep wondering why nothing moved.
       setError(e?.message?.includes('409')
         ? 'This quotation is no longer editable — it has left Draft.'
         : `Could not update the quotation (${e?.message ?? 'unknown error'}).`)
-      return null
-    } finally {
       setBusy(false)
+      return null
     }
   }, [])
 
@@ -81,6 +106,7 @@ export default function Builder() {
     if (!ref) return
     apply(() => api.quote(ref))
     api.products().then(setProducts).catch(() => setError('Product catalogue unavailable.'))
+    api.policy().then(setPolicy).catch(() => { /* breach hints degrade quietly */ })
   }, [ref, apply])
 
   useEffect(() => {
@@ -92,9 +118,11 @@ export default function Builder() {
 
   const catalogue = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    return products.filter(p =>
-      (needle ? p.name.toLowerCase().includes(needle) || p.sku.toLowerCase().includes(needle)
-              : p.category === cat))
+    return products.filter(p => {
+      const matchSearch = !needle || p.name.toLowerCase().includes(needle) || p.sku.toLowerCase().includes(needle)
+      const matchCat = cat === 'All' || p.category?.toLowerCase() === cat.toLowerCase()
+      return matchSearch && matchCat
+    })
   }, [products, cat, search])
 
   const addSuggestion = async (sku: string) => {
@@ -114,21 +142,16 @@ export default function Builder() {
   // "Rendered more hooks than during the previous render" crash this screen was
   // throwing. The null-guard lives inside the memo instead.
   const repBreaches = useMemo(() => {
-    if (!quote?.lines) return []
+    if (!quote?.lines || !policy) return []
     return quote.lines.filter(l => {
-      const cap = REP_ALLOWANCES[l.category] ?? 15.0
-      return l.effective_discount > cap
+      const cap = ceilingFor(policy, quote.tier, l.category)
+      return cap !== null && l.effective_discount > cap
     })
-  }, [quote?.lines])
+  }, [quote?.lines, quote?.tier, policy])
 
-  const user = (() => {
-    try {
-      const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
-      return stored ? JSON.parse(stored) : { name: 'Alice Sales', role: 'REP' }
-    } catch {
-      return { name: 'Alice Sales', role: 'REP' }
-    }
-  })()
+  // Identity comes from the verified session; localStorage is not an
+  // authority on who anyone is.
+  const { user } = useAuth()
 
   if (!quote) {
     return (
@@ -139,7 +162,7 @@ export default function Builder() {
     )
   }
 
-  const isOverAllowance = repBreaches.length > 0 || (quote?.order_discount_pct ?? 0) > 15.0
+  const isOverAllowance = Boolean(quote?.risk_band && quote.risk_band !== 'AUTO')
 
   const handleCustomerAccept = async () => {
     if (!quote) return
@@ -160,17 +183,48 @@ export default function Builder() {
     if (!quote) return
     setBusy(true)
     try {
-      await fetch(`/api/approvals/${quote.ref}/action`, {
+      await request(`/approvals/${quote.ref}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, actor: user.name }),
+        body: JSON.stringify({ action, actor: user?.name }),
       })
-      const label = action === 'approve' ? 'Approved' : action === 'reject' ? 'Rejected' : 'Returned to Rep'
+      const label = action === 'approve' ? 'Approved'
+                  : action === 'reject' ? 'Rejected' : 'Returned to Rep'
       setFlash(`Quotation ${quote.ref} ${label}.`)
       setTimeout(() => navigate('/app/approvals'), 1200)
-    } catch {
-      setFlash('Manager governance action recorded.')
+    } catch (err) {
+      // Previously this said "Manager governance action recorded." on ANY
+      // failure -- including a 403 -- and then navigated away as if it had
+      // worked. Say what actually happened and stay put.
+      setFlash(err instanceof ApiError
+        ? (err.status === 403
+            ? 'Your role is not permitted to action this quotation.'
+            : err.message)
+        : 'Could not record that action.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const sendRevision = async () => {
+    if (!quote) return
+    const note = revisionNote.trim()
+    if (note.length < 10) return
+    setBusy(true)
+    try {
+      await request(`/quotes/${quote.ref}/return-revision`, {
+        method: 'POST',
+        body: JSON.stringify({ manager_notes: note }),
+      })
+      setFlash(`Quotation ${quote.ref} returned to ${quote.rep} with revision notes.`)
+      setRevisionModalOpen(false)
+      setRevisionNote('')
       setTimeout(() => navigate('/app/approvals'), 1200)
+    } catch (err) {
+      setFlash(err instanceof ApiError
+        ? (err.status === 403
+            ? 'Your role is not permitted to return this quotation.'
+            : err.message)
+        : 'Could not return quotation.')
     } finally {
       setBusy(false)
     }
@@ -184,22 +238,67 @@ export default function Builder() {
         {error && <ErrorBar message={error} onRetry={load} />}
 
         {flash && (
-          <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3 text-[13px] text-emerald-800 font-medium animate-fadeIn">
-            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+          <div className="flex items-center gap-2.5 rounded-xl bg-band-autoWash border border-band-auto/25 px-4 py-3 text-[13px] text-band-auto font-medium animate-fadeIn">
+            <CheckCircle2 size={16} className="text-band-auto shrink-0" />
             <span>{flash}</span>
           </div>
         )}
 
+        {/* ── Approval audit ───────────────────────────────────────────────
+            Who signed this off, and when. The server stamps these from the
+            approver's token, so the name here is the account that acted rather
+            than a display string the client supplied. */}
+        {quote.approved_by_name && (
+          <div className="panel rail rail-auto px-4 py-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <ShieldCheck size={15} className="text-band-auto shrink-0" />
+            <span className="text-[13px] text-fg">
+              Approved by <b className="font-semibold">{quote.approved_by_name}</b>
+              {quote.approved_by_role && (
+                <span className="text-fg-2"> ({quote.approved_by_role})</span>
+              )}
+            </span>
+            {quote.approved_at && (
+              <span className="font-mono text-[11.5px] text-fg-3">
+                on {new Date(quote.approved_at).toLocaleString('en-IN', {
+                  day: '2-digit', month: 'short', year: 'numeric',
+                  hour: '2-digit', minute: '2-digit',
+                })}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* ── Returned for revision ────────────────────────────────────────
+            The manager's note, verbatim and in full. This is the whole reason
+            the deal is back on the rep's desk, so it is not truncated and not
+            hidden behind a tooltip. */}
+        {quote.revision_requested && quote.manager_revision_notes && (
+          <div className="panel rail rail-manager px-4 py-3 flex items-start gap-2.5">
+            <AlertTriangle size={16} className="text-band-manager shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="font-display text-[13.5px] font-semibold text-band-manager">
+                Returned for revision
+              </div>
+              <p className="text-[13px] text-fg mt-1 leading-relaxed">
+                {quote.manager_revision_notes}
+              </p>
+              <p className="text-[11.5px] text-fg-3 mt-1.5">
+                Make the change and submit again — it will re-route automatically.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── Manager Governance Top Bar (Only for Managers reviewing pending quotes) ── */}
-        {user.role === 'MANAGER' && quote.state === 'PENDING_MANAGER' && (
-          <div className="rounded-2xl bg-amber-500/10 border border-amber-500/25 p-4 flex flex-wrap items-center justify-between gap-4">
+        {user?.role === 'manager' && quote.state === 'PENDING_MANAGER' && (
+          <div className="rounded-2xl bg-band-managerWash border border-band-manager/25 p-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <AlertTriangle size={20} className="text-amber-700 shrink-0" />
+              <AlertTriangle size={20} className="text-band-manager shrink-0" />
               <div>
-                <div className="text-[13px] font-semibold text-amber-900">
+                <div className="text-[13px] font-semibold text-band-manager">
                   Manager Action Required · Escalated by {quote.rep}
                 </div>
-                <div className="text-[12px] text-amber-800">
+                <div className="text-[12px] text-band-manager">
                   {isOverAllowance
                     ? `Discount exceeds Rep delegated allowance (${repBreaches.map(b => `${b.name}: ${b.effective_discount}%`).join(', ')}). Margin: ${quote.margin_pct}%.`
                     : `Standard manager approval requested. Risk Band: ${quote.risk_band}.`}
@@ -211,7 +310,7 @@ export default function Builder() {
               <button
                 onClick={() => handleManagerAction('approve')}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 font-display text-[12.5px] font-semibold shadow-lift disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-band-auto hover:brightness-110 text-white px-4 py-2 font-display text-[12.5px] font-semibold shadow-lift disabled:opacity-50"
               >
                 <CheckCircle2 size={14} />
                 <span>Approve Quotation</span>
@@ -219,15 +318,15 @@ export default function Builder() {
               <button
                 onClick={() => handleManagerAction('reject')}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-rose-50 text-rose-700 border border-rose-200 px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-band-financeWash text-band-finance border border-band-finance px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
               >
                 <XCircle size={14} />
                 <span>Reject</span>
               </button>
               <button
-                onClick={() => handleManagerAction('return')}
+                onClick={() => { setRevisionModalOpen(true); setRevisionNote('') }}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-amber-50 text-amber-800 border border-amber-300 px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-band-managerWash text-band-manager border border-band-manager px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
               >
                 <RotateCcw size={13} />
                 <span>Request Rep Revision</span>
@@ -252,7 +351,7 @@ export default function Builder() {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-display text-[22px] font-bold text-fg leading-none">
-                {user.role === 'CUSTOMER' ? 'Official Quotation' : quote.customer}
+                {user?.role === 'customer' ? 'Official Quotation' : quote.customer}
               </h1>
               <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[10px]
                                font-semibold tracking-wider text-fg-2">
@@ -268,20 +367,21 @@ export default function Builder() {
 
           <div className="ml-auto flex items-center gap-4">
             <div className="text-right">
-              <div className="font-display text-[22px] font-bold text-fg tabular-nums leading-none">
-                {inr(quote.total)}
-              </div>
+              <AnimatedNumber
+                value={quote.total} format="inr" polarity="neutral"
+                className="font-display text-[20px] font-bold text-fg leading-none"
+              />
               <div className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3 mt-1">
                 incl. tax
               </div>
             </div>
 
             {/* Role-specific Primary Action Button */}
-            {user.role === 'CUSTOMER' ? (
+            {user?.role === 'customer' ? (
               <button
                 onClick={handleCustomerAccept}
                 disabled={busy || quote.state === 'CONFIRMED' || quote.state === 'FULFILLED'}
-                className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 font-display text-[13px] font-semibold
+                className="rounded-full bg-band-auto hover:brightness-110 text-white px-6 py-2.5 font-display text-[13px] font-semibold
                            hover:shadow-lift-lg active:scale-[.98] disabled:opacity-40 flex items-center gap-2"
                 style={{ transition: `all 320ms ${EASE_CSS}` }}
               >
@@ -294,77 +394,148 @@ export default function Builder() {
                   setBusy(true)
                   try {
                     const res = await api.submit(quote.ref)
-                    navigate(res.state === 'APPROVED' ? '/app/fulfilment' : '/app/approvals')
+                    const isApproved = res.state === 'APPROVED'
+                    const msg = isApproved
+                      ? `Quotation ${quote.ref} auto-approved! Redirecting to quotations…`
+                      : `Quotation ${quote.ref} submitted for Manager approval! Redirecting to quotations…`
+                    setFlash(msg)
+                    setTimeout(() => {
+                      navigate('/app/quotations', {
+                        state: {
+                          flash: isApproved
+                            ? `Quotation ${quote.ref} auto-approved and released for confirmation.`
+                            : `Quotation ${quote.ref} submitted successfully — now pending manager review.`,
+                        },
+                      })
+                    }, 800)
                   } catch (e: any) {
                     setError(`Could not submit (${e?.message ?? 'unknown error'}).`)
-                  } finally { setBusy(false) }
+                    setBusy(false)
+                  }
                 }}
                 disabled={!editable || busy || (quote.lines ?? []).length === 0}
                 title={
                   (quote.lines ?? []).length === 0 ? 'Add at least one product line first'
                   : !editable ? `Already ${quote.state.replace(/_/g, ' ').toLowerCase()}`
-                  : isOverAllowance
-                    ? 'Discounts exceed your allowance — will route to Bob Manager for approval'
-                    : quote.risk_band === 'AUTO'
-                    ? 'No approval needed — this will go straight to fulfilment'
-                    : `Routes to ${quote.risk_band === 'FINANCE' ? 'Sales Manager, then Finance' : 'Sales Manager'}`
+                  : quote.risk_band === 'FINANCE'
+                  ? 'Routes to Sales Manager, then Finance for approval'
+                  : quote.risk_band === 'MANAGER'
+                  ? 'Discounts exceed auto-approval limit — routes for manager approval'
+                  : 'No approval needed — this will go straight to fulfilment'
                 }
                 className={`rounded-full px-5 py-2.5 font-display text-[13px] font-semibold
                            hover:shadow-lift-lg active:scale-[.98]
                            disabled:opacity-35 disabled:cursor-not-allowed disabled:shadow-none transition-all ${
-                             isOverAllowance
-                               ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                             quote.risk_band === 'FINANCE'
+                               ? 'bg-band-finance hover:brightness-110 text-white'
+                               : quote.risk_band === 'MANAGER'
+                               ? 'bg-band-manager hover:brightness-110 text-white'
                                : 'bg-fg text-white hover:bg-accent'
                            }`}
                 style={{ transition: `all 320ms ${EASE_CSS}` }}
               >
-                {isOverAllowance
+                {quote.risk_band === 'FINANCE'
+                  ? 'Submit for Finance Approval'
+                  : quote.risk_band === 'MANAGER'
                   ? 'Submit for Manager Approval'
-                  : quote.risk_band === 'AUTO'
-                  ? 'Confirm — within allowance'
-                  : 'Submit for approval'}
+                  : 'Confirm — Auto-Approved'}
               </button>
             )}
           </div>
         </header>
 
         {/* ── Rep Allowance Guardrail HUD (Visible to Sales Reps) ── */}
-        {user.role === 'REP' && (
-          <section className="rounded-2xl bg-surface border border-black/[.06] p-4 shadow-lift">
+        {user?.role === 'rep' && (
+          <section className="panel p-4">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-2.5">
               <div className="flex items-center gap-2">
-                <ShieldCheck size={16} className={isOverAllowance ? 'text-amber-600' : 'text-emerald-600'} />
+                <ShieldCheck
+                  size={16}
+                  className={
+                    quote.risk_band === 'FINANCE'
+                      ? 'text-band-finance'
+                      : quote.risk_band === 'MANAGER'
+                      ? 'text-band-manager'
+                      : 'text-band-auto'
+                  }
+                />
                 <span className="font-display text-[13.5px] font-semibold text-fg">
                   Rep Delegated Authority Limits
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[11px] font-mono text-fg-3">
-                <span className="px-2 py-0.5 rounded bg-surface-2">HW: Max 15%</span>
-                <span className="px-2 py-0.5 rounded bg-surface-2">SW: Max 20%</span>
-                <span className="px-2 py-0.5 rounded bg-surface-2">Services: Max 10%</span>
-                <span className="px-2 py-0.5 rounded bg-surface-2">Subs: Max 15%</span>
+              {/* The ceilings that bind THIS quotation, from /policy.
+                  These were four hardcoded chips reading 15/20/10/15. Two were
+                  simply wrong against the engine (software caps at 15, subs at
+                  12), and all four ignored the tier — which is very often the
+                  binding one: on a Bronze account every category caps at 5%
+                  regardless of what the category allows. A rep reading the old
+                  strip on a Bronze deal was told 15% and escalated at 5%. */}
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-fg-3">
+                {policy ? CATEGORIES.map(c => {
+                  const cap = ceilingFor(policy, quote.tier, c)
+                  const bound = cap !== null
+                    && (policy.tier_ceiling?.[quote.tier] ?? 100)
+                       <= (policy.category_ceiling?.[c] ?? 100)
+                  return (
+                    <span key={c}
+                          className={`px-2 py-0.5 rounded ${
+                            bound ? 'bg-band-managerWash text-band-manager' : 'bg-surface-2'}`}
+                          title={bound
+                            ? `${quote.tier} tier caps this below the ${c} ceiling`
+                            : `${c} category ceiling`}>
+                      {c.slice(0, 4)}: max {cap}%
+                    </span>
+                  )
+                }) : (
+                  <span className="px-2 py-0.5 rounded bg-surface-2">loading ceilings…</span>
+                )}
+                {policy && (
+                  <span className="text-fg-4">
+                    · {quote.tier} tier caps at {policy.tier_ceiling?.[quote.tier]}%
+                  </span>
+                )}
               </div>
             </div>
 
-            {isOverAllowance ? (
-              <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 px-3.5 py-2.5 flex items-center justify-between gap-3 text-[12.5px] text-amber-900">
+            {quote.risk_band === 'FINANCE' ? (
+              <div className="rounded-xl bg-band-financeWash border border-band-finance/20 px-3.5 py-2.5 flex items-center justify-between gap-3 text-[12.5px] text-band-finance">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle size={15} className="text-amber-700 shrink-0" />
+                  <AlertTriangle size={15} className="text-band-finance shrink-0" />
                   <span>
-                    <strong>Allowance Exceeded:</strong> One or more items exceed your delegated ceiling. Submission will automatically route to Sales Manager (Bob Manager).
+                    <strong>Finance Clearance Required:</strong> High risk score ({quote.risk_score}) or severe discount breach. Requires second-level Finance approval.
                   </span>
                 </div>
-                <span className="font-mono text-[11px] font-bold text-amber-800 shrink-0">Escalation Required</span>
+                <span className="font-mono text-[11px] font-bold text-band-finance shrink-0">Finance Escalation</span>
+              </div>
+            ) : quote.risk_band === 'MANAGER' ? (
+              <div className="rounded-xl bg-band-managerWash border border-band-manager/20 px-3.5 py-2.5 flex items-center justify-between gap-3 text-[12.5px] text-band-manager">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={15} className="text-band-manager shrink-0" />
+                  <span>
+                    <strong>Manager Approval Required:</strong> Risk score ({quote.risk_score}) exceeds auto-approval threshold. Submission will route to your sales manager.
+                  </span>
+                </div>
+                <span className="font-mono text-[11px] font-bold text-band-manager shrink-0">Escalation Required</span>
+              </div>
+            ) : repBreaches.length > 0 ? (
+              <div className="rounded-xl bg-band-autoWash border border-band-auto/20 px-3.5 py-2.5 flex items-center justify-between gap-3 text-[12.5px] text-band-auto">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 size={15} className="text-band-auto shrink-0" />
+                  <span>
+                    <strong>Within Blended Risk Tolerance:</strong> Minor line overage ({repBreaches.map(b => `${b.name}: ${b.effective_discount}%`).join(', ')}), but total risk score ({quote.risk_score}) is within auto-approval threshold. <strong>No manager sign-off needed.</strong>
+                  </span>
+                </div>
+                <span className="font-mono text-[11px] font-bold text-band-auto shrink-0">Auto-Approve Ready</span>
               </div>
             ) : (
-              <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-2.5 flex items-center justify-between gap-3 text-[12.5px] text-emerald-900">
+              <div className="rounded-xl bg-band-autoWash border border-band-auto/20 px-3.5 py-2.5 flex items-center justify-between gap-3 text-[12.5px] text-band-auto">
                 <div className="flex items-center gap-2">
-                  <CheckCircle2 size={15} className="text-emerald-600 shrink-0" />
+                  <CheckCircle2 size={15} className="text-band-auto shrink-0" />
                   <span>
                     <strong>Within Delegated Allowance:</strong> All product lines comply with your sales authority. Eligible for instant auto-confirmation.
                   </span>
                 </div>
-                <span className="font-mono text-[11px] font-bold text-emerald-800 shrink-0">Auto-Approve Ready</span>
+                <span className="font-mono text-[11px] font-bold text-band-auto shrink-0">Auto-Approve Ready</span>
               </div>
             )}
           </section>
@@ -376,17 +547,19 @@ export default function Builder() {
           <div className="flex flex-col gap-4 min-w-0">
 
             {/* Product catalogue (PS B3: pick products across categories) */}
-            <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-4">
+            <section className="panel p-4">
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <h2 className="font-display text-[14px] font-semibold text-fg mr-1">Add products</h2>
-                {CATEGORIES.map(c => (
+                {(['All', ...CATEGORIES] as const).map(c => (
                   <button
                     key={c}
                     onClick={() => { setCat(c); setSearch('') }}
-                    className={`rounded-full px-3 py-1 text-[12px] font-medium ${
-                      cat === c && !search ? 'bg-fg text-white' : 'text-fg-2 bg-surface-2 hover:text-fg'
+                    className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium
+                      transition-colors duration-150 ${
+                      cat === c && !search
+                        ? 'bg-fg text-white'
+                        : 'text-fg-3 bg-surface-2 hover:text-fg'
                     }`}
-                    style={{ transition: `all 280ms ${EASE_CSS}` }}
                   >
                     {c}
                   </button>
@@ -395,56 +568,146 @@ export default function Builder() {
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Search catalogue…"
-                  className="ml-auto w-44 rounded-full bg-surface-2 px-3.5 py-1.5 text-[12.5px]
-                             text-fg placeholder:text-fg-4 ring-1 ring-black/[.05]
-                             focus:ring-accent/40 outline-none"
+                  className="ml-auto w-48 rounded-md bg-surface px-2.5 py-1.5 text-[12px]
+                             text-fg placeholder:text-fg-4 ring-1 ring-black/[.08]
+                             focus:ring-accent/45 outline-none"
                 />
               </div>
 
-              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {catalogue.map(p => (
-                  <button
-                    key={p.sku}
-                    onClick={() => apply(() => api.addLine(ref, p.sku, 1, 0))}
-                    disabled={!editable || busy}
-                    className="group text-left rounded-xl bg-surface-2/70 ring-1 ring-black/[.04] p-3
-                               hover:ring-accent/35 hover:bg-surface disabled:opacity-40
-                               disabled:cursor-not-allowed"
-                    style={{ transition: `all 280ms ${EASE_CSS}` }}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="font-display text-[13px] font-semibold text-fg leading-tight">
-                        {p.name}
-                      </span>
-                      {p.is_promoted && (
-                        <span className="shrink-0 rounded-full bg-band-managerWash text-band-manager
-                                         px-1.5 py-0.5 font-mono text-[9px] font-semibold">PROMO</span>
-                      )}
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-between">
-                      <span className="font-mono text-[11px] text-fg-3">{inr(p.list_price)}</span>
-                      <span className="font-mono text-[10.5px] text-accent opacity-0 group-hover:opacity-100"
-                            style={{ transition: `opacity 280ms ${EASE_CSS}` }}>
-                        + Add
-                      </span>
-                    </div>
-                    {p.is_recurring && (
-                      <span className="mt-1 inline-block font-mono text-[9.5px] uppercase tracking-wider text-fg-3">
-                        recurring
-                      </span>
+              {/* Dense catalogue.
+                  Previously a three-column grid of padded cards: fourteen
+                  products filled the viewport and the price — the field a rep
+                  scans for — sat at fg-3 on a tinted card, the lowest-contrast
+                  text on screen. A rep picking lines wants a price list, so
+                  this is one: hairline rows, price right-aligned and tabular,
+                  category readable, and the whole catalogue visible at once. */}
+              <div className="scroll-x max-h-[340px] overflow-y-auto -mx-4 -mb-4 mt-1">
+                <table className="grid-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th>
+                      <th>SKU</th>
+                      <th>Category</th>
+                      <th className="text-right">List price</th>
+                      <th className="text-center w-28">In quote</th>
+                      <th className="w-16 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {catalogue.map(p => {
+                      const line = quote.lines?.find(l => l.sku === p.sku)
+                      const inQuoteQty = line?.qty ?? 0
+                      return (
+                        <tr
+                          key={p.sku}
+                          onClick={() => {
+                            if (!editable || busy) return
+                            if (line) {
+                              apply(() => api.patchLine(ref, line.id, { qty: line.qty + 1 }))
+                            } else {
+                              apply(() => api.addLine(ref, p.sku, 1, 0))
+                            }
+                          }}
+                          className={cn(
+                            editable && !busy ? 'cursor-pointer group' : 'opacity-45 cursor-not-allowed',
+                            inQuoteQty > 0 && 'bg-accent/[0.04]'
+                          )}
+                        >
+                          <td className="text-fg font-medium">
+                            <div className="flex items-center flex-wrap gap-1.5">
+                              <span>{p.name}</span>
+                              {p.is_promoted && (
+                                <span className="ml-1.5 rounded-sm bg-band-managerWash text-band-manager
+                                                 px-1 py-px font-mono text-[9px] font-semibold align-middle">
+                                  PROMO
+                                </span>
+                              )}
+                              {p.is_recurring && (
+                                <span className="ml-1.5 font-mono text-[9px] uppercase tracking-wider text-fg-4">
+                                  recurring
+                                </span>
+                              )}
+                              {inQuoteQty > 0 && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-accent/15 border border-accent/30 px-2 py-0.5 font-mono text-[10px] font-bold text-accent">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                                  Qty: {inQuoteQty}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td><span className="key text-fg-3">{p.sku}</span></td>
+                          <td className="text-fg-3">{p.category}</td>
+                          <td className="num text-fg-2">
+                            <AnimatedNumber value={p.list_price} format="inr" flash={false} />
+                          </td>
+                          <td className="text-center" onClick={e => e.stopPropagation()}>
+                            {inQuoteQty > 0 ? (
+                              <div className="inline-flex items-center gap-1 bg-surface-2 border border-black/[.08] rounded-md px-1.5 py-0.5 shadow-xs">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editable || busy || !line) return
+                                    if (line.qty > 1) {
+                                      apply(() => api.patchLine(ref, line.id, { qty: line.qty - 1 }))
+                                    } else {
+                                      apply(() => api.deleteLine(ref, line.id))
+                                    }
+                                  }}
+                                  disabled={!editable || busy}
+                                  title="Decrease quantity"
+                                  className="w-5 h-5 rounded hover:bg-surface-3 text-fg-2 hover:text-fg font-mono text-[11px] font-bold flex items-center justify-center transition-colors disabled:opacity-40"
+                                >
+                                  -
+                                </button>
+                                <span className="font-mono text-[11.5px] font-bold text-accent px-1 min-w-[20px] text-center">
+                                  {inQuoteQty}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!editable || busy || !line) return
+                                    apply(() => api.patchLine(ref, line.id, { qty: line.qty + 1 }))
+                                  }}
+                                  disabled={!editable || busy}
+                                  title="Increase quantity"
+                                  className="w-5 h-5 rounded hover:bg-surface-3 text-fg-2 hover:text-fg font-mono text-[11px] font-bold flex items-center justify-center transition-colors disabled:opacity-40"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="font-mono text-[11px] text-fg-4">—</span>
+                            )}
+                          </td>
+                          <td className="text-right">
+                            {inQuoteQty > 0 ? (
+                              <span className="font-mono text-[11px] text-accent font-semibold">
+                                + Add
+                              </span>
+                            ) : (
+                              <span className="font-mono text-[11px] text-accent opacity-0
+                                               group-hover:opacity-100 transition-opacity">
+                                + Add
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                    {catalogue.length === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-[12.5px] text-fg-3">
+                          No products match “{search}”.
+                        </td>
+                      </tr>
                     )}
-                  </button>
-                ))}
-                {catalogue.length === 0 && (
-                  <p className="col-span-full py-6 text-center text-[13px] text-fg-3">
-                    No products match “{search}”.
-                  </p>
-                )}
+                  </tbody>
+                </table>
               </div>
             </section>
 
             {/* Cart (PS B3: order lines, qty steppers, line discounts) */}
-            <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+            <section className="panel">
               <div className="px-4 py-3 border-b border-line flex items-center justify-between">
                 <h2 className="font-display text-[14px] font-semibold text-fg">
                   Order lines <span className="text-fg-3 font-normal">({(quote.lines ?? []).length})</span>
@@ -483,6 +746,11 @@ export default function Builder() {
                                 {l.sku} · {l.category} · {inr(l.list_price)}
                                 {l.is_recurring && ' · recurring'}
                               </div>
+                              {/* Live ATP at the quantity on this line. A
+                                  subscription has no shelf, so it gets none. */}
+                              {!l.is_recurring && (
+                                <StockIndicator sku={l.sku} qty={l.qty} className="mt-1" />
+                              )}
                             </td>
 
                             {/* Quantity stepper (PS B3: adjust quantities +/-) */}
@@ -574,11 +842,11 @@ export default function Builder() {
                 </label>
 
                 <div className="ml-auto flex items-center gap-7 font-mono text-[12px] tabular-nums">
-                  <span className="text-fg-3">Subtotal <b className="text-fg-2 ml-1.5">{inr(quote.subtotal)}</b></span>
-                  <span className="text-fg-3">Discount <b className="text-band-finance ml-1.5">−{inr(quote.discount_total)}</b></span>
-                  <span className="text-fg-3">Tax <b className="text-fg-2 ml-1.5">{inr(quote.tax_total)}</b></span>
+                  <span className="text-fg-3">Subtotal <AnimatedNumber value={quote.subtotal} format="inr" flash={false} className="text-fg-2 ml-1.5 font-semibold" /></span>
+                  <span className="text-fg-3">Discount <AnimatedNumber value={quote.discount_total} format="inr" prefix="−" polarity="lower-better" className="text-band-finance ml-1.5 font-semibold" /></span>
+                  <span className="text-fg-3">Tax <AnimatedNumber value={quote.tax_total} format="inr" flash={false} className="text-fg-2 ml-1.5 font-semibold" /></span>
                   {quote.total_recurring > 0 && (
-                    <span className="text-fg-3">Recurring <b className="text-fg-2 ml-1.5">{inr(quote.total_recurring)}</b></span>
+                    <span className="text-fg-3">Recurring <AnimatedNumber value={quote.total_recurring} format="inr" flash={false} className="text-fg-2 ml-1.5 font-semibold" /></span>
                   )}
                 </div>
               </div>
@@ -587,14 +855,14 @@ export default function Builder() {
 
           {/* ── RIGHT: Customer Deal Room Card OR Internal Margin/Risk Intelligence ── */}
           <aside className="flex flex-col gap-4 xl:sticky xl:top-[72px]">
-            {user.role === 'CUSTOMER' ? (
+            {user?.role === 'customer' ? (
               /* Buyer Deal Room Summary (Strictly no internal margin/risk metrics) */
-              <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5 flex flex-col gap-4">
+              <section className="panel p-4 flex flex-col gap-3.5">
                 <div className="flex items-center justify-between pb-3 border-b border-line">
                   <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
                     Corporate Deal Room
                   </span>
-                  <span className="font-mono text-[10px] uppercase tracking-wider font-semibold text-emerald-700 bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                  <span className="font-mono text-[10px] uppercase tracking-wider font-semibold text-band-auto bg-band-autoWash px-2 py-0.5 rounded-full">
                     Active Offer
                   </span>
                 </div>
@@ -603,9 +871,10 @@ export default function Builder() {
                   <div className="text-[12px] text-fg-3 mb-1 font-mono uppercase tracking-wider">
                     Total Order Payable
                   </div>
-                  <div className="font-display text-[32px] font-extrabold text-fg tabular-nums leading-none">
-                    {inr(quote.total)}
-                  </div>
+                  <AnimatedNumber
+                    value={quote.total} format="inr"
+                    className="font-display text-[28px] font-extrabold text-fg leading-none"
+                  />
                   {/* Report the discount actually applied to THIS order. The
                       previous copy asserted a flat "20% Gold Tier" figure that
                       the policy never grants (Gold caps at 15%) and that this
@@ -617,22 +886,28 @@ export default function Builder() {
                   </div>
                 </div>
 
+                {/* Only facts this quotation actually carries. The previous
+                    version stated a "Main Warehouse Hub", a "2-3 Business Days"
+                    lead time and an account executive called "Alice Sales" —
+                    none of which exist in the system. Allocation decides the
+                    depot, and it has not run at quotation time, so the honest
+                    answer is to say so rather than to invent one. */}
                 <div className="space-y-2.5 py-3 border-y border-line text-[12.5px]">
                   <div className="flex items-center justify-between">
-                    <span className="text-fg-3">Commercial Terms:</span>
-                    <span className="font-medium text-fg">Net-30 Invoice</span>
+                    <span className="text-fg-3">Reference</span>
+                    <span className="key text-fg">{quote.ref}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-fg-3">Fulfillment Depot:</span>
-                    <span className="font-medium text-fg">Main Warehouse Hub</span>
+                    <span className="text-fg-3">Pricing tier</span>
+                    <span className="font-medium text-fg">{quote.tier}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-fg-3">Delivery Lead Time:</span>
-                    <span className="font-medium text-fg">2-3 Business Days</span>
+                    <span className="text-fg-3">Account executive</span>
+                    <span className="font-medium text-fg">{quote.rep}</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-fg-3">Account Executive:</span>
-                    <span className="font-medium text-fg">Alice Sales</span>
+                    <span className="text-fg-3">Fulfilment depot</span>
+                    <span className="text-fg-3 italic">Assigned on confirmation</span>
                   </div>
                 </div>
 
@@ -640,17 +915,17 @@ export default function Builder() {
                   <button
                     onClick={handleCustomerAccept}
                     disabled={busy || quote.state === 'CONFIRMED' || quote.state === 'FULFILLED'}
-                    className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white py-3 font-display text-[13.5px] font-semibold shadow-lift flex items-center justify-center gap-2 active:scale-[.98] transition-all disabled:opacity-40"
+                    className="w-full rounded-xl bg-band-auto hover:brightness-110 text-white py-3 font-display text-[13.5px] font-semibold shadow-lift flex items-center justify-center gap-2 active:scale-[.98] transition-all disabled:opacity-40"
                   >
                     <FileCheck size={16} />
                     <span>{quote.state === 'CONFIRMED' ? 'Quotation Accepted' : 'Accept & Sign Agreement'}</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      setFlash('Official quotation PDF generated and downloaded.')
-                      setTimeout(() => setFlash(null), 3000)
-                    }}
+                    // Really prints. This previously flashed "PDF generated and
+                    // downloaded" and produced no file at all; the print
+                    // stylesheet in index.css is what makes the output usable.
+                    onClick={() => window.print()}
                     className="w-full rounded-xl bg-surface-2 hover:bg-surface-3 text-fg-2 py-2.5 font-display text-[12.5px] font-medium flex items-center justify-center gap-2 transition-all"
                   >
                     <Download size={14} />
@@ -661,7 +936,7 @@ export default function Builder() {
             ) : (
               /* Internal Sales & Operations Margin Intelligence */
               <>
-                <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-4 flex flex-col gap-3.5">
+                <section className="panel p-4 flex flex-col gap-3.5">
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
                       Live margin
@@ -673,9 +948,11 @@ export default function Builder() {
 
                   <div>
                     <div className="flex items-baseline gap-2">
-                      <span className="font-display text-[30px] font-bold text-fg tabular-nums leading-none">
-                        {quote.margin_pct}%
-                      </span>
+                      <AnimatedNumber
+                        value={quote.margin_pct} format="pct" precision={1}
+                        polarity="higher-better"
+                        className="font-display text-[26px] font-bold text-fg leading-none"
+                      />
                       <span className="text-[12px] text-fg-3">after discount</span>
                     </div>
                     <div className="mt-2.5 h-2.5 rounded-full bg-surface-2 overflow-hidden">
@@ -699,9 +976,11 @@ export default function Builder() {
                       </div>
                       <Band band={quote.risk_band} />
                     </div>
-                    <span className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-                      {quote.risk_score.toFixed(1)}
-                    </span>
+                    <AnimatedNumber
+                      value={quote.risk_score} format="dec" precision={1}
+                      polarity="lower-better"
+                      className="font-display text-[24px] font-bold text-fg leading-none"
+                    />
                   </div>
 
                   {(quote.lines ?? []).length > 0 && (
@@ -717,7 +996,7 @@ export default function Builder() {
                   ))}
 
                   {/* Counterfactual coaching — only for reps to optimize discount */}
-                  {user.role === 'REP' && coach?.available && (
+                  {user?.role === 'rep' && coach?.available && (
                     <div className="rounded-xl bg-accent-wash ring-1 ring-accent/20 p-3">
                       <div className="font-mono text-[9.5px] uppercase tracking-eyebrow text-accent mb-1.5">
                         To skip approval
@@ -738,7 +1017,7 @@ export default function Builder() {
                   )}
                 </section>
 
-                <div className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-4">
+                <div className="panel p-4">
                   <UpsellPanel
                     suggestions={suggestions} basis={basis} filtered={filtered}
                     onAdd={addSuggestion} busy={!editable || busy}

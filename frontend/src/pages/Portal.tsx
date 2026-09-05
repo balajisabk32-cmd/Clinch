@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, inr } from '../lib/api'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { EASE_CSS } from '../lib/motion'
 
 /**
@@ -20,6 +21,16 @@ import { EASE_CSS } from '../lib/motion'
  *      internal is ever sent.
  *   3. Access is by signed, single-quote token — not a role flag a viewer could
  *      flip in localStorage.
+ *
+ * DESIGN READ: a single-document negotiation suite for an executive buyer.
+ * Composed, generous, letterpress-calm — a premium offer document.
+ * Dials — variance 6, motion 4, density 2.
+ *
+ * Those dials are the deliberate inverse of the console's (3 / 5 / 9). The air
+ * gap is not only structural: a customer who has seen this page and then
+ * glimpses the cockpit should not recognise them as the same product. So the
+ * console gets chamfers, hairline grids and 11px monospace; this gets the
+ * double-bezel, wide leading and room to breathe.
  */
 
 const DEMO_TOKENS = [
@@ -96,11 +107,9 @@ export default function Portal() {
       <header className="border-b border-line bg-surface">
         <div className="mx-auto max-w-[1000px] px-5 h-14 flex items-center gap-6">
           <img src="/CLINCH_LOGO_TRANSPARENT.png" alt="Clinch" className="h-[19px] w-auto" />
-          <nav className="flex items-center gap-1 text-[13px]">
-            <span className="rounded-full bg-fg text-white px-3 py-1.5 font-medium">My Quotation</span>
-            <span className="rounded-full px-3 py-1.5 text-fg-3">Messages</span>
-            <span className="rounded-full px-3 py-1.5 text-fg-3">Profile</span>
-          </nav>
+          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+            Secure quotation
+          </span>
           <select
             value={token}
             onChange={e => setParams({ token: e.target.value })}
@@ -113,7 +122,7 @@ export default function Portal() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1000px] px-5 py-8 flex flex-col gap-5">
+      <main className="mx-auto max-w-[880px] px-5 py-14 flex flex-col gap-8">
         {error && (
           <div className="rounded-xl bg-band-financeWash ring-1 ring-band-finance/20 px-4 py-3
                           text-[13px] text-band-finance">{error}</div>
@@ -125,10 +134,10 @@ export default function Portal() {
           <>
             <div className="flex flex-wrap items-start gap-4">
               <div>
-                <h1 className="font-display text-[26px] font-bold text-fg leading-tight">
+                <h1 className="font-display text-[34px] font-bold text-fg leading-[1.1] tracking-tight">
                   Quotation {quote.ref}
                 </h1>
-                <p className="text-[13.5px] text-fg-2 mt-1">
+                <p className="text-[14px] text-fg-2 mt-2 leading-relaxed">
                   Prepared for {quote.customer} · valid until {quote.valid_until}
                 </p>
               </div>
@@ -144,34 +153,35 @@ export default function Portal() {
             )}
 
             {/* Document-style line listing — a quotation, not a data grid. */}
-            <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+            <section className="bezel">
+              <div className="bezel-core overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-[13.5px] min-w-[560px]">
+                <table className="w-full text-[14px] min-w-[560px]">
                   <thead>
                     <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
                                    border-b border-line">
-                      <th className="text-left font-medium px-5 py-3">Item</th>
-                      <th className="text-right font-medium px-3 py-3 w-20">Qty</th>
-                      <th className="text-right font-medium px-3 py-3 w-32">Unit price</th>
-                      <th className="text-right font-medium px-3 py-3 w-24">Discount</th>
-                      <th className="text-right font-medium px-5 py-3 w-32">Total</th>
+                      <th className="text-left font-medium px-6 py-4">Item</th>
+                      <th className="text-right font-medium px-4 py-4 w-20">Qty</th>
+                      <th className="text-right font-medium px-4 py-4 w-32">Unit price</th>
+                      <th className="text-right font-medium px-4 py-4 w-24">Discount</th>
+                      <th className="text-right font-medium px-6 py-4 w-32">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {quote.lines.map(l => (
                       <tr key={l.id} className="border-b border-line last:border-0">
-                        <td className="px-5 py-3">
+                        <td className="px-6 py-4">
                           <div className="text-fg font-medium">{l.name}</div>
                           <div className="font-mono text-[10.5px] text-fg-3 mt-0.5">{l.category}</div>
                         </td>
-                        <td className="px-3 py-3 text-right font-mono tabular-nums text-fg-2">{l.qty}</td>
-                        <td className="px-3 py-3 text-right font-mono tabular-nums text-fg-2">
+                        <td className="px-4 py-4 text-right font-mono tabular-nums text-fg-2">{l.qty}</td>
+                        <td className="px-4 py-4 text-right font-mono tabular-nums text-fg-2">
                           {inr(l.unit_price)}
                         </td>
-                        <td className="px-3 py-3 text-right font-mono tabular-nums text-fg-2">
+                        <td className="px-4 py-4 text-right font-mono tabular-nums text-fg-2">
                           {l.discount_pct > 0 ? `${l.discount_pct}%` : '—'}
                         </td>
-                        <td className="px-5 py-3 text-right font-mono tabular-nums text-fg font-semibold">
+                        <td className="px-6 py-4 text-right font-mono tabular-nums text-fg font-semibold">
                           {inr(l.line_total)}
                         </td>
                       </tr>
@@ -180,19 +190,22 @@ export default function Portal() {
                 </table>
               </div>
 
-              <div className="border-t border-line px-5 py-4 flex flex-col items-end gap-1.5
+              <div className="border-t border-line px-6 py-5 flex flex-col items-end gap-2
                               font-mono text-[13px] tabular-nums">
                 <span className="text-fg-3">Subtotal <b className="text-fg-2 ml-3">{inr(quote.subtotal)}</b></span>
                 <span className="text-fg-3">Discount <b className="text-band-auto ml-3">−{inr(quote.discount_total)}</b></span>
                 <span className="text-fg-3">Tax <b className="text-fg-2 ml-3">{inr(quote.tax_total)}</b></span>
-                <span className="text-[16px] text-fg font-semibold mt-1">
-                  Total <b className="ml-3">{inr(quote.total)}</b>
+                <span className="text-[20px] text-fg font-semibold mt-2 flex items-baseline">
+                  Total
+                  <AnimatedNumber value={quote.total} format="inr"
+                                  className="ml-3 text-[20px] font-semibold" />
                 </span>
                 {quote.recurring_total > 0 && (
                   <span className="text-[11.5px] text-fg-3">
                     includes {inr(quote.recurring_total)} billed on a recurring schedule
                   </span>
                 )}
+              </div>
               </div>
             </section>
 

@@ -61,6 +61,20 @@ def set_policy(p: Policy) -> None:
     _policy = p
 
 
+def get_product(sku: str) -> dict[str, Any] | None:
+    """Find product in current working state, falling back to static fixtures."""
+    for p in PRODUCTS:
+        if p["sku"] == sku:
+            return p
+    return fx.BY_SKU.get(sku)
+
+
+def sync_by_sku() -> None:
+    """Synchronize mutable products with fx.BY_SKU dictionary."""
+    for p in PRODUCTS:
+        fx.BY_SKU[p["sku"]] = p
+
+
 def reset(persist: bool = True) -> None:
     """Restore golden demo state.
 
@@ -85,6 +99,7 @@ def reset(persist: bool = True) -> None:
     STOCK_MOVES.clear()
     PRODUCTS.clear()
     PRODUCTS.extend(copy.deepcopy(fx.PRODUCTS))
+    sync_by_sku()
     PRICE_LISTS.clear()
     PRICE_LISTS.extend(copy.deepcopy(fx.PRICE_LISTS))
     _IDEMPOTENCY = {}
@@ -103,6 +118,52 @@ def reset(persist: bool = True) -> None:
             actor_role="rep", event_type="created", reason=None,
             created_at=fx.last_activity(r["ref"]),
         ))
+
+
+def record_approval(ref: str, *, user_id: str, name: str, role: str) -> None:
+    """Stamp who signed a quotation off, on the quotation itself.
+
+    deal_events keeps the full history and stays the source of truth. This is a
+    denormalised copy so "who approved this, and when" is a single read rather
+    than a scan back through an append-only log, and so the field survives into
+    the quote detail response the UI renders.
+    """
+    row = QUOTES.get(ref)
+    if row is None:
+        return
+    row["approved_by_id"] = user_id
+    row["approved_by_name"] = name
+    row["approved_by_role"] = role
+    row["approved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Approving clears any outstanding revision request: the thing the manager
+    # asked for has now been dealt with one way or the other.
+    row["revision_requested"] = False
+
+
+def request_revision(ref: str, *, notes: str) -> None:
+    """Send a quotation back to its rep with a coaching note."""
+    row = QUOTES.get(ref)
+    if row is None:
+        return
+    row["manager_revision_notes"] = notes
+    row["revision_requested"] = True
+    # An earlier approval no longer stands once the deal is reopened.
+    row["approved_by_id"] = None
+    row["approved_by_name"] = None
+    row["approved_by_role"] = None
+    row["approved_at"] = None
+
+
+def approval_meta(ref: str) -> dict[str, Any]:
+    row = QUOTES.get(ref) or {}
+    return {
+        "approved_by_id": row.get("approved_by_id"),
+        "approved_by_name": row.get("approved_by_name"),
+        "approved_by_role": row.get("approved_by_role"),
+        "approved_at": row.get("approved_at"),
+        "manager_revision_notes": row.get("manager_revision_notes"),
+        "revision_requested": bool(row.get("revision_requested")),
+    }
 
 
 def state_of(ref: str) -> str:
@@ -190,6 +251,24 @@ reset()
 #  fixtures module only supplies the starting book of business.
 # --------------------------------------------------------------------------- #
 
+def make_line(sku: str, qty: int, discount_pct: float = 0.0) -> Line:
+    p = get_product(sku)
+    if not p:
+        p = fx.BY_SKU.get(sku)
+    if not p:
+        raise KeyError(f"Unknown SKU: {sku}")
+    return Line(
+        sku=p["sku"],
+        name=p.get("name") or p["sku"],
+        category=p.get("category", "Hardware"),
+        qty=qty,
+        list_price=float(p.get("list_price", 0.0)),
+        cost=float(p.get("cost", 0.0)),
+        discount_pct=float(discount_pct),
+        is_recurring=bool(p.get("is_recurring", False)),
+    )
+
+
 def build_quote(ref: str) -> Quote | None:
     row = QUOTES.get(ref)
     if row is None:
@@ -197,15 +276,24 @@ def build_quote(ref: str) -> Quote | None:
     return Quote(
         ref=ref, customer=row["customer"], tier=row["tier"], rep_id=row["rep"],
         order_discount_pct=row.get("order_discount_pct", 0.0),
-        lines=[fx.make_line(l["sku"], l["qty"], l["discount_pct"]) for l in row["lines"]],
+        lines=[make_line(l["sku"], l["qty"], l["discount_pct"]) for l in row["lines"]],
     )
 
 
-def create_quote(customer: str, rep: str) -> str:
+def create_quote(customer: str, rep: str, tier: str | None = None) -> str:
+    """Open a DRAFT quotation.
+
+    `tier` is explicit for self-registered customers, whose company is not in
+    the seeded CUSTOMERS map — they carry their own earned tier on their account
+    instead. Looking it up unconditionally raised KeyError the moment a customer
+    who signed up through the storefront requested a quotation.
+    """
     _next_ref[0] += 1
     ref = f"Q-{_next_ref[0]}"
     QUOTES[ref] = dict(
-        customer=customer, tier=fx.CUSTOMERS[customer]["tier"], rep=rep,
+        customer=customer,
+        tier=tier or fx.CUSTOMERS.get(customer, {}).get("tier", "Bronze"),
+        rep=rep,
         order_discount_pct=0.0, lines=[],
     )
     QUOTE_STATE[ref] = "DRAFT"
@@ -262,6 +350,12 @@ def available(warehouse: str, sku: str) -> int:
 def on_hand(warehouse: str, sku: str) -> int:
     q = STOCK.get(warehouse, {}).get(sku)
     return q["on_hand"] if q else 0
+
+
+def record_move(warehouse: str, sku: str, kind: str, qty: int,
+                ref: str | None = None) -> None:
+    """Public alias for _move, for callers outside this module."""
+    _move(warehouse, sku, kind, qty, ref or "*")
 
 
 def _move(warehouse: str, sku: str, kind: str, qty: int, ref: str) -> None:
@@ -378,6 +472,9 @@ def boot() -> None:
     from . import db, repository
 
     db.connect()
+    # Reference rows first, and on every path: a database seeded before plans
+    # existed, or restored from an older golden snapshot, still needs them.
+    repository.ensure_reference_data()
     if db.has_data():
         repository.load_into(_module())
         return
@@ -395,6 +492,10 @@ def restore() -> float:
 
     started = time.perf_counter()
     if db.restore_golden():
+        # The snapshot may predate any reference row added since it was taken,
+        # and restore replaces the database wholesale -- so re-assert them
+        # before loading, or a reset mid-demo empties the price book.
+        repository.ensure_reference_data()
         repository.load_into(_module())
     else:
         reset(persist=False)

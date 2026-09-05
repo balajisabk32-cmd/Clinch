@@ -14,8 +14,7 @@ Write-Host "  1. Showcase & Landing:  http://localhost:8085" -ForegroundColor Wh
 Write-Host "  2. React Workspace:     http://localhost:5173 (Login: /login)" -ForegroundColor White
 Write-Host "  3. RevOps Admin Portal: http://localhost:3000" -ForegroundColor White
 Write-Host "  4. Python API Engine:   http://localhost:8000/docs" -ForegroundColor White
-Write-Host "  5. Clinch Core API:     http://localhost:5000" -ForegroundColor White
-Write-Host "  6. Deal Health Suite:   http://localhost:4000" -ForegroundColor White
+Write-Host "  5. Deal Health Suite:   http://localhost:5173/app/health (Unified)" -ForegroundColor White
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 function Start-PythonBackend {
@@ -43,11 +42,6 @@ function Start-ClinchCore {
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root\clinch'; npm start"
 }
 
-function Start-ClinchReporting {
-    Write-Host "Launching Clinch Deal Health Suite (:4000)..." -ForegroundColor Green
-    Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root\clinch'; npm run start:reporting"
-}
-
 function Start-Showcase {
     Write-Host "Launching Showcase Server (:8085)..." -ForegroundColor Green
     Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd '$root\showcase'; python -m http.server 8085"
@@ -58,15 +52,11 @@ switch ($Service) {
         Start-PythonBackend
         Start-Frontend
         Start-AdminPortal
-        Start-ClinchCore
-        Start-ClinchReporting
         Start-Showcase
-        Write-Host "`nAll 6 DealFlow360 services launched in background terminal windows." -ForegroundColor Cyan
+        Write-Host "`nAll DealFlow360 services launched (Deal Health integrated at :5173/app/health)." -ForegroundColor Cyan
     }
     "api" { Start-PythonBackend }
     "frontend" { Start-Frontend }
     "admin" { Start-AdminPortal }
-    "clinch" { Start-ClinchCore }
-    "reporting" { Start-ClinchReporting }
     "showcase" { Start-Showcase }
 }

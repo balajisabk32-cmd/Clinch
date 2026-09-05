@@ -1,9 +1,26 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { api, inr } from '../lib/api'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2, LayoutGrid, Rows3, Search } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+import { api } from '../lib/api'
 import { Band } from '../components/ui'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { ErrorBar, Workspace } from '../components/Workspace'
-import { EASE_CSS } from '../lib/motion'
+import { cn } from '../lib/cn'
+
+/**
+ * Quotations — list and pipeline (wireframe screen 3, PS B2).
+ *
+ * DESIGN READ: work queue for an operator who already knows what they are
+ * looking for. Instrument panel language, density 9.
+ *
+ * Two views of one set. The table is for scanning forty rows for the one that
+ * is bleeding; the pipeline is for seeing where the book is stuck. Both were
+ * previously built from floating `rounded-xl` cards with shadow and hover-lift,
+ * which is the pattern that makes twelve quotations fill a screen — so the
+ * table is now a real hairline grid and the pipeline columns carry their own
+ * running totals, which is the number an operator actually wants from a column.
+ */
 
 interface Row {
   ref: string; customer: string; tier: string; rep: string; state: string
@@ -17,20 +34,43 @@ interface Row {
 }
 
 /** Kanban stages, in lifecycle order (PS B2). */
-const STAGES = [
-  { key: 'DRAFT', label: 'Draft' },
-  { key: 'PENDING_MANAGER', label: 'Pending Approval' },
-  { key: 'PENDING_FINANCE', label: 'Pending Finance' },
+/* Kanban columns, in lifecycle order (PS B2).
+
+   "Revision required" is not a state on the server -- it is DRAFT carrying a
+   manager's note. It gets its own column because those two are the same thing
+   to the engine and completely different things to a rep: one is work not
+   started, the other is work handed back with a reason. */
+const STAGES: Array<{ key: string; label: string; match?: (r: Row) => boolean }> = [
+  { key: 'REVISION', label: 'Revision required',
+    match: r => r.state === 'DRAFT' && !!r.revision_requested },
+  { key: 'DRAFT', label: 'Draft',
+    match: r => r.state === 'DRAFT' && !r.revision_requested },
+  { key: 'PENDING_MANAGER', label: 'Pending manager' },
+  { key: 'PENDING_FINANCE', label: 'Pending finance' },
   { key: 'APPROVED', label: 'Approved' },
   { key: 'NEGOTIATION', label: 'Negotiation' },
   { key: 'CONFIRMED', label: 'Confirmed' },
+  { key: 'FULFILLED', label: 'Fulfilled' },
+  { key: 'SETTLED', label: 'Invoiced / paid',
+    match: r => r.state === 'INVOICED' || r.state === 'PAID' },
 ]
 
 const CUSTOMERS = ['Acme Corp', 'Beta Industries', 'Nova Retail', 'Zenith Co',
                    'Delta LLC', 'Orion Systems', 'Vertex Labs']
 
+const railFor = (r: Row) =>
+  r.is_stalled ? 'rail-finance'
+    : r.risk_band === 'FINANCE' ? 'rail-finance'
+      : r.risk_band === 'MANAGER' ? 'rail-manager'
+        : r.risk_band === 'AUTO' ? 'rail-auto' : 'rail-idle'
+
 export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipeline' }) {
   const navigate = useNavigate()
+  const location = useLocation() as unknown as
+    { pathname: string; state?: { flash?: string } }
+  const [flash, setFlash] = useState<string | null>(location.state?.flash ?? null)
+  const { user } = useAuth()
+  const isRep = user?.role === 'rep'
   const [rows, setRows] = useState<Row[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -120,18 +160,98 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
 
   return (
     <Workspace onReload={load}>
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {error && <ErrorBar message={error} onRetry={load} />}
 
-        <header className="flex flex-wrap items-center gap-3">
-          <div>
-            <h1 className="font-display text-[22px] font-bold text-fg">
+        {flash && (
+          <div className="flex items-center justify-between rounded-xl bg-band-autoWash border border-band-auto/25 px-4 py-3 text-[13px] text-band-auto font-medium animate-fadeIn">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 size={16} className="text-band-auto shrink-0" />
+              <span>{flash}</span>
+            </div>
+            <button
+              onClick={() => setFlash(null)}
+              className="text-band-auto/70 hover:text-band-auto text-xs font-mono px-2 py-0.5"
+              aria-label="Dismiss message"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* Returned deals lead, because they are the only ones with someone
+            waiting on this rep. The note is shown in full: a truncated
+            instruction is an instruction the rep has to go and ask about. */}
+        {returned.length > 0 && tab !== 'action' && (
+          <button
+            onClick={() => setParams({ tab: 'action' }, { replace: true })}
+            className="text-left rounded-xl bg-band-managerWash border border-band-manager/25
+                       px-4 py-3 flex items-start gap-2.5 hover:border-band-manager/45
+                       transition-colors"
+          >
+            <AlertTriangle size={16} className="text-band-manager shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-band-manager">
+                {returned.length} quotation{returned.length > 1 ? 's' : ''} returned for revision
+              </div>
+              <p className="text-[12.5px] text-band-manager/90 mt-0.5 leading-relaxed">
+                “{returned[0].manager_revision_notes}”
+                {returned.length > 1 && ` · and ${returned.length - 1} more`}
+              </p>
+            </div>
+          </button>
+        )}
+
+        <div className="flex flex-wrap items-center gap-1">
+          {TABS.map(t => {
+            const n = rows.filter(t.match).length
+            const isAction = t.key === 'action' && n > 0
+            return (
+              <button
+                key={t.key}
+                onClick={() => setParams(t.key === 'all' ? {} : { tab: t.key }, { replace: true })}
+                aria-pressed={tab === t.key}
+                className={cn(
+                  'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1',
+                  'text-[11.5px] font-medium transition-colors duration-150',
+                  tab === t.key ? 'bg-fg text-white'
+                    : isAction ? 'bg-band-managerWash text-band-manager hover:brightness-95'
+                      : 'text-fg-3 hover:text-fg hover:bg-surface-2',
+                )}
+              >
+                {t.label}
+                <span className={cn('font-mono text-[10px] tabular-nums',
+                                    tab === t.key ? 'text-white/70' : 'opacity-70')}>
+                  {n}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="flex items-center gap-2">
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">
               {mode === 'pipeline' ? 'Pipeline' : 'Quotations'}
             </h1>
-            <p className="text-[12px] text-fg-3 mt-0.5">
-              {`${displayRows.length} active quotations in governance cycle.`}
-            </p>
+            {user?.role === 'manager' && (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-accent/10 border border-accent/25 px-2.5 py-0.5 font-mono text-[11px] font-bold text-accent">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                {user.name}'s Reps
+              </span>
+            )}
           </div>
+          <p className="text-[12px] text-fg-3 flex items-baseline gap-1">
+            <AnimatedNumber value={displayRows.length} format="int" className="text-[12px]" />
+            {' '}in governance cycle ·
+            <AnimatedNumber
+              value={bookValue}
+              format="inr-compact"
+              flash={false}
+              className="text-[12px] text-fg-2 font-semibold"
+            />
+            {' '}book value
+          </p>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {/* Filter Toggle: All vs Customer Requests vs Rep Created vs Unassigned */}
@@ -183,31 +303,17 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
 
             {(
               <>
-                <button
-                  onClick={() => setMode(m => (m === 'list' ? 'pipeline' : 'list'))}
-                  className="rounded-full px-3 py-1.5 text-[12.5px] text-fg-2 bg-surface
-                             ring-1 ring-black/[.07] hover:text-accent hover:ring-accent/35"
-                  style={{ transition: `all 320ms ${EASE_CSS}` }}
-                >
-                  {mode === 'list' ? 'Switch to Pipeline View' : 'Switch to Table View'}
-                </button>
                 <select
                   value={newFor}
                   onChange={e => setNewFor(e.target.value)}
-                  className="rounded-full bg-surface px-3 py-1.5 text-[12.5px] text-fg
-                             ring-1 ring-black/[.07] outline-none focus:ring-accent/40"
+                  className="rounded-md bg-surface px-2.5 py-1.5 text-[12px] text-fg
+                             ring-1 ring-black/[.08] outline-none focus:ring-accent/45"
                   aria-label="Customer for new quotation"
                 >
                   {CUSTOMERS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <button
-                  onClick={create}
-                  disabled={busy}
-                  className="rounded-full bg-fg text-white px-4 py-1.5 font-display text-[12.5px]
-                             font-semibold hover:shadow-lift-lg active:scale-[.98] disabled:opacity-40"
-                  style={{ transition: `all 320ms ${EASE_CSS}` }}
-                >
-                  + New Quotation
+                <button onClick={create} disabled={busy} className="ctl ctl-primary">
+                  {busy ? 'Creating…' : '+ New Quotation'}
                 </button>
               </>
             )}
@@ -215,59 +321,78 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
         </header>
 
         {displayRows.length === 0 && !error && (
-          <p className="py-16 text-center text-[13px] text-fg-3">
-            No open quotations. Create one to get started.
-          </p>
+          <div className="panel px-4 py-16 text-center">
+            <p className="text-[12.5px] text-fg-3">
+              {query
+                ? <>Nothing matches “{query}”.</>
+                : isRep ? 'No open quotations. Create one to get started.'
+                  : 'No open quotations.'}
+            </p>
+          </div>
         )}
 
         {mode === 'pipeline' ? (
-          <div className="grid gap-3 overflow-x-auto"
-               style={{ gridTemplateColumns: `repeat(${STAGES.length}, minmax(210px, 1fr))` }}>
-            {STAGES.map(st => {
-              const inStage = displayRows.filter(r => r.state === st.key)
-              return (
-                <div key={st.key} className="flex flex-col gap-2.5 min-w-0">
-                  <div className="flex items-center gap-2 px-1">
-                    <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
-                      {st.label}
-                    </span>
-                    <span className="font-mono text-[10px] text-fg-4 tabular-nums">{inStage.length}</span>
-                  </div>
-                  {inStage.map(r => <Card key={r.ref} r={r} />)}
-                  {inStage.length === 0 && (
-                    <div className="rounded-xl border border-dashed border-line-2 py-6 text-center
-                                    text-[11.5px] text-fg-4">
-                      Empty
+          <div className="scroll-x pb-1">
+            <div className="grid gap-2.5"
+                 style={{ gridTemplateColumns: `repeat(${STAGES.length}, minmax(196px, 1fr))` }}>
+              {STAGES.map(st => {
+                const inStage = displayRows.filter(
+                  st.match ? st.match : r => r.state === st.key)
+                const stageValue = inStage.reduce((a, r) => a + r.total, 0)
+                return (
+                  <div key={st.key} className="flex flex-col gap-2 min-w-0">
+                    {/* Column header carries the money, which is the number an
+                        operator wants from a stage — not just the count. */}
+                    <div className="panel-sq px-2.5 py-2 flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="panel-title truncate">{st.label}</span>
+                        <AnimatedNumber
+                          value={inStage.length}
+                          format="int"
+                          className="text-[11px] text-fg-3"
+                        />
+                      </div>
+                      <AnimatedNumber
+                        value={stageValue}
+                        format="inr-compact"
+                        flash={false}
+                        className="text-[13px] font-semibold text-fg"
+                      />
                     </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        ) : (
-          <div className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px] min-w-[760px]">
-                <thead>
-                  <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3 border-b border-line">
-                    <th className="text-left font-medium px-4 py-2.5">Quotation</th>
-                    <th className="text-left font-medium px-3 py-2.5">Status</th>
-                    {(
-              <>
-                        <th className="text-left font-medium px-3 py-2.5">Rep</th>
-                        <th className="text-right font-medium px-3 py-2.5">Risk</th>
-                        <th className="text-left font-medium px-3 py-2.5">Band</th>
-                      </>
+                    {inStage.map(r => <Card key={r.ref} r={r} />)}
+                    {inStage.length === 0 && (
+                      <div className="rounded-md border border-dashed border-line-2 py-5 text-center
+                                      text-[11px] text-fg-4">
+                        Empty
+                      </div>
                     )}
-                    <th className="text-right font-medium px-4 py-2.5">Amount</th>
-                                      </tr>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : displayRows.length > 0 && (
+          <div className="panel">
+            <div className="scroll-x">
+              <table className="grid-table min-w-[820px]">
+                <thead>
+                  <tr>
+                    <th>Ref</th>
+                    <th>Customer</th>
+                    <th>Tier</th>
+                    <th>Rep</th>
+                    <th>Status</th>
+                    <th>Band</th>
+                    <th className="text-right">Risk</th>
+                    <th className="text-right">Amount</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {displayRows.map(r => (
                     <tr
                       key={r.ref}
                       onClick={() => navigate(`/app/quotations/${r.ref}`)}
-                      className="border-b border-line last:border-0 cursor-pointer hover:bg-surface-2/60"
+                      className="cursor-pointer"
                     >
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
@@ -310,9 +435,12 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
                       <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">
                         {r.risk_score.toFixed(1)}
                       </td>
-                      <td className="px-3 py-2.5"><Band band={r.risk_band} /></td>
-                      <td className="px-4 py-2.5 text-right font-mono font-semibold tabular-nums text-fg">
-                        {inr(r.total)}
+                      <td><Band band={r.risk_band} /></td>
+                      <td className="num text-fg-2">
+                        <AnimatedNumber
+                          value={r.risk_score} format="dec" precision={1}
+                          polarity="lower-better" flash={false}
+                        />
                       </td>
                     </tr>
                   ))}
