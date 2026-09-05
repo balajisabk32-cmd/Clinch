@@ -45,9 +45,9 @@ import './index.css'
  * database, so editing localStorage buys nothing but a 403.
  */
 const ALL_INTERNAL = ['admin', 'manager', 'finance', 'rep']
-const APPROVERS = ['admin', 'manager', 'finance']
-const OPERATIONS = ['admin', 'finance']
-const POLICY = ['admin']
+const APPROVERS = ['manager', 'finance']
+const FINANCE_ONLY = ['finance']
+const POLICY = ['admin', 'manager']
 const ADMIN_ONLY = ['admin']
 
 const guard = (element: React.ReactElement, roles: string[]) => (
@@ -112,11 +112,11 @@ root.render(
             {/* Approvals: manager signs off at tier one, finance at tier two. */}
             <Route path="/app/approvals" element={guard(<Approvals />, APPROVERS)} />
 
-            {/* Fulfilment and money: finance commits stock and settles invoices. */}
-            <Route path="/app/fulfilment" element={guard(<Fulfilment />, ALL_INTERNAL)} />
-            <Route path="/app/fulfilment/:ref" element={guard(<FulfilmentDetail />, OPERATIONS)} />
-            <Route path="/app/subscriptions" element={guard(<Subscriptions />, OPERATIONS)} />
-            <Route path="/app/invoices" element={guard(<Invoices />, OPERATIONS)} />
+            {/* Quotation-to-shipment task panels: restricted exclusively to Finance Manager (PS §3 SoD). */}
+            <Route path="/app/fulfilment" element={guard(<Fulfilment />, FINANCE_ONLY)} />
+            <Route path="/app/fulfilment/:ref" element={guard(<FulfilmentDetail />, FINANCE_ONLY)} />
+            <Route path="/app/subscriptions" element={guard(<Subscriptions />, FINANCE_ONLY)} />
+            <Route path="/app/invoices" element={guard(<Invoices />, FINANCE_ONLY)} />
 
             {/* Reporting and governance policy. */}
             <Route path="/app/reports" element={guard(<Reports />, APPROVERS)} />

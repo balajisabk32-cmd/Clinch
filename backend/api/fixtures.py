@@ -145,12 +145,30 @@ CUSTOMERS = {
 }
 
 USERS = [
-    dict(id="rep_rao",   name="A. Rao",   email="rao@dealflow.example",   role="rep",     manager_id="rep_shah"),
-    dict(id="rep_iyer",  name="K. Iyer",  email="iyer@dealflow.example",  role="rep",     manager_id="rep_shah"),
-    dict(id="rep_shah",  name="M. Shah",  email="shah@dealflow.example",  role="manager", manager_id=None),
-    dict(id="rep_nair",  name="S. Nair",  email="nair@dealflow.example",  role="rep",     manager_id="rep_shah"),
-    dict(id="fin_menon", name="R. Menon",  email="menon@dealflow.example", role="finance", manager_id=None),
-    dict(id="admin",     name="Admin",    email="admin@dealflow.example", role="admin",   manager_id=None),
+    # Cluster 1: M. Shah
+    dict(id="rep_shah",      name="M. Shah",     email="shah@dealflow.example",     role="manager", manager_id=None),
+    dict(id="rep_rao",       name="A. Rao",      email="rao@dealflow.example",      role="rep",     manager_id="rep_shah"),
+    dict(id="rep_iyer",      name="K. Iyer",     email="iyer@dealflow.example",     role="rep",     manager_id="rep_shah"),
+    dict(id="rep_nair",      name="S. Nair",     email="nair@dealflow.example",     role="rep",     manager_id="rep_shah"),
+    dict(id="rep_verma",     name="V. Verma",    email="verma@dealflow.example",    role="rep",     manager_id="rep_shah"),
+
+    # Cluster 2: P. Deshmukh
+    dict(id="mgr_deshmukh",  name="P. Deshmukh", email="deshmukh@dealflow.example", role="manager", manager_id=None),
+    dict(id="rep_gupta",     name="R. Gupta",    email="gupta@dealflow.example",    role="rep",     manager_id="mgr_deshmukh"),
+    dict(id="rep_joshi",     name="S. Joshi",    email="joshi@dealflow.example",    role="rep",     manager_id="mgr_deshmukh"),
+    dict(id="rep_patel",     name="D. Patel",    email="patel@dealflow.example",    role="rep",     manager_id="mgr_deshmukh"),
+    dict(id="rep_reddy",     name="N. Reddy",    email="reddy@dealflow.example",    role="rep",     manager_id="mgr_deshmukh"),
+
+    # Cluster 3: A. Kulkarni
+    dict(id="mgr_kulkarni",  name="A. Kulkarni", email="kulkarni@dealflow.example", role="manager", manager_id=None),
+    dict(id="rep_chopra",    name="M. Chopra",   email="chopra@dealflow.example",   role="rep",     manager_id="mgr_kulkarni"),
+    dict(id="rep_mehta",     name="T. Mehta",    email="mehta@dealflow.example",    role="rep",     manager_id="mgr_kulkarni"),
+    dict(id="rep_sen",       name="B. Sen",      email="sen@dealflow.example",      role="rep",     manager_id="mgr_kulkarni"),
+    dict(id="rep_bhatia",    name="P. Bhatia",   email="bhatia@dealflow.example",   role="rep",     manager_id="mgr_kulkarni"),
+
+    # Finance & Admin
+    dict(id="fin_menon",     name="R. Menon",    email="menon@dealflow.example",    role="finance", manager_id=None),
+    dict(id="admin",         name="Admin",       email="admin@dealflow.example",    role="admin",   manager_id=None),
 ]
 
 MANAGER_FOR_REP: dict[str, str | None] = {

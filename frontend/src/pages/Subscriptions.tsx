@@ -106,7 +106,17 @@ export default function Subscriptions() {
         {error && <ErrorBar message={error} onRetry={load} />}
 
         <header className="flex flex-wrap items-center gap-3">
-          <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Subscriptions</h1>
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Recurring Subscriptions &amp; Billing</h1>
+              <span className="rounded-full bg-blue-500/10 text-blue-700 px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-blue-500/20">
+                Finance Manager Only
+              </span>
+            </div>
+            <p className="text-[12px] text-fg-3 mt-0.5">
+              Reconciles recurring billing cycles, mid-cycle prorations, and automatic credit notes.
+            </p>
+          </div>
           <div className="flex bg-surface-2 rounded-full p-1 gap-1 ml-2">
             {(['ALL', 'active', 'paused', 'cancelled'] as const).map(f => (
               <button

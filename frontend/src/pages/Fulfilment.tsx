@@ -51,9 +51,14 @@ export default function Fulfilment() {
 
         <header className="flex flex-wrap items-end gap-4">
           <div>
-            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Fulfilment &amp; Stock</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Fulfilment &amp; Warehouse Dispatch</h1>
+              <span className="rounded-full bg-blue-500/10 text-blue-700 px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-blue-500/20">
+                Finance Manager Only
+              </span>
+            </div>
             <p className="text-[12.5px] text-fg-3 mt-0.5">
-              Live stock per depot, plus every order awaiting despatch.
+              Manages warehouse fulfillment splits and backorder decisions across live regional depots.
             </p>
           </div>
           <div className="ml-auto flex items-center gap-6 font-mono text-[12px] tabular-nums">

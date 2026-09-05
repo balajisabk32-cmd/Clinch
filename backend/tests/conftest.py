@@ -42,5 +42,15 @@ def _provision() -> dict[str, dict[str, str]]:
     return headers
 
 
+import pytest
+
 _H = _provision()
 REP, MANAGER, FINANCE, ADMIN = _H["rep"], _H["manager"], _H["finance"], _H["admin"]
+
+
+@pytest.fixture(autouse=True)
+def ensure_test_accounts():
+    db.connect()
+    for uid, name, email, password, role in TEST_ACCOUNTS:
+        if not users.by_email(email):
+            users.create(name, email, password, role, user_id=uid)

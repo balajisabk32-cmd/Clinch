@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, LayoutGrid, Rows3, Search } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { api } from '../lib/api'
+import { api, inr } from '../lib/api'
 import { Band } from '../components/ui'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { ErrorBar, Workspace } from '../components/Workspace'
+import { EASE_CSS } from '../lib/motion'
 import { cn } from '../lib/cn'
 
 /**
@@ -31,6 +32,9 @@ interface Row {
   is_unassigned?: boolean
   rep_id?: string
   assigned_rep_id?: string
+  revision_requested?: boolean
+  manager_revision_notes?: string | null
+  approved_by_name?: string | null
 }
 
 /** Kanban stages, in lifecycle order (PS B2). */
@@ -74,9 +78,36 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
   const [rows, setRows] = useState<Row[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState<'list' | 'pipeline'>(view)
+  const [params, setParams] = useSearchParams()
+  const mode: 'list' | 'pipeline' =
+    location.pathname.endsWith('/pipeline') ? 'pipeline'
+      : params.get('view') === 'pipeline' ? 'pipeline'
+        : params.get('view') === 'table' ? 'list'
+          : view
+
+  const setMode = (next: 'list' | 'pipeline') => {
+    if (location.pathname.endsWith('/pipeline')) {
+      navigate(next === 'pipeline' ? '/app/pipeline' : '/app/quotations')
+    } else {
+      setParams(next === 'pipeline' ? { view: 'pipeline' } : {}, { replace: true })
+    }
+  }
+
   const [filter, setFilter] = useState<'all' | 'customer' | 'rep_created' | 'unassigned'>('all')
   const [newFor, setNewFor] = useState(CUSTOMERS[0])
+  const [query, setQuery] = useState('')
+
+  const TABS = [
+    { key: 'all',      label: 'All deals',   match: (_r: Row) => true },
+    { key: 'action',   label: 'Action required',
+      match: (r: Row) => r.state === 'DRAFT' && !!r.revision_requested },
+    { key: 'queue',    label: 'In approval',
+      match: (r: Row) => r.state.startsWith('PENDING') },
+    { key: 'done',     label: 'Confirmed & fulfilled',
+      match: (r: Row) => ['CONFIRMED', 'FULFILLED', 'INVOICED', 'PAID'].includes(r.state) },
+  ] as const
+  const tab = (params.get('tab') ?? 'all') as (typeof TABS)[number]['key']
+  const activeTab = TABS.find(t => t.key === tab) ?? TABS[0]
 
   const load = useCallback(() => {
     api.quotes().then(r => { setRows(r); setError(null) })
@@ -94,19 +125,31 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
     } finally { setBusy(false) }
   }
 
-  // Filter display rows
-  const displayRows = rows.filter(r => {
-    const isCust = r.source === 'Customer Request' || r.is_customer
-    const isUnassigned = r.is_unassigned || r.rep === 'Unassigned'
-    if (filter === 'customer') return isCust && !isUnassigned
-    if (filter === 'rep_created') return !isCust && !isUnassigned
-    if (filter === 'unassigned') return isUnassigned
-    return true
-  })
-
   const custCount = rows.filter(r => (r.source === 'Customer Request' || r.is_customer) && !r.is_unassigned && r.rep !== 'Unassigned').length
   const repCount = rows.filter(r => r.source !== 'Customer Request' && !r.is_customer && !r.is_unassigned && r.rep !== 'Unassigned').length
   const unassignedCount = rows.filter(r => r.is_unassigned || r.rep === 'Unassigned').length
+
+  const displayRows = useMemo(() => {
+    let list = rows.filter(activeTab.match)
+    if (filter === 'customer') {
+      list = list.filter(r => (r.source === 'Customer Request' || r.is_customer) && !r.is_unassigned && r.rep !== 'Unassigned')
+    } else if (filter === 'rep_created') {
+      list = list.filter(r => r.source !== 'Customer Request' && !r.is_customer && !r.is_unassigned && r.rep !== 'Unassigned')
+    } else if (filter === 'unassigned') {
+      list = list.filter(r => r.is_unassigned || r.rep === 'Unassigned')
+    }
+    const q = query.trim().toLowerCase()
+    if (!q) return list
+    return list.filter(r =>
+      r.customer.toLowerCase().includes(q) ||
+      r.ref.toLowerCase().includes(q) ||
+      (r.rep && r.rep.toLowerCase().includes(q)) ||
+      r.state.toLowerCase().includes(q)
+    )
+  }, [rows, activeTab, filter, query])
+
+  const bookValue = displayRows.reduce((a, r) => a + (r.total || 0), 0)
+  const returned = rows.filter(r => r.state === 'DRAFT' && !!r.revision_requested)
 
   const Card = ({ r }: { r: Row }) => {
     const isCust = r.source === 'Customer Request' || r.is_customer
@@ -114,8 +157,11 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
     return (
       <button
         onClick={() => navigate(`/app/quotations/${r.ref}`)}
-        className="w-full text-left rounded-xl bg-surface ring-1 ring-black/[.055] p-3.5 shadow-lift
-                   hover:ring-accent/35 hover:-translate-y-0.5"
+        className={cn(
+          'w-full text-left rounded-xl bg-surface ring-1 ring-black/[.055] p-3.5 shadow-lift',
+          'hover:ring-accent/35 hover:-translate-y-0.5',
+          railFor(r),
+        )}
         style={{ transition: `all 320ms ${EASE_CSS}` }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -301,7 +347,40 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
               )}
             </div>
 
-            {(
+            {/* Search Input */}
+            <label className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-4" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Filter by customer, ref, rep…"
+                className="w-[180px] sm:w-[210px] rounded-full bg-surface pl-7 pr-3 py-1.5 text-[12px] text-fg
+                           ring-1 ring-black/[.08] outline-none focus:ring-accent/45
+                           placeholder:text-fg-4"
+              />
+            </label>
+
+            {/* Segmented control: Table vs Pipeline */}
+            <div className="inline-flex rounded-full ring-1 ring-black/[.08] bg-surface p-0.5">
+              {([['list', Rows3, 'Table'], ['pipeline', LayoutGrid, 'Pipeline']] as const).map(
+                ([m, Icon, label]) => (
+                  <button
+                    key={m}
+                    onClick={() => setMode(m)}
+                    aria-pressed={mode === m}
+                    title={`${label} view`}
+                    className={cn(
+                      'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-medium',
+                      'transition-colors duration-150',
+                      mode === m ? 'bg-fg text-white' : 'text-fg-3 hover:text-fg',
+                    )}
+                  >
+                    <Icon size={12} />{label}
+                  </button>
+                ))}
+            </div>
+
+            {isRep && (
               <>
                 <select
                   value={newFor}
@@ -435,12 +514,9 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
                       <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">
                         {r.risk_score.toFixed(1)}
                       </td>
-                      <td><Band band={r.risk_band} /></td>
-                      <td className="num text-fg-2">
-                        <AnimatedNumber
-                          value={r.risk_score} format="dec" precision={1}
-                          polarity="lower-better" flash={false}
-                        />
+                      <td className="px-3 py-2.5"><Band band={r.risk_band} /></td>
+                      <td className="px-4 py-2.5 text-right font-mono font-semibold tabular-nums text-fg">
+                        {inr(r.total)}
                       </td>
                     </tr>
                   ))}

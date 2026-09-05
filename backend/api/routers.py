@@ -423,16 +423,20 @@ def _sync_customer_portal_quotes():
 
 
 @sales.post("/quotes/from-customer")
-def create_quote_from_customer(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def create_quote_from_customer(body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     _sync_customer_portal_quotes()
     ref = body.get("quote_number")
     if ref and ref in state.QUOTES:
-        return quote_detail(ref)
+        return quote_detail(ref, _actor=_actor)
     return {"ok": True, "ref": ref}
 
 
 @sales.get("/quotes")
-def list_quotes(state_filter: str | None = Query(None, alias="state"), rep_filter: str | None = Query(None, alias="rep")) -> list[dict[str, Any]]:
+def list_quotes(
+    state_filter: str | None = Query(None, alias="state"),
+    rep_filter: str | None = Query(None, alias="rep"),
+    _actor: dict[str, Any] = Depends(require("quote.view")),
+) -> list[dict[str, Any]]:
     _sync_customer_portal_quotes()
     out = []
     for row in svc.open_pipeline():
@@ -461,6 +465,15 @@ def list_quotes(state_filter: str | None = Query(None, alias="state"), rep_filte
             is_unassigned=(q.rep_id == "UNASSIGNED"),
         ))
 
+    if _actor.get("role") == "manager":
+        mgr_name = _actor.get("name", "M. Shah")
+        out = [
+            item for item in out
+            if fx.is_rep_managed_by(item.get("rep_id"), mgr_name)
+            or fx.is_rep_managed_by(item.get("rep"), mgr_name)
+            or item.get("rep") == mgr_name
+        ]
+
     # Sort so that Customer Portal quote requests appear prominently at the very top (newest first)
     def _sort_key(item):
         ref_str = str(item.get("ref", ""))
@@ -477,7 +490,7 @@ def list_quotes(state_filter: str | None = Query(None, alias="state"), rep_filte
 
 
 @sales.get("/quotes/{ref}")
-def quote_detail(ref: str) -> dict[str, Any]:
+def quote_detail(ref: str, _actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
     if ref not in state.QUOTES:
         _sync_customer_portal_quotes()
     try:
@@ -650,9 +663,11 @@ def submit(ref: str, actor: str = Query("A. Rao"), _actor: dict[str, Any] = Depe
 
 
 @sales.get("/approvals")
-def approvals(pending_only: bool = Query(False)) -> list[dict[str, Any]]:
+def approvals(pending_only: bool = Query(False), _actor: dict[str, Any] = Depends(any_of("approval.manager", "approval.finance"))) -> list[dict[str, Any]]:
     _sync_customer_portal_quotes()
     rows = []
+    actor_role = _actor.get("role")
+    actor_name = _actor.get("name", "M. Shah")
     for row in svc.open_pipeline():
         q, r = row["quote"], row["result"]
         st = row["state"]
@@ -664,6 +679,12 @@ def approvals(pending_only: bool = Query(False)) -> list[dict[str, Any]]:
         manager_id = fx.MANAGER_FOR_REP.get(assigned_rep_id) or "rep_shah"
         manager_name = fx.REP_NAME.get(manager_id, "M. Shah")
         rep_display = fx.REP_NAME.get(assigned_rep_id, assigned_rep_id if assigned_rep_id != "UNASSIGNED" else "Unassigned")
+        assigned_to = "R. Menon" if st == "PENDING_FINANCE" else (manager_name if st == "PENDING_MANAGER" else "—")
+
+        if actor_role == "manager":
+            if assigned_to not in (actor_name, "—", "R. Menon"):
+                continue
+
         rows.append(dict(
             ref=q.ref, customer=q.customer, tier=q.tier, state=st,
             risk_score=r.score, risk_band=r.band,
@@ -675,14 +696,13 @@ def approvals(pending_only: bool = Query(False)) -> list[dict[str, Any]]:
             manager_name=manager_name,
             stage="Finance" if st == "PENDING_FINANCE" else
                   "Sales Manager" if st == "PENDING_MANAGER" else "—",
-            assigned_to="R. Menon" if st == "PENDING_FINANCE" else
-                        manager_name if st == "PENDING_MANAGER" else "—",
+            assigned_to=assigned_to,
         ))
     return rows
 
 
 @sales.get("/approvals/{ref}")
-def approval_detail(ref: str) -> dict[str, Any]:
+def approval_detail(ref: str, _actor: dict[str, Any] = Depends(any_of("approval.manager", "approval.finance"))) -> dict[str, Any]:
     if ref not in state.QUOTES:
         _sync_customer_portal_quotes()
     try:
@@ -710,15 +730,26 @@ def approval_detail(ref: str) -> dict[str, Any]:
             return "skipped"
         if current in ("APPROVED", "CONFIRMED", "FULFILLED", "INVOICED", "PAID"):
             return "approved"
-        return "pending" if current == "PENDING_FINANCE" else "skipped"
+        if current == "PENDING_FINANCE":
+            return "pending"
+        return "waiting" if current == "PENDING_MANAGER" else "skipped"
 
     rep_name = fx.REP_NAME.get(quote.rep_id, quote.rep_id)
-    assigned_mgr = fx.REP_TO_MANAGER.get(quote.rep_id, fx.REP_TO_MANAGER.get(rep_name, "M. Shah"))
-    steps = [dict(role="Sales Manager", status=step_status("Sales Manager"),
-                  actor=manager_name if step_status("Sales Manager") == "approved" else None)]
+    meta = state.approval_meta(ref)
+    steps = [dict(
+        role="Sales Manager",
+        status=step_status("Sales Manager"),
+        actor=(meta.get("level1_approved_by_name") or
+               (meta.get("approved_by_name") if meta.get("approved_by_role") == "manager" else None) or
+               assigned_mgr) if step_status("Sales Manager") == "approved" else None,
+    )]
     if needs_finance:
-        steps.append(dict(role="Finance", status=step_status("Finance"),
-                          actor="R. Menon" if step_status("Finance") == "approved" else None))
+        steps.append(dict(
+            role="Finance",
+            status=step_status("Finance"),
+            actor=(meta.get("approved_by_name") if meta.get("approved_by_role") == "finance" else "R. Menon")
+                  if step_status("Finance") == "approved" else None,
+        ))
 
     return dict(
         ref=ref, customer=quote.customer, tier=quote.tier, state=current,
@@ -733,18 +764,18 @@ def approval_detail(ref: str) -> dict[str, Any]:
         narrative=svc.narrate(quote, r, fx.days_idle(ref)),
         audit=state.audit_for(ref),
         allowed_transitions=LEGAL_TRANSITIONS.get(current, []),
-        **state.approval_meta(ref),
+        **meta,
     )
 
 
 @sales.post("/quotes/{ref}/reassign")
-def reassign_quote(ref: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def reassign_quote(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depends(any_of("approval.manager", "approval.finance", "user.manage"))) -> dict[str, Any]:
     """Reassign quote to a new Sales Rep with audit tracking and optional permanent customer ownership update."""
     new_rep_id = body.get("new_rep_id")
     if not new_rep_id:
         raise HTTPException(400, "new_rep_id is required")
 
-    actor = body.get("actor", "M. Shah")
+    actor = _actor.get("name", body.get("actor", "M. Shah"))
     update_permanent = bool(body.get("update_customer_assigned_rep", False))
 
     if ref not in state.QUOTES:
@@ -815,7 +846,7 @@ def reassign_quote(ref: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]
 
 
 @sales.get("/users/reps")
-def get_sales_reps() -> list[dict[str, Any]]:
+def get_sales_reps(_actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
     """Return all sales reps and their designated reporting manager."""
     return [
         dict(
@@ -830,7 +861,7 @@ def get_sales_reps() -> list[dict[str, Any]]:
 
 
 @sales.get("/users/managers")
-def get_sales_managers() -> list[dict[str, Any]]:
+def get_sales_managers(_actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
     """Return all sales managers."""
     return [
         dict(id=u["id"], name=u["name"], email=u["email"])
@@ -839,7 +870,7 @@ def get_sales_managers() -> list[dict[str, Any]]:
 
 
 @sales.get("/admin/customers")
-def get_admin_customers() -> list[dict[str, Any]]:
+def get_admin_customers(_actor: dict[str, Any] = Depends(any_of("quote.view", "user.manage"))) -> list[dict[str, Any]]:
     """Return all customer accounts with assigned sales rep."""
     import sqlite3
     db_paths = [
@@ -880,7 +911,7 @@ def get_admin_customers() -> list[dict[str, Any]]:
 
 
 @sales.patch("/customers/{cust_id}/assigned-rep")
-def update_customer_rep(cust_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def update_customer_rep(cust_id: int | str, body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depends(any_of("approval.manager", "approval.finance", "user.manage"))) -> dict[str, Any]:
     """Admin updates customer's permanent assigned sales rep."""
     rep_id = body.get("assigned_rep_id")
     import sqlite3
@@ -910,17 +941,12 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
         return cached
 
     action = body.get("action")
-    # The approver is the authenticated caller. This previously read
-    # `body.get("actor", "M. Shah")` -- a client-supplied display name with a
-    # hardcoded fallback -- which made the approval trail worth nothing: anyone
-    # entitled to approve could sign the record with any name, and a request
-    # that simply omitted the field was attributed to M. Shah whoever sent it.
     actor = _actor.get("name") or _actor.get("email") or "Unknown"
+    actor_role = _actor.get("role")
+    actor_perms = set(_actor.get("permissions", []))
     current = state.state_of(ref)
 
-    # Reviewers act only on quotations that are actually awaiting review. The
-    # DRAFT -> APPROVED edge exists for the auto-approve path in /submit and
-    # must not be reachable from the approval desk.
+    # Reviewers act only on quotations that are actually awaiting review.
     if current not in ("PENDING_MANAGER", "PENDING_FINANCE"):
         raise HTTPException(status_code=409, detail={
             "error": "not_awaiting_approval", "ref": ref, "current_state": current,
@@ -931,6 +957,30 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
         _quote, r = svc.score_for(ref)
     except KeyError:
         raise HTTPException(404, f"No quotation {ref}")
+
+    # Strict Level-by-Level Role & Segregation of Duties Enforcement (PS §3):
+    if current == "PENDING_MANAGER":
+        if "approval.manager" not in actor_perms:
+            raise HTTPException(status_code=403, detail={
+                "error": "manager_approval_required",
+                "message": "First-level approval requires Sales Manager sign-off.",
+            })
+        if actor_role == "manager":
+            q_row = state.QUOTES.get(ref)
+            rep_id = q_row.get("rep") if q_row else None
+            rep_name = fx.REP_NAME.get(rep_id, rep_id) if rep_id else ""
+            assigned_mgr = fx.REP_TO_MANAGER.get(rep_id, fx.REP_TO_MANAGER.get(rep_name, "M. Shah"))
+            if not (assigned_mgr == actor or fx.is_rep_managed_by(rep_name, actor) or fx.is_rep_managed_by(rep_id, actor)):
+                raise HTTPException(status_code=403, detail={
+                    "error": "cluster_unauthorized",
+                    "message": f"Quotation {ref} is assigned to {assigned_mgr}'s cluster.",
+                })
+    elif current == "PENDING_FINANCE":
+        if "approval.finance" not in actor_perms or actor_role == "manager":
+            raise HTTPException(status_code=403, detail={
+                "error": "finance_approval_required",
+                "message": "Second-level approval for high-risk discounts requires Finance Manager sign-off.",
+            })
 
     if action == "reject":
         target = "REJECTED"
@@ -948,9 +998,15 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
 
     state.set_state(ref, target)
     role = "finance" if current == "PENDING_FINANCE" else "manager"
-    if target == "APPROVED":
+    if current == "PENDING_MANAGER" and target == "PENDING_FINANCE":
+        state.record_level1_approval(ref, user_id=_actor.get("id", ""), name=actor)
+        state.record(ref, actor, "manager", "level_1_approved",
+                     reason=body.get("reason") or "Sales Manager approved Level 1; escalated to Finance for Level 2 sign-off.")
+    elif target == "APPROVED":
         state.record_approval(ref, user_id=_actor.get("id", ""), name=actor, role=role)
-    state.record(ref, actor, role, action + "d", reason=body.get("reason"))
+        state.record(ref, actor, role, "approved", reason=body.get("reason"))
+    else:
+        state.record(ref, actor, role, action + "d", reason=body.get("reason"))
 
     # Sync back to dealflow360.sqlite
     try:
@@ -999,14 +1055,7 @@ def return_for_revision(
     ref: str, body: dict[str, Any] = Body(...),
     _actor: dict[str, Any] = Depends(any_of("approval.manager", "approval.finance")),
 ) -> dict[str, Any]:
-    """Send a quotation back to its rep with a note saying what to change.
-
-    Separate from the generic `return` action because the note is the point.
-    A deal that comes back with no explanation costs the rep a phone call and
-    the reviewer a second look at the same problem, so the note is REQUIRED and
-    a token gesture ("no", "fix") is refused: ten characters is roughly the
-    shortest string that can name a line and a number.
-    """
+    """Send a quotation back to its rep with a note saying what to change."""
     notes = (body.get("manager_notes") or "").strip()
     if len(notes) < 10:
         raise HTTPException(422, {
@@ -1024,19 +1073,39 @@ def return_for_revision(
     if ref not in state.QUOTES:
         raise HTTPException(404, f"No quotation {ref}")
 
-    # Back to DRAFT, with a flag rather than a new state. A distinct
-    # RETURNED_FOR_REVISION state would have to be threaded through every
-    # transition, guard and filter that already understands DRAFT, and would
-    # differ from it in no way that the engine cares about -- the rep edits it
-    # and resubmits either way. The flag is what the UI needs to tell the two
-    # apart, and it clears the moment the quote is resubmitted.
+    actor = _actor.get("name") or _actor.get("email") or "Unknown"
+    actor_role = _actor.get("role")
+    actor_perms = set(_actor.get("permissions", []))
+
+    if current == "PENDING_MANAGER":
+        if "approval.manager" not in actor_perms:
+            raise HTTPException(403, {
+                "error": "manager_approval_required",
+                "message": "First-level revision requests require Sales Manager sign-off.",
+            })
+        if actor_role == "manager":
+            q_row = state.QUOTES.get(ref)
+            rep_id = q_row.get("rep") if q_row else None
+            rep_name = fx.REP_NAME.get(rep_id, rep_id) if rep_id else ""
+            assigned_mgr = fx.REP_TO_MANAGER.get(rep_id, fx.REP_TO_MANAGER.get(rep_name, "M. Shah"))
+            if not (assigned_mgr == actor or fx.is_rep_managed_by(rep_name, actor) or fx.is_rep_managed_by(rep_id, actor)):
+                raise HTTPException(403, {
+                    "error": "cluster_unauthorized",
+                    "message": f"Quotation {ref} is assigned to {assigned_mgr}'s cluster.",
+                })
+    elif current == "PENDING_FINANCE":
+        if "approval.finance" not in actor_perms or actor_role == "manager":
+            raise HTTPException(403, {
+                "error": "finance_approval_required",
+                "message": "Second-level revision requests require Finance Manager sign-off.",
+            })
+
     if not is_legal(current, "DRAFT"):
         _conflict(ref, current, "DRAFT")
     state.set_state(ref, "DRAFT")
     state.request_revision(ref, notes=notes)
 
     role = "finance" if current == "PENDING_FINANCE" else "manager"
-    actor = _actor.get("name") or _actor.get("email") or "Unknown"
     state.record(ref, actor, role, "returned", reason=notes)
     return {"ref": ref, "state": "DRAFT", "returned_by": actor,
             **state.approval_meta(ref)}

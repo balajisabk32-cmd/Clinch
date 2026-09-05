@@ -1,4 +1,3 @@
-import axios from 'axios'
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -56,9 +55,16 @@ export default function Login() {
       const user = await login(email, password)
       if (user.role === 'customer' || email === 'rajesh@acme.com' || email.includes('acme') || email.includes('techcorp')) {
         try {
-          const custRes = await axios.post('http://localhost:5000/api/auth/login', { email, password })
-          if (custRes.data?.token) {
-            localStorage.setItem('df360_token', custRes.data.token)
+          const custRes = await fetch('http://localhost:5000/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          })
+          if (custRes.ok) {
+            const custData = await custRes.json()
+            if (custData?.token) {
+              localStorage.setItem('df360_token', custData.token)
+            }
           }
         } catch {}
         navigate('/shop', { replace: true })
@@ -203,9 +209,16 @@ export default function Login() {
                       const user = await login(acc.email, acc.pass)
                       if (user.role === 'customer' || acc.email === 'rajesh@acme.com' || acc.email.includes('acme') || acc.email.includes('techcorp')) {
                         try {
-                          const custRes = await axios.post('http://localhost:5000/api/auth/login', { email: acc.email, password: acc.pass })
-                          if (custRes.data?.token) {
-                            localStorage.setItem('df360_token', custRes.data.token)
+                          const custRes = await fetch('http://localhost:5000/api/auth/login', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: acc.email, password: acc.pass }),
+                          })
+                          if (custRes.ok) {
+                            const custData = await custRes.json()
+                            if (custData?.token) {
+                              localStorage.setItem('df360_token', custData.token)
+                            }
                           }
                         } catch {}
                         navigate('/shop', { replace: true })

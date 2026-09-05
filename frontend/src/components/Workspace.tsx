@@ -2,7 +2,6 @@ import { useEffect, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { EASE_CSS } from '../lib/motion'
-import { useAuth } from '../context/AuthContext'
 
 /**
  * Sales workspace shell — PS B1.
@@ -14,75 +13,67 @@ import { useAuth } from '../context/AuthContext'
  */
 interface UserSession {
   name: string
-  role: 'CUSTOMER' | 'MANAGER' | 'REP' | 'ADMIN' | 'FINANCE'
+  role: string
   email?: string
   tier?: string
 }
 
-function getTabsForRole(role: string) {
-  switch (role) {
-    case 'REP':
-      return [
-        { to: '/app/quotations', label: 'Quotations' },
-        { to: '/app/pipeline', label: 'My Pipeline' },
-        { to: '/app/fulfilment', label: 'Order Status' },
-      ]
-    case 'MANAGER':
-      return [
-        { to: '/app/approvals', label: 'Approvals Queue' },
-        { to: '/app/pipeline', label: 'Pipeline' },
-        { to: '/app/quotations', label: 'Quotations' },
-        { to: '/app/health', label: 'Deal Health' },
-        { to: '/app/fulfilment', label: 'Fulfilment' },
-      ]
-    case 'FINANCE':
-      return [
-        { to: '/app/approvals', label: 'Approvals Queue' },
-        { to: '/app/quotations', label: 'Quotations' },
-        { to: '/app/health', label: 'Deal Health' },
-        { to: '/app/fulfilment', label: 'Fulfilment' },
-      ]
-    case 'CUSTOMER':
-      return [
-        { to: '/app/quotations', label: 'My Quotations' },
-        { to: '/app/fulfilment', label: 'Delivery Tracking' },
-      ]
-    case 'ADMIN':
-    default:
-      return [
-        { to: '/app/admin', label: 'Admin Portal' },
-        { to: '/app/health', label: 'Deal Health' },
-        { to: '/app/approvals', label: 'Approvals' },
-        { to: '/app/pipeline', label: 'Pipeline' },
-        { to: '/app/quotations', label: 'Quotations' },
-        { to: '/app/fulfilment', label: 'Fulfilment' },
-      ]
-  }
+const ROLE_ALLOWED_ROUTES: Record<string, string[]> = {
+  // RevOps Admin: System setup, product catalogue, discount tiers, users, settings.
+  admin: [
+    '/app/dashboard', '/app/quotations', '/app/pipeline',
+    '/app/health', '/app/reports', '/app/products', '/app/settings', '/app/users',
+    '/app/admin/subscriptions', '/app/admin/reports', '/app/profile',
+  ],
+  // Sales Manager: Discount policy, team pipeline oversight, Level 1 approvals.
+  manager: [
+    '/app/dashboard', '/app/quotations', '/app/pipeline', '/app/approvals',
+    '/app/health', '/app/reports', '/app/products', '/app/settings',
+    '/app/profile',
+  ],
+  // Finance Manager: Level 2 high-risk approvals, quotation-to-shipment task panels (Fulfilment, Subscriptions, Invoices).
+  finance: [
+    '/app/dashboard', '/app/quotations', '/app/pipeline', '/app/approvals',
+    '/app/fulfilment', '/app/subscriptions', '/app/invoices', '/app/health',
+    '/app/reports', '/app/products', '/app/profile',
+  ],
+  // Sales Rep: Quote creation, line configuration, margin checks, counter-negotiation.
+  rep: [
+    '/app/dashboard', '/app/quotations', '/app/pipeline',
+    '/app/health', '/app/products', '/app/profile',
+  ],
 }
 
 export function Workspace({
   children, onReload,
 }: { children: ReactNode; onReload?: () => void }) {
   const navigate = useNavigate()
-  const { user: authUser, logout } = useAuth()
+  const { user: authUser, logout, tabs: serverTabs } = useAuth()
 
   const user: UserSession = (() => {
     if (authUser) {
       return {
         name: authUser.name,
-        role: authUser.role.toUpperCase() as any,
+        role: authUser.role.toLowerCase(),
         email: authUser.email,
       }
     }
     try {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
-      return stored ? JSON.parse(stored) : { name: 'Alice Sales', role: 'REP' }
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return {
+          ...parsed,
+          role: (parsed.role || 'rep').toLowerCase(),
+        }
+      }
+      return { name: 'Alice Sales', role: 'rep' }
     } catch {
-      return { name: 'Alice Sales', role: 'REP' }
+      return { name: 'Alice Sales', role: 'rep' }
     }
   })()
 
-  const userRole = user?.role ?? 'rep'
+  const userRole = (user?.role || 'rep').toLowerCase()
   const allowed = ROLE_ALLOWED_ROUTES[userRole] ?? ROLE_ALLOWED_ROUTES.rep
 
   // Fallback defaults if server tabs haven't loaded yet, strictly filtered by role
@@ -112,10 +103,10 @@ export function Workspace({
 
   // PS §7: the customer surface is a genuinely separate, restricted view
   useEffect(() => {
-    if (user.role === 'CUSTOMER') navigate('/shop', { replace: true })
-  }, [user.role, navigate])
+    if (userRole === 'customer') navigate('/shop', { replace: true })
+  }, [userRole, navigate])
 
-  if (user?.role === 'customer') return null
+  if (userRole === 'customer') return null
 
   const handleSignOut = () => {
     localStorage.removeItem('dealflow_user')
@@ -169,7 +160,7 @@ export function Workspace({
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm"></span>
               <span>{user.name}</span>
-              <span className="text-accent text-[11px] font-semibold tracking-wide">({user.role})</span>
+              <span className="text-accent text-[11px] font-semibold tracking-wide">({user.role.toUpperCase()})</span>
               <span className="text-fg-4 text-[10px] uppercase font-mono tracking-wider ml-0.5">Switch</span>
             </button>
 

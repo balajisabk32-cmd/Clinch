@@ -45,7 +45,7 @@ Role = str  # rep | manager | finance | admin | customer
 PERMISSIONS: dict[Role, set[str]] = {
     "rep": {
         "quote.view", "quote.edit", "quote.submit",
-        "product.view", "fulfilment.view", "dealhealth.view", "portal.share",
+        "product.view", "dealhealth.view", "portal.share",
     },
     "manager": {
         "quote.view", "quote.edit", "quote.submit",
@@ -95,15 +95,14 @@ PERMISSION_LABEL: dict[str, str] = {
     "reports.view": "viewing platform reporting",
 }
 
-# Which workspace tabs each role may see. Derived from permissions rather than
-# hardcoded per role, so the nav can never drift from what the server allows.
+# Which workspace tabs each role may see. Derived from permissions and Segregation of Duties.
 TAB_PERMISSION: list[tuple[str, str, str]] = [
     ("/app/dashboard",     "Dashboard",     "quote.view"),
     ("/app/quotations",    "Quotations",    "quote.view"),
     ("/app/pipeline",      "Pipeline",      "quote.view"),
     ("/app/approvals",     "Approvals",     "approval.manager"),
-    ("/app/fulfilment",    "Fulfilment",    "fulfilment.view"),
-    ("/app/subscriptions", "Subscriptions", "billing.view"),
+    ("/app/fulfilment",    "Fulfilment",    "fulfilment.allocate"),
+    ("/app/subscriptions", "Subscriptions", "billing.modify"),
     ("/app/invoices",      "Invoices",      "invoice.manage"),
     ("/app/health",        "Deal Health",   "dealhealth.view"),
     ("/app/reports",       "Reports",       "reports.view"),
@@ -122,13 +121,17 @@ def permissions_for(role: Role) -> set[str]:
 
 def tabs_for(role: Role) -> list[dict[str, str]]:
     perms = permissions_for(role)
-    # Approvals is visible to anyone who can sign off at EITHER level.
-    return [
-        {"to": to, "label": label}
-        for to, label, need in TAB_PERMISSION
-        if need in perms
-        or (need == "approval.manager" and "approval.finance" in perms)
-    ]
+    # Quotation-to-shipment operational task panels are strictly for Finance Manager only (PS §3 SoD).
+    finance_only_routes = {"/app/fulfilment", "/app/subscriptions", "/app/invoices"}
+    out = []
+    for to, label, need in TAB_PERMISSION:
+        if to in finance_only_routes and role != "finance":
+            continue
+        if to == "/app/approvals" and role == "admin":
+            continue
+        if need in perms or (need == "approval.manager" and "approval.finance" in perms):
+            out.append({"to": to, "label": label})
+    return out
 
 
 # --------------------------------------------------------------------------- #

@@ -45,7 +45,8 @@ PUBLIC = {
 
 # A path parameter has to be filled with something to reach the guard at all.
 SAMPLE = {"ref": "Q-1042", "sku": "HW-LAPTOP-01", "idx": "0",
-          "token": "unused", "sub_id": "1", "user_id": "rep_rao"}
+          "token": "unused", "sub_id": "1", "user_id": "rep_rao",
+          "cust_id": "1"}
 
 
 def _routes():

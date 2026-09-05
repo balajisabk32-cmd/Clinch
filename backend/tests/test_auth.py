@@ -42,7 +42,7 @@ def accounts():
     yield
     # Remove anything a test provisioned so runs stay independent.
     for row in users.list_all():
-        if row["email"] not in (ADMIN_EMAIL, REP_EMAIL):
+        if row["email"] not in (ADMIN_EMAIL, REP_EMAIL, "shah@clinch.io", "menon@clinch.io"):
             db.execute("DELETE FROM app_user WHERE id = ?", (row["id"],))
     users.set_active("admin_root", True)
     users.set_password("admin_root", ADMIN_PASS)

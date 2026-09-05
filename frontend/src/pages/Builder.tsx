@@ -5,6 +5,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   ShieldCheck,
+  ShieldAlert,
+  Clock,
   FileCheck,
   Download,
   RotateCcw,
@@ -183,18 +185,19 @@ export default function Builder() {
     if (!quote) return
     setBusy(true)
     try {
-      await request(`/approvals/${quote.ref}/action`, {
+      const res = await request<any>(`/approvals/${quote.ref}/action`, {
         method: 'POST',
         body: JSON.stringify({ action, actor: user?.name }),
       })
-      const label = action === 'approve' ? 'Approved'
-                  : action === 'reject' ? 'Rejected' : 'Returned to Rep'
-      setFlash(`Quotation ${quote.ref} ${label}.`)
-      setTimeout(() => navigate('/app/approvals'), 1200)
+      const nextState = res?.state
+      const label = action === 'approve'
+        ? (nextState === 'PENDING_FINANCE'
+            ? 'approved at Level 1 (Sales Manager) and escalated to Finance for Level 2 sign-off.'
+            : 'approved successfully.')
+        : action === 'reject' ? 'rejected.' : 'returned to Rep.'
+      setFlash(`Quotation ${quote.ref} ${label}`)
+      setTimeout(() => navigate('/app/approvals'), 1500)
     } catch (err) {
-      // Previously this said "Manager governance action recorded." on ANY
-      // failure -- including a 403 -- and then navigated away as if it had
-      // worked. Say what actually happened and stay put.
       setFlash(err instanceof ApiError
         ? (err.status === 403
             ? 'Your role is not permitted to action this quotation.'
@@ -248,21 +251,38 @@ export default function Builder() {
             Who signed this off, and when. The server stamps these from the
             approver's token, so the name here is the account that acted rather
             than a display string the client supplied. */}
-        {quote.approved_by_name && (
-          <div className="panel rail rail-auto px-4 py-2.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <ShieldCheck size={15} className="text-band-auto shrink-0" />
-            <span className="text-[13px] text-fg">
-              Approved by <b className="font-semibold">{quote.approved_by_name}</b>
-              {quote.approved_by_role && (
-                <span className="text-fg-2"> ({quote.approved_by_role})</span>
-              )}
-            </span>
-            {quote.approved_at && (
-              <span className="font-mono text-[11.5px] text-fg-3">
-                on {new Date(quote.approved_at).toLocaleString('en-IN', {
-                  day: '2-digit', month: 'short', year: 'numeric',
-                  hour: '2-digit', minute: '2-digit',
-                })}
+        {(quote.level1_approved_by_name || quote.approved_by_name) && (
+          <div className="panel rail rail-auto px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px]">
+            <ShieldCheck size={16} className="text-band-auto shrink-0" />
+            {quote.level1_approved_by_name && (
+              <span className="text-fg flex items-center gap-1.5">
+                <span className="font-semibold text-band-manager rounded bg-band-managerWash px-1.5 py-0.5 text-[11px]">Level 1</span>
+                <span>Approved by <b>{quote.level1_approved_by_name}</b> (Sales Manager)</span>
+                {quote.level1_approved_at && (
+                  <span className="font-mono text-[11px] text-fg-3">
+                    on {new Date(quote.level1_approved_at).toLocaleString('en-IN', {
+                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                    })}
+                  </span>
+                )}
+              </span>
+            )}
+            {quote.level1_approved_by_name && quote.approved_by_name && (
+              <span className="text-fg-4 font-bold">→</span>
+            )}
+            {quote.approved_by_name && (
+              <span className="text-fg flex items-center gap-1.5">
+                <span className="font-semibold text-band-auto rounded bg-band-autoWash px-1.5 py-0.5 text-[11px]">
+                  {quote.risk_band === 'FINANCE' ? 'Level 2' : 'Final'}
+                </span>
+                <span>Approved by <b>{quote.approved_by_name}</b> ({quote.approved_by_role})</span>
+                {quote.approved_at && (
+                  <span className="font-mono text-[11px] text-fg-3">
+                    on {new Date(quote.approved_at).toLocaleString('en-IN', {
+                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                    })}
+                  </span>
+                )}
               </span>
             )}
           </div>
@@ -289,17 +309,22 @@ export default function Builder() {
           </div>
         )}
 
-        {/* ── Manager Governance Top Bar (Only for Managers reviewing pending quotes) ── */}
+        {/* ── Level 1: Sales Manager Governance Bar ── */}
         {user?.role === 'manager' && quote.state === 'PENDING_MANAGER' && (
           <div className="rounded-2xl bg-band-managerWash border border-band-manager/25 p-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <AlertTriangle size={20} className="text-band-manager shrink-0" />
               <div>
-                <div className="text-[13px] font-semibold text-band-manager">
-                  Manager Action Required · Escalated by {quote.rep}
+                <div className="text-[13px] font-semibold text-band-manager flex items-center gap-2">
+                  <span>Level 1 Review Required</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-band-manager/15 text-band-manager">
+                    Sales Manager
+                  </span>
                 </div>
-                <div className="text-[12px] text-band-manager">
-                  {isOverAllowance
+                <div className="text-[12px] text-band-manager mt-0.5">
+                  {quote.risk_band === 'FINANCE'
+                    ? `High-risk discount (Score: ${quote.risk_score}). Approving here will advance the quote to Finance Manager (Level 2).`
+                    : isOverAllowance
                     ? `Discount exceeds Rep delegated allowance (${repBreaches.map(b => `${b.name}: ${b.effective_discount}%`).join(', ')}). Margin: ${quote.margin_pct}%.`
                     : `Standard manager approval requested. Risk Band: ${quote.risk_band}.`}
                 </div>
@@ -313,7 +338,7 @@ export default function Builder() {
                 className="inline-flex items-center gap-1.5 rounded-full bg-band-auto hover:brightness-110 text-white px-4 py-2 font-display text-[12.5px] font-semibold shadow-lift disabled:opacity-50"
               >
                 <CheckCircle2 size={14} />
-                <span>Approve Quotation</span>
+                <span>{quote.risk_band === 'FINANCE' ? 'Approve & Escalate to Finance' : 'Approve Quotation'}</span>
               </button>
               <button
                 onClick={() => handleManagerAction('reject')}
@@ -345,6 +370,132 @@ export default function Builder() {
             <span>Back to All Quotations</span>
           </button>
         </div>
+
+        {/* ── Level 2: Finance Manager Governance Bar ── */}
+        {user?.role === 'finance' && quote.state === 'PENDING_FINANCE' && (
+          <div className="rounded-2xl bg-band-financeWash border border-band-finance/25 p-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <ShieldAlert size={20} className="text-band-finance shrink-0" />
+              <div>
+                <div className="text-[13px] font-semibold text-band-finance flex items-center gap-2">
+                  <span>Level 2 Second-Level Action Required</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-band-finance/15 text-band-finance">
+                    Finance Sign-off
+                  </span>
+                </div>
+                <div className="text-[12px] text-band-finance mt-0.5">
+                  Level 1 Sales Manager approved ({quote.level1_approved_by_name || 'Sales Manager'}). High-risk discount breach (Score: {quote.risk_score} / Band: {quote.risk_band}) requires Finance sign-off before releasing to customer.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleManagerAction('approve')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-full bg-band-finance hover:brightness-110 text-white px-4 py-2 font-display text-[12.5px] font-semibold shadow-lift disabled:opacity-50"
+              >
+                <CheckCircle2 size={14} />
+                <span>Approve Quotation (Finance)</span>
+              </button>
+              <button
+                onClick={() => handleManagerAction('reject')}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-rose-100 text-rose-700 border border-rose-300 px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
+              >
+                <XCircle size={14} />
+                <span>Reject</span>
+              </button>
+              <button
+                onClick={() => { setRevisionModalOpen(true); setRevisionNote('') }}
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-amber-100 text-amber-800 border border-amber-300 px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
+              >
+                <RotateCcw size={13} />
+                <span>Request Rep Revision</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Informational Bar for Sales Manager awaiting Finance sign-off ── */}
+        {user?.role === 'manager' && quote.state === 'PENDING_FINANCE' && (
+          <div className="rounded-2xl bg-amber-500/10 border border-amber-500/25 p-4 flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Clock size={20} className="text-amber-700 shrink-0" />
+              <div>
+                <div className="text-[13px] font-semibold text-amber-900 flex items-center gap-2">
+                  <span>Awaiting Second-Level Finance Sign-off</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800">
+                    Stage: Finance
+                  </span>
+                </div>
+                <div className="text-[12px] text-amber-800 mt-0.5">
+                  Level 1 Sales Manager sign-off completed ({quote.level1_approved_by_name || 'M. Shah'}). High-risk discount requires Finance Manager (R. Menon) second-level sign-off.
+                </div>
+              </div>
+            </div>
+            <span className="rounded-full bg-amber-100 text-amber-800 px-3 py-1 font-mono text-[11px] font-semibold border border-amber-200">
+              PENDING FINANCE
+            </span>
+          </div>
+        )}
+
+        {/* ── Return for revision modal (Message box for review sending) ── */}
+        {revisionModalOpen && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-fg/25 backdrop-blur-[2px] px-5"
+            role="dialog" aria-modal="true" aria-label="Return for revision"
+            onClick={e => { if (e.target === e.currentTarget) setRevisionModalOpen(false) }}
+          >
+            <div className="w-full max-w-[520px] rounded-2xl bg-surface ring-1 ring-black/[.08] shadow-lift-lg p-6 flex flex-col gap-4 animate-fadeIn">
+              <div>
+                <h2 className="font-display text-[18px] font-bold text-fg tracking-tight">
+                  Return {quote.ref} for revision
+                </h2>
+                <p className="text-[12.5px] text-fg-2 mt-1.5 leading-relaxed">
+                  {quote.customer} · Total: <AnimatedNumber value={quote.total} format="inr" flash={false} /> · Escalated by {quote.rep}
+                </p>
+              </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                  Revision instructions for {quote.rep}
+                </span>
+                <textarea
+                  autoFocus
+                  rows={4}
+                  value={revisionNote}
+                  onChange={e => setRevisionNote(e.target.value)}
+                  placeholder="Explain what needs to change (e.g. Reduce discount on Rack Server R740 to 15% to meet Hardware allowance)..."
+                  className="rounded-lg bg-surface px-3.5 py-2.5 text-[13.5px] text-fg resize-y ring-1 ring-black/[.09] outline-none focus:ring-accent/45 placeholder:text-fg-4"
+                />
+                <span className={`text-[11.5px] ${
+                  revisionNote.trim().length >= 10 ? 'text-fg-3' : 'text-band-manager'}`}>
+                  {revisionNote.trim().length < 10
+                    ? `At least 10 characters — ${quote.rep} sees this note on their Action required banner.`
+                    : `${quote.rep} sees this note on their Action required banner.`}
+                </span>
+              </label>
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={sendRevision}
+                  disabled={revisionNote.trim().length < 10 || busy}
+                  className="rounded-full bg-fg text-white px-5 py-2.5 font-display text-[13px] font-semibold hover:shadow-lift-lg active:scale-[.98] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  {busy ? 'Returning…' : 'Return to rep'}
+                </button>
+                <button
+                  onClick={() => setRevisionModalOpen(false)}
+                  className="rounded-full ring-1 ring-black/[.08] bg-surface px-4 py-2.5 font-display text-[13px] font-medium text-fg-2 hover:text-fg"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── Quote header ──────────────────────────────────────────── */}
         <header className="flex flex-wrap items-center gap-x-5 gap-y-3">

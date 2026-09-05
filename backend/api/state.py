@@ -140,6 +140,17 @@ def record_approval(ref: str, *, user_id: str, name: str, role: str) -> None:
     row["revision_requested"] = False
 
 
+def record_level1_approval(ref: str, *, user_id: str, name: str) -> None:
+    """Record Level 1 Sales Manager approval for a high-risk quote moving to Level 2 Finance."""
+    row = QUOTES.get(ref)
+    if row is None:
+        return
+    row["level1_approved_by_id"] = user_id
+    row["level1_approved_by_name"] = name
+    row["level1_approved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    row["revision_requested"] = False
+
+
 def request_revision(ref: str, *, notes: str) -> None:
     """Send a quotation back to its rep with a coaching note."""
     row = QUOTES.get(ref)
@@ -152,6 +163,9 @@ def request_revision(ref: str, *, notes: str) -> None:
     row["approved_by_name"] = None
     row["approved_by_role"] = None
     row["approved_at"] = None
+    row["level1_approved_by_id"] = None
+    row["level1_approved_by_name"] = None
+    row["level1_approved_at"] = None
 
 
 def approval_meta(ref: str) -> dict[str, Any]:
@@ -161,6 +175,9 @@ def approval_meta(ref: str) -> dict[str, Any]:
         "approved_by_name": row.get("approved_by_name"),
         "approved_by_role": row.get("approved_by_role"),
         "approved_at": row.get("approved_at"),
+        "level1_approved_by_id": row.get("level1_approved_by_id"),
+        "level1_approved_by_name": row.get("level1_approved_by_name"),
+        "level1_approved_at": row.get("level1_approved_at"),
         "manager_revision_notes": row.get("manager_revision_notes"),
         "revision_requested": bool(row.get("revision_requested")),
     }

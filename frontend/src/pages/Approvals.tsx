@@ -68,14 +68,32 @@ export default function Approvals() {
   const [reassigning, setReassigning] = useState<boolean>(false)
   const [repsList, setRepsList] = useState<any[]>([])
 
-  const user = (() => {
+  const [managerFilter, setManagerFilter] = useState<string>('ALL')
+  const [repFilter, setRepFilter] = useState<string>('ALL')
+
+  const { user: authUser } = useAuth()
+  const user = useMemo(() => {
+    if (authUser) {
+      return {
+        name: authUser.name,
+        role: authUser.role.toLowerCase(),
+        email: authUser.email,
+      }
+    }
     try {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
-      return stored ? JSON.parse(stored) : { name: 'M. Shah', role: 'MANAGER' }
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return {
+          ...parsed,
+          role: (parsed.role || 'manager').toLowerCase(),
+        }
+      }
+      return { name: 'M. Shah', role: 'manager' }
     } catch {
-      return { name: 'M. Shah', role: 'MANAGER' }
+      return { name: 'M. Shah', role: 'manager' }
     }
-  })()
+  }, [authUser])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -169,18 +187,29 @@ export default function Approvals() {
     setError(null)
     setActionSuccess(null)
     try {
-      await request(`/approvals/${ref}/action`, {
+      const res = await request<any>(`/approvals/${ref}/action`, {
         method: 'POST',
         body: JSON.stringify({ action, actor: user?.name }),
       })
-      updateLocalState(ref, action)
-      const label = action === 'approve' ? 'Approved'
-                  : action === 'reject' ? 'Rejected' : 'Sent back to Rep'
-      setActionSuccess(`Quotation ${ref} successfully ${label}.`)
+      const nextState = res?.state ?? (action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : 'DRAFT')
+      setItems(prev => prev.map(item => {
+        if (item.ref !== ref) return item
+        return {
+          ...item,
+          state: nextState,
+          stage: nextState === 'PENDING_FINANCE' ? 'Finance' : item.stage,
+          assigned_to: nextState === 'PENDING_FINANCE' ? 'R. Menon' : item.assigned_to,
+        }
+      }))
+      const label = action === 'approve'
+        ? (nextState === 'PENDING_FINANCE'
+            ? 'approved at Level 1 (Sales Manager) and escalated to Finance (Level 2)'
+            : 'approved successfully')
+        : action === 'reject' ? 'rejected' : 'sent back to Rep'
+      setActionSuccess(`Quotation ${ref} ${label}.`)
       setTimeout(() => setActionSuccess(null), 4000)
+      load()
     } catch (err) {
-      // A refusal is the governance model working. Reporting it as success and
-      // mutating local state would show an approval that never happened.
       setError(err instanceof ApiError
         ? (err.status === 403
             ? `Your role is not permitted to ${action} this quotation.`
@@ -189,14 +218,6 @@ export default function Approvals() {
     } finally {
       setBusyRef(null)
     }
-  }
-
-  const updateLocalState = (ref: string, action: 'approve' | 'reject' | 'return') => {
-    setItems(prev => prev.map(item => {
-      if (item.ref !== ref) return item
-      const nextState = action === 'approve' ? 'APPROVED' : action === 'reject' ? 'REJECTED' : 'DRAFT'
-      return { ...item, state: nextState }
-    }))
   }
 
   const handleReassign = async () => {
@@ -235,6 +256,29 @@ export default function Approvals() {
       setReassigning(false)
     }
   }
+
+  // Dynamic Manager and Rep options extracted from current items
+  const managerOptions = useMemo(() => {
+    if (user?.role === 'manager' && user.name) {
+      return [user.name]
+    }
+    const set = new Set<string>()
+    items.forEach(i => {
+      if (i.assigned_to && i.assigned_to !== '—') set.add(i.assigned_to)
+    })
+    if (user?.name && ['manager', 'admin'].includes(user.role)) {
+      set.add(user.name)
+    }
+    return Array.from(set).sort()
+  }, [items, user])
+
+  const repOptions = useMemo(() => {
+    const set = new Set<string>()
+    items.forEach(i => {
+      if (i.rep && i.rep !== '—') set.add(i.rep)
+    })
+    return Array.from(set).sort()
+  }, [items])
 
   // Filter items
   const pendingItems = items.filter(i => i.state.startsWith('PENDING'))
@@ -646,54 +690,70 @@ export default function Approvals() {
                         {/* Action Buttons */}
                         <td className="px-4 py-3 text-right">
                           {isPending ? (
-                            <div className="inline-flex items-center gap-1.5">
+                            <div className="inline-flex items-center gap-1.5 justify-end">
                               {/* Reassign Button */}
-                              <button
-                                onClick={() => {
-                                  setReassignTarget(item)
-                                  setSelectedNewRep(item.rep_id || (repsList[0]?.id || 'rep_rao'))
-                                  setPermanentUpdate(true)
-                                }}
-                                disabled={isBusy}
-                                title="Reassign to another Sales Rep"
-                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
-                              >
-                                <ArrowRightLeft size={12} />
-                                <span>Reassign</span>
-                              </button>
+                              {['manager', 'admin'].includes(user?.role) && (
+                                <button
+                                  onClick={() => {
+                                    setReassignTarget(item)
+                                    setSelectedNewRep(item.rep_id || (repsList[0]?.id || 'rep_rao'))
+                                    setPermanentUpdate(true)
+                                  }}
+                                  disabled={isBusy}
+                                  title="Reassign to another Sales Rep"
+                                  className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                >
+                                  <ArrowRightLeft size={12} />
+                                  <span>Reassign</span>
+                                </button>
+                              )}
 
-                              {/* Approve Button */}
-                              <button
-                                onClick={() => handleAction(item.ref, 'approve')}
-                                disabled={isBusy}
-                                title="Approve quote within manager discretion"
-                                className="inline-flex items-center gap-1 rounded-full bg-band-auto hover:bg-band-auto text-white px-3 py-1 font-medium text-[12px] shadow-sm disabled:opacity-40 transition-all active:scale-[.98]"
-                              >
-                                <CheckCircle2 size={13} />
-                                <span>Approve</span>
-                              </button>
+                              {item.state === 'PENDING_MANAGER' && user?.role === 'finance' ? (
+                                <span className="font-mono text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                                  Awaiting Sales Manager (L1)
+                                </span>
+                              ) : item.state === 'PENDING_FINANCE' && user?.role === 'manager' ? (
+                                <span className="font-mono text-[11px] px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                                  Awaiting Finance (L2)
+                                </span>
+                              ) : (
+                                <>
+                                  {/* Approve Button */}
+                                  <button
+                                    onClick={() => handleAction(item.ref, 'approve')}
+                                    disabled={isBusy}
+                                    title={item.state === 'PENDING_FINANCE' ? "Finance second-level approval" : "Sales manager approval"}
+                                    className={`inline-flex items-center gap-1 rounded-full text-white px-3 py-1 font-medium text-[12px] shadow-sm disabled:opacity-40 transition-all active:scale-[.98] ${
+                                      item.state === 'PENDING_FINANCE' ? 'bg-band-finance hover:brightness-110' : 'bg-band-auto hover:bg-band-auto'
+                                    }`}
+                                  >
+                                    <CheckCircle2 size={13} />
+                                    <span>{item.state === 'PENDING_FINANCE' ? 'Approve (Finance)' : 'Approve'}</span>
+                                  </button>
 
-                              {/* Reject Button */}
-                              <button
-                                onClick={() => handleAction(item.ref, 'reject')}
-                                disabled={isBusy}
-                                title="Reject discount proposal"
-                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-financeWash text-band-finance border border-band-finance px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
-                              >
-                                <XCircle size={13} />
-                                <span>Reject</span>
-                              </button>
+                                  {/* Reject Button */}
+                                  <button
+                                    onClick={() => handleAction(item.ref, 'reject')}
+                                    disabled={isBusy}
+                                    title="Reject discount proposal"
+                                    className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-financeWash text-band-finance border border-band-finance px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                  >
+                                    <XCircle size={13} />
+                                    <span>Reject</span>
+                                  </button>
 
-                              {/* Send back to Rep Button */}
-                              <button
-                                onClick={() => { setRevising(item); setRevisionNote('') }}
-                                disabled={isBusy}
-                                title="Return to Rep for revision"
-                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-managerWash text-band-manager border border-band-manager px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
-                              >
-                                <RotateCcw size={12} />
-                                <span>Return</span>
-                              </button>
+                                  {/* Send back to Rep Button */}
+                                  <button
+                                    onClick={() => { setRevising(item); setRevisionNote('') }}
+                                    disabled={isBusy}
+                                    title="Return to Rep for revision"
+                                    className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-managerWash text-band-manager border border-band-manager px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                  >
+                                    <RotateCcw size={12} />
+                                    <span>Return</span>
+                                  </button>
+                                </>
+                              )}
 
                               {/* Review in Builder */}
                               <button

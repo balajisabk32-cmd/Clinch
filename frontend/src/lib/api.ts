@@ -99,6 +99,9 @@ export interface QuoteDetail {
   approved_by_name?: string | null
   approved_by_role?: string | null
   approved_at?: string | null
+  level1_approved_by_id?: string | null
+  level1_approved_by_name?: string | null
+  level1_approved_at?: string | null
   manager_revision_notes?: string | null
   revision_requested?: boolean
   ref: string; customer: string; tier: string; rep: string; state: string
