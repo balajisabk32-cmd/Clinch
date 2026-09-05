@@ -21,7 +21,7 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 from .auth import any_of, current_user, permissions_for, require, tabs_for
 from fastapi.responses import StreamingResponse
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from engine.billing import (
     Subscription as BSub, billing_schedule, build_ledger, prorate,
@@ -30,8 +30,7 @@ from engine.fulfilment import (
     DemandLine, Warehouse, consolidate_backorders, split_order,
 )
 from engine.recommender import recommend as run_recommender
-from engine.scoring import coach as run_coach
-from engine.scoring import score_quote
+from engine.scoring import Quote, coach as run_coach, score_quote
 
 from . import fixtures as fx
 from . import services as svc
@@ -1222,6 +1221,282 @@ def reports(period: str | None = Query(None, description="today | week | month |
                    risk_band=r["result"].band,
                    last_activity=state.last_activity(r["quote"].ref)) for r in rows],
     )
+
+
+def _enrich_pipeline_deal(row: dict[str, Any], stall_days: int) -> dict[str, Any]:
+    q = row["quote"]
+    r = row["result"]
+    t = row["totals"]
+    curr_state = row["state"]
+    idle = row["days_idle"]
+
+    if curr_state in ("REJECTED", "CLOSED_LOST", "CANCELLED"):
+        health_cat = "CLOSED_LOST"
+    elif idle >= stall_days:
+        health_cat = "STALLED"
+    elif r.band in ("MANAGER", "FINANCE") or r.score > 25.0:
+        health_cat = "AT_RISK"
+    else:
+        health_cat = "HEALTHY"
+
+    if r.band == "FINANCE" or r.score >= 50.0:
+        risk_lvl = "HIGH"
+    elif r.band == "MANAGER" or r.score >= 20.0:
+        risk_lvl = "MEDIUM"
+    else:
+        risk_lvl = "LOW"
+
+    if r.notes:
+        risk_exp = "; ".join(r.notes)
+    else:
+        risk_exp = "Pricing is compliant and within standard policy thresholds."
+
+    products = [
+        dict(productId=l.sku, name=l.name, qty=l.qty, unitPrice=l.list_price)
+        for l in q.lines
+    ]
+
+    warehouse_split = []
+    if q.ref in state.ALLOCATIONS:
+        alloc = state.ALLOCATIONS[q.ref]
+        for a in alloc.get("allocations", []):
+            wh_name = a.get("warehouse", "Warehouse")
+            warehouse_split.append(dict(
+                warehouseId=wh_name.lower().replace(" ", "-"),
+                name=wh_name,
+                unitsAllocated=sum(item.get("qty", 0) for item in a.get("lines", [])),
+            ))
+    elif any(l.category == "Hardware" and l.qty >= 20 for l in q.lines):
+        try:
+            whs = [Warehouse(name=w["name"], ship_cost_weight=w["ship_cost_weight"], fixed_shipment_cost=w["fixed_shipment_cost"]) for w in fx.WAREHOUSES]
+            stk = {w["name"]: {sku: state.available(w["name"], sku) for sku in state.STOCK.get(w["name"], {})} for w in fx.WAREHOUSES}
+            lines = [DemandLine(sku=l.sku, name=l.name, qty=l.qty, is_physical=True) for l in q.lines if l.category == "Hardware"]
+            split_res = split_order(whs, lines, stk, objective="cost")
+            for a in split_res.allocations:
+                warehouse_split.append(dict(
+                    warehouseId=a.warehouse.name.lower().replace(" ", "-"),
+                    name=a.warehouse.name,
+                    unitsAllocated=sum(s.qty for s in a.lines),
+                ))
+        except Exception:
+            pass
+
+    sub_line = next((l for l in q.lines if l.is_recurring), None)
+    sub_dict = None
+    if sub_line:
+        sub_dict = dict(
+            planName=sub_line.name,
+            billingCycle="Annual" if ("yearly" in getattr(sub_line, "recurrence", "").lower() or "gold" in sub_line.sku.lower()) else "Monthly",
+            seats=sub_line.qty,
+            prorationNote="Pro-rata billing scheduled on order confirmation.",
+        )
+    else:
+        cust_sub = next((s for s in state.SUBSCRIPTIONS if s.get("customer") == q.customer), None)
+        if cust_sub:
+            sub_dict = dict(
+                planName=cust_sub.get("plan", "Enterprise Support"),
+                billingCycle=cust_sub.get("billing_cycle", "Monthly").capitalize(),
+                seats=cust_sub.get("seats", 5),
+                prorationNote="Active recurring contract.",
+            )
+
+    scenario_tags = []
+    if warehouse_split and len(warehouse_split) > 1:
+        scenario_tags.append("SPLIT_FULFILLMENT")
+    if sub_dict:
+        scenario_tags.append("SUBSCRIPTION")
+    if t["margin_pct"] >= 55.0:
+        scenario_tags.append("HIGH_MARGIN")
+    if r.band == "FINANCE":
+        scenario_tags.append("FINANCE_ESCALATION")
+    elif r.band == "MANAGER":
+        scenario_tags.append("MANAGER_ESCALATION")
+    if idle >= stall_days:
+        scenario_tags.append("STALLED_PIPELINE")
+    if r.contributions.get("Z", 0) > 8:
+        scenario_tags.append("BEHAVIOURAL_ANOMALY")
+    if any(l.get("over", 0) > 0 for l in r.lines):
+        scenario_tags.append("CEILING_BREACH")
+    if not scenario_tags:
+        scenario_tags.append("STANDARD_DEAL")
+
+    has_software = any(l.category == "Software" for l in q.lines)
+    upsell_opportunity = not has_software
+    suggested_upsell = [
+        dict(productId="SW-DESIGN", name="DesignSuite Licence"),
+        dict(productId="DOCK-01", name="Docking Station"),
+    ] if upsell_opportunity else []
+
+    return dict(
+        id=q.ref,
+        customerId=f"CUST-{q.customer.replace(' ', '-')}",
+        customerName=q.customer,
+        salesRepId=q.rep_id,
+        salesRepName=fx.REP_NAME.get(q.rep_id, q.rep_id),
+        products=products,
+        currency="INR",
+        grossValue=round(t.get("subtotal", 0.0), 2),
+        discountPercent=round(100.0 * t.get("discount_total", 0.0) / t.get("subtotal", 1.0), 1) if t.get("subtotal", 0.0) else 0.0,
+        value=round(t["total"], 2),
+        stage=curr_state,
+        approvalStage=r.band,
+        riskScore=round(r.score, 1),
+        riskLevel=risk_lvl,
+        riskExplanation=risk_exp,
+        createdDaysAgo=idle + 3,
+        lastActivityDaysAgo=idle,
+        createdAt=fx._ago(idle + 3),
+        lastActivityAt=state.last_activity(q.ref),
+        daysSinceLastActivity=idle,
+        healthCategory=health_cat,
+        upsellOpportunity=upsell_opportunity,
+        suggestedUpsellProducts=suggested_upsell,
+        scenarioTags=scenario_tags,
+        warehouseSplit=warehouse_split,
+        subscription=sub_dict,
+    )
+
+
+def _enrich_closed_deal(cq: Quote, idx: int) -> dict[str, Any]:
+    t = svc.totals(cq)
+    days_ago = 10 + (idx * 3) % 90
+    closed_disc_pct = round(100.0 * t.get("discount_total", 0.0) / t.get("subtotal", 1.0), 1) if t.get("subtotal", 0.0) else 0.0
+    return dict(
+        id=cq.ref,
+        customerId=f"CUST-{cq.customer.replace(' ', '-')}",
+        customerName=cq.customer,
+        salesRepId=cq.rep_id,
+        salesRepName=fx.REP_NAME.get(cq.rep_id, cq.rep_id),
+        products=[
+            dict(productId=l.sku, name=l.name, qty=l.qty, unitPrice=l.list_price)
+            for l in cq.lines
+        ],
+        currency="INR",
+        grossValue=round(t.get("subtotal", 0.0), 2),
+        discountPercent=closed_disc_pct,
+        value=round(t["total"], 2),
+        stage="CLOSED_WON",
+        approvalStage="AUTO",
+        riskScore=round(closed_disc_pct * 0.6, 1),
+        riskLevel="LOW",
+        riskExplanation="Historical settled contract. Fulfilled and fully paid.",
+        createdDaysAgo=days_ago + 5,
+        lastActivityDaysAgo=days_ago,
+        createdAt=fx._ago(days_ago + 5),
+        lastActivityAt=fx._ago(days_ago),
+        daysSinceLastActivity=days_ago,
+        healthCategory="HEALTHY",
+        upsellOpportunity=False,
+        suggestedUpsellProducts=[],
+        scenarioTags=["CLOSED_WON", "FULFILLED"],
+        warehouseSplit=[],
+        subscription=None,
+    )
+
+
+def _all_deal_health_deals() -> list[dict[str, Any]]:
+    pipeline = svc.open_pipeline()
+    stall_days = state.get_policy().stall_days
+    active = [_enrich_pipeline_deal(row, stall_days) for row in pipeline]
+    closed = [_enrich_closed_deal(cq, i) for i, cq in enumerate(fx.closed_as_quotes()[:35])]
+    return active + closed
+
+
+@insights.get("/deal-health/dashboard")
+def deal_health_dashboard(_actor: dict[str, Any] = Depends(require("quote.view"))) -> dict[str, Any]:
+    deals = _all_deal_health_deals()
+    counts = {"HEALTHY": 0, "AT_RISK": 0, "STALLED": 0, "CLOSED_LOST": 0}
+    by_stage: dict[str, int] = {}
+    for d in deals:
+        counts[d["healthCategory"]] = counts.get(d["healthCategory"], 0) + 1
+        by_stage[d["stage"]] = by_stage.get(d["stage"], 0) + 1
+
+    open_pipeline_val = sum(d["value"] for d in deals if d["healthCategory"] != "CLOSED_LOST" and d["stage"] != "CLOSED_WON")
+    avg_disc = round(sum(d["discountPercent"] for d in deals) / len(deals), 1) if deals else 0.0
+
+    at_risk_deals = [
+        dict(
+            dealId=d["id"],
+            customerName=d["customerName"],
+            salesRep=d["salesRepName"],
+            discount=d["discountPercent"],
+            riskScore=d["riskScore"],
+            riskLevel=d["riskLevel"],
+            riskExplanation=d["riskExplanation"],
+            approvalStage=d["approvalStage"],
+            status="AT_RISK",
+        )
+        for d in deals if d["healthCategory"] == "AT_RISK"
+    ]
+    at_risk_deals.sort(key=lambda x: (x["riskScore"] or 0), reverse=True)
+
+    stalled_deals = [
+        dict(
+            dealId=d["id"],
+            customerName=d["customerName"],
+            salesRep=d["salesRepName"],
+            value=d["value"],
+            daysStalled=d["daysSinceLastActivity"],
+            status="STALLED",
+        )
+        for d in deals if d["healthCategory"] == "STALLED"
+    ]
+    stalled_deals.sort(key=lambda x: x["daysStalled"], reverse=True)
+
+    pipeline = svc.open_pipeline()
+    rep_histories = []
+    for profile in fx.REP_PROFILES:
+        rep_id = profile["id"]
+        rep_name = profile["name"]
+        base_history = list(fx.history_for(rep_id))
+        active_discs = [
+            round(100.0 * r["totals"]["discount_total"] / r["totals"]["subtotal"], 1)
+            if r["totals"].get("subtotal") else 0.0
+            for r in pipeline if r["quote"].rep_id == rep_id
+        ]
+        all_discs = base_history + active_discs
+        avg_d = round(sum(all_discs) / len(all_discs), 1) if all_discs else 0.0
+        max_d = round(max(all_discs), 1) if all_discs else 0.0
+        rep_histories.append(dict(
+            salesRepId=rep_id,
+            salesRepName=rep_name,
+            totalDeals=len(all_discs),
+            averageDiscount=avg_d,
+            highestDiscount=max_d,
+            discountHistory=all_discs[-15:],
+        ))
+
+    summary = dict(
+        totalDeals=len(deals),
+        healthyDeals=counts["HEALTHY"],
+        atRiskDeals=counts["AT_RISK"],
+        stalledDeals=counts["STALLED"],
+        closedLostDeals=counts["CLOSED_LOST"],
+        averageDiscount=avg_disc,
+        openPipelineValue=round(open_pipeline_val, 2),
+        currency="INR",
+        generatedAt=datetime.now(timezone.utc).isoformat(),
+    )
+
+    status_distribution = dict(
+        byStage=[dict(stage=s, count=c) for s, c in sorted(by_stage.items())],
+        byHealthCategory=[dict(healthCategory=h, count=c) for h, c in counts.items()],
+        totalDeals=len(deals),
+    )
+
+    return dict(
+        summary=summary,
+        atRiskDeals=at_risk_deals,
+        stalledDeals=stalled_deals,
+        salesRepDiscountHistory=rep_histories,
+        statusDistribution=status_distribution,
+        generatedAt=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@insights.get("/deal-health/deals")
+def deal_health_deals(_actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
+    return _all_deal_health_deals()
 
 
 # =========================================================================== #

@@ -588,8 +588,8 @@ document.addEventListener('DOMContentLoaded', () => {
       badgeColor: '#4f46e5',
       desc: 'Supervises sales reps, reviews deals triggering margin escalation (15%–25% discount band), evaluates blended SHAP risk indicators, and approves/rejects quotation queues.',
       creds: 'manager@dealflow360.com • Pass: Password123!',
-      primaryAction: { label: 'Open Deal Health Suite (:4000)', url: 'http://localhost:4000' },
-      secondaryAction: { label: 'Open Manager Bench (:5000)', url: 'http://localhost:5000' }
+      primaryAction: { label: 'Open Deal Health Suite', url: 'http://localhost:5173/app/health' },
+      secondaryAction: { label: 'Open Workspace (:5173)', url: 'http://localhost:5173/app' }
     },
     REP: {
       title: 'Sales Representative Cockpit — Alice Sales',
@@ -598,7 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
       desc: 'Assembles multi-line quotes across Hardware, Services, and Subscriptions. Receives automated ML risk calculations, real-time margin warnings, and suggested add-on recommendations.',
       creds: 'rep@dealflow360.com • Pass: Password123!',
       primaryAction: { label: 'Test Live Risk Cockpit', scrollTarget: '#demo-cockpit' },
-      secondaryAction: { label: 'Open Rep CPQ Bench (:5000)', url: 'http://localhost:5000' }
+      secondaryAction: { label: 'Open Quotations (:5173)', url: 'http://localhost:5173/app/quotes' }
     },
     ADMIN: {
       title: 'RevOps Administrator Console — Dave Admin',

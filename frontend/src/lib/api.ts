@@ -199,8 +199,8 @@ export const api = {
   // figures are computed rather than asserted, so silently substituting invented
   // numbers when the API is unreachable would make the pitch a lie. A failure
   // propagates and the screen says the engine is unreachable.
-  dealHealthDashboard: () => req<DealHealthDashboardData>('/dashboard'),
-  dealHealthDeals: () => req<EnrichedDeal[]>('/quotes'),
+  dealHealthDashboard: () => req<DealHealthDashboardData>('/deal-health/dashboard'),
+  dealHealthDeals: () => req<EnrichedDeal[]>('/deal-health/deals'),
 }
 
 export interface DealHealthSummary {
