@@ -1,0 +1,46 @@
+{
+  "name": "clinch",
+  "version": "1.0.0",
+  "description": "Clinch - Intelligent B2B Sales Operations Platform Backend",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "start:reporting": "node server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "node prisma/seed.js",
+    "test:auth": "node scripts/test-auth.js",
+    "test:products": "node scripts/test-products.js",
+    "smoke-test": "bash test/smoke-test.sh"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
+  "keywords": [
+    "clinch",
+    "dealflow360",
+    "sales-operations",
+    "quotations",
+    "approvals",
+    "pricing",
+    "reporting",
+    "dashboard"
+  ],
+  "author": "Clinch Team",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^18.4.0-beta.17",
+    "nodemon": "^3.1.9",
+    "prisma": "^5.22.0"
+  }
+}

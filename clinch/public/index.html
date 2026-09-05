@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clinch — Deal Health & Reporting Dashboard</title>
+  <meta name="description" content="Real-time Deal Health, Risk Analysis, and Sales Rep Discount Reporting for Clinch Deal Operations.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Main App Shell -->
+  <div class="app-container">
+    <!-- Navigation Bar -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="brand-logo">
+          <img src="/CLINCH_LOGO_TRANSPARENT.png" alt="Clinch Logo" style="height: 32px; width: auto;" />
+          <div class="brand-text">
+            <div class="brand-title">Clinch <span class="badge-scope">Reporting Suite</span></div>
+            <div class="brand-sub">Deal Health, Risk & Performance Intelligence</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <nav class="nav-tabs" role="tablist">
+          <button id="tab-btn-overview" class="nav-tab active" data-tab="overview" role="tab" aria-selected="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            Overview
+          </button>
+          <button id="tab-btn-deals" class="nav-tab" data-tab="deals" role="tab" aria-selected="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Deal Pipeline
+            <span id="nav-deal-count" class="nav-counter">50</span>
+          </button>
+          <button id="tab-btn-reps" class="nav-tab" data-tab="reps" role="tab" aria-selected="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Sales Rep Benchmarks
+          </button>
+          <button id="tab-btn-api" class="nav-tab" data-tab="api" role="tab" aria-selected="false">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            API & Seed Data
+          </button>
+        </nav>
+      </div>
+
+      <div class="header-right">
+        <div class="connection-status" id="server-status" title="Server is healthy">
+          <span class="status-indicator live"></span>
+          <span class="status-label">Reporting :4000</span>
+        </div>
+        <a href="http://localhost:8085" class="btn btn-secondary" style="text-decoration:none;" title="Main Showcase & Video Landing">
+          ⚡ Showcase (:8085)
+        </a>
+        <a href="http://localhost:5000" class="btn btn-secondary" style="text-decoration:none;" title="Interactive Test Bench & Core API">
+          🧪 Test Bench (:5000)
+        </a>
+        <button id="btn-refresh" class="btn btn-secondary" title="Refresh Dashboard Data">
+          <svg id="refresh-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Refresh
+        </button>
+        <button id="btn-reset-seed" class="btn btn-warning" title="Reload seed data and reset relative timestamps">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+          Reset Seed
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- VIEW 1: OVERVIEW TAB -->
+      <section id="view-overview" class="view-panel active">
+        <!-- Hero Banner with Summary Stats -->
+        <div class="section-header">
+          <div>
+            <h1 class="page-title">Deal Health Overview</h1>
+            <p class="page-subtitle">Real-time status monitoring, risk exposure analysis, and pipeline velocity.</p>
+          </div>
+          <div class="timestamp-display" id="last-updated-text">Updating...</div>
+        </div>
+
+        <!-- Metric KPI Cards Grid -->
+        <div class="metrics-grid">
+          <div class="metric-card glass-card">
+            <div class="metric-header">
+              <span class="metric-title">Open Pipeline Value</span>
+              <div class="metric-icon-wrap primary">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </div>
+            </div>
+            <div class="metric-value" id="kpi-pipeline-val">₹0</div>
+            <div class="metric-meta">
+              <span class="meta-tag positive">Open / Active Pipeline</span>
+              <span class="meta-sub" id="kpi-total-deals-sub">0 total deals</span>
+            </div>
+          </div>
+
+          <div class="metric-card glass-card">
+            <div class="metric-header">
+              <span class="metric-title">Healthy Deals</span>
+              <div class="metric-icon-wrap success">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </div>
+            </div>
+            <div class="metric-value text-success" id="kpi-healthy-count">0</div>
+            <div class="metric-meta">
+              <span class="meta-tag success" id="kpi-healthy-pct">0% of pipeline</span>
+              <span class="meta-sub">Progressing normally</span>
+            </div>
+          </div>
+
+          <div class="metric-card glass-card">
+            <div class="metric-header">
+              <span class="metric-title">At-Risk Deals</span>
+              <div class="metric-icon-wrap danger">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="7.86 2 16.14 2 22 7.86 22 16.14 16.14 22 7.86 22 2 16.14 2 7.86 7.86 2"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              </div>
+            </div>
+            <div class="metric-value text-danger" id="kpi-atrisk-count">0</div>
+            <div class="metric-meta">
+              <span class="meta-tag danger">High / Med Risk Score</span>
+              <span class="meta-sub">Requires mitigation</span>
+            </div>
+          </div>
+
+          <div class="metric-card glass-card">
+            <div class="metric-header">
+              <span class="metric-title">Stalled Deals</span>
+              <div class="metric-icon-wrap warning">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </div>
+            </div>
+            <div class="metric-value text-warning" id="kpi-stalled-count">0</div>
+            <div class="metric-meta">
+              <span class="meta-tag warning">≥ 5 Days Inactive</span>
+              <span class="meta-sub">Follow-up needed</span>
+            </div>
+          </div>
+
+          <div class="metric-card glass-card">
+            <div class="metric-header">
+              <span class="metric-title">Average Discount</span>
+              <div class="metric-icon-wrap purple">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>
+              </div>
+            </div>
+            <div class="metric-value text-purple" id="kpi-avg-discount">0%</div>
+            <div class="metric-meta">
+              <span class="meta-tag purple">Portfolio Average</span>
+              <span class="meta-sub">Target ceiling: 15%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Visual Distribution & Pipeline Stage Row -->
+        <div class="dashboard-split-grid">
+          <!-- Deal Health Breakdown -->
+          <div class="glass-card panel-card">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <h2 class="panel-title">Deal Health Distribution</h2>
+                <p class="panel-subtitle">Categorization by activity velocity and scoring engine flags</p>
+              </div>
+            </div>
+            <div class="distribution-visual" id="health-distribution-bars">
+              <!-- Rendered via JS -->
+            </div>
+            <div class="distribution-legend" id="health-legend">
+              <div class="legend-item"><span class="legend-dot healthy"></span> Healthy</div>
+              <div class="legend-item"><span class="legend-dot at-risk"></span> At-Risk</div>
+              <div class="legend-item"><span class="legend-dot stalled"></span> Stalled (5+ days)</div>
+              <div class="legend-item"><span class="legend-dot closed-lost"></span> Closed Lost / Rejected</div>
+            </div>
+          </div>
+
+          <!-- Workflow Stage Breakdown -->
+          <div class="glass-card panel-card">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <h2 class="panel-title">Pipeline Stage Funnel</h2>
+                <p class="panel-subtitle">Distribution across quotation and approval lifecycle</p>
+              </div>
+            </div>
+            <div class="stage-pipeline-list" id="stage-pipeline-container">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Priority Attention Row: At-Risk & Stalled Deals -->
+        <div class="dashboard-split-grid alert-section">
+          <!-- At Risk Deals Spotlight -->
+          <div class="glass-card panel-card border-danger-subtle">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <div class="badge-flag danger">Critical Focus</div>
+                <h2 class="panel-title">At-Risk Deals Requiring Review</h2>
+                <p class="panel-subtitle">Deals with high discount variance or AI risk alerts</p>
+              </div>
+              <button class="btn-text" onclick="showTab('deals', 'AT_RISK')">View All &rarr;</button>
+            </div>
+            <div class="deal-card-list" id="at-risk-deals-list">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Stalled Deals Spotlight -->
+          <div class="glass-card panel-card border-warning-subtle">
+            <div class="panel-header">
+              <div class="panel-title-wrap">
+                <div class="badge-flag warning">Velocity Alert</div>
+                <h2 class="panel-title">Stalled Pipeline Opportunities</h2>
+                <p class="panel-subtitle">Deals with no recorded client or rep activity for 5+ days</p>
+              </div>
+              <button class="btn-text" onclick="showTab('deals', 'STALLED')">View All &rarr;</button>
+            </div>
+            <div class="deal-card-list" id="stalled-deals-list">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 2: ALL DEALS PIPELINE TAB -->
+      <section id="view-deals" class="view-panel">
+        <div class="section-header">
+          <div>
+            <h1 class="page-title">Deal Pipeline Explorer</h1>
+            <p class="page-subtitle">Inspect enriched deals with customer, rep, line items, and risk scoring details.</p>
+          </div>
+          <div class="filter-controls">
+            <div class="search-input-wrap">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="deal-search-input" placeholder="Search deal ID, customer, rep, product..." autocomplete="off">
+            </div>
+            <select id="stage-filter-select" class="form-select">
+              <option value="ALL">All Stages</option>
+              <option value="OPEN">Open</option>
+              <option value="PENDING_APPROVAL">Pending Approval</option>
+              <option value="FULFILLED">Fulfilled</option>
+              <option value="SUBSCRIBED">Subscribed</option>
+              <option value="REJECTED">Rejected</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Health Category Filter Pills -->
+        <div class="filter-pills-bar">
+          <span class="filter-label">Filter Health:</span>
+          <button class="filter-pill active" data-category="ALL" id="filter-all">All Deals (<span id="count-all">0</span>)</button>
+          <button class="filter-pill pill-healthy" data-category="HEALTHY" id="filter-healthy">Healthy (<span id="count-healthy">0</span>)</button>
+          <button class="filter-pill pill-at-risk" data-category="AT_RISK" id="filter-atrisk">At-Risk (<span id="count-atrisk">0</span>)</button>
+          <button class="filter-pill pill-stalled" data-category="STALLED" id="filter-stalled">Stalled (<span id="count-stalled">0</span>)</button>
+          <button class="filter-pill pill-closed-lost" data-category="CLOSED_LOST" id="filter-closedlost">Closed Lost (<span id="count-closedlost">0</span>)</button>
+        </div>
+
+        <!-- Deals Table -->
+        <div class="glass-card table-wrapper">
+          <table class="data-table" id="deals-table">
+            <thead>
+              <tr>
+                <th>Deal ID</th>
+                <th>Customer</th>
+                <th>Sales Rep</th>
+                <th>Net Value (INR)</th>
+                <th>Discount</th>
+                <th>Health Status</th>
+                <th>Stage & Approval</th>
+                <th>Risk Score</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="deals-table-body">
+              <tr>
+                <td colspan="9" class="loading-state">Loading deals...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- VIEW 3: SALES REP BENCHMARKS TAB -->
+      <section id="view-reps" class="view-panel">
+        <div class="section-header">
+          <div>
+            <h1 class="page-title">Sales Rep Discount Benchmarking</h1>
+            <p class="page-subtitle">Historical vs current deal discount profiling to detect rogue discounting and baseline variance.</p>
+          </div>
+        </div>
+
+        <div class="reps-grid" id="reps-container">
+          <!-- Rendered via JS -->
+        </div>
+
+        <!-- Comparative Summary Box -->
+        <div class="glass-card panel-card rep-insight-box">
+          <h3 class="panel-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            Key Rep Performance Insights
+          </h3>
+          <div class="insight-content">
+            <p><strong>Rahul (DEMO-REP-001):</strong> Demonstrates an average discount of ~10.6% across 8 deals, but offered an anomalous <strong>25% discount</strong> on deal <code>DEMO-DEAL-002</code> (ABC Industries), triggering a <strong>HIGH (82)</strong> risk flag and requiring Sales Manager approval.</p>
+            <p><strong>Arun (DEMO-REP-002):</strong> Consistent conservative discounter with a 6.8% average discount and no deals exceeding 12%.</p>
+            <p><strong>Priya & Karthik:</strong> Healthy standard discount curves with standard 10–18% ranges on enterprise hardware and subscription packages.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: API & SEED DATA EXPLORER TAB -->
+      <section id="view-api" class="view-panel">
+        <div class="section-header">
+          <div>
+            <h1 class="page-title">Seed Data & API Explorer</h1>
+            <p class="page-subtitle">Direct access to underlying entities and active reporting endpoints for team integration.</p>
+          </div>
+        </div>
+
+        <div class="api-explorer-layout">
+          <!-- Endpoint Buttons Sidebar -->
+          <div class="glass-card api-menu-card">
+            <div class="menu-category">Reporting APIs</div>
+            <button class="api-endpoint-btn active" data-endpoint="/api/reports/dashboard">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/reports/dashboard</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/reports/deal-health-summary">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/reports/deal-health-summary</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/reports/at-risk-deals">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/reports/at-risk-deals</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/reports/stalled-deals">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/reports/stalled-deals</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/reports/sales-rep-discount-history">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/reports/sales-rep-discount-history</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/reports/deal-status-distribution">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/reports/deal-status-distribution</span>
+            </button>
+
+            <div class="menu-category">Seed Entities</div>
+            <button class="api-endpoint-btn" data-endpoint="/api/customers">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/customers</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/sales-reps">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/sales-reps</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/products">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/products</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/warehouses">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/warehouses</span>
+            </button>
+            <button class="api-endpoint-btn" data-endpoint="/api/deals">
+              <span class="method get">GET</span>
+              <span class="ep-path">/api/deals</span>
+            </button>
+          </div>
+
+          <!-- JSON Output Viewer -->
+          <div class="glass-card api-viewer-card">
+            <div class="viewer-header">
+              <div class="current-endpoint-title" id="active-api-endpoint">GET /api/reports/dashboard</div>
+              <button id="btn-copy-json" class="btn btn-sm btn-secondary">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy JSON
+              </button>
+            </div>
+            <pre class="json-code-block"><code id="api-json-display">Loading endpoint data...</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Deal Detail Modal / Drawer -->
+  <div id="deal-modal" class="modal-backdrop" aria-hidden="true">
+    <div class="modal-dialog glass-card">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <div class="deal-id-pill" id="modal-deal-id">DEMO-DEAL-001</div>
+          <h2 class="modal-deal-title" id="modal-customer-name">Customer Name</h2>
+        </div>
+        <button id="modal-close-btn" class="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+
+      <div class="modal-body" id="modal-content">
+        <!-- Filled dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

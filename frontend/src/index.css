@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ──────────────────────────────────────────────────────────────────────────
+   SOFT STRUCTURALISM (FRONTEND.md §3A.3)
+   Cool silver-white ground, massive Grotesk type, highly diffused ambient
+   shadows, hairline rings. Every colour is a semantic token so the theme has
+   exactly one source of truth.
+   ────────────────────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    color-scheme: light;
+
+    --bg: 244 246 248;   /* cool silver ground, never flat white */
+    --surface: 255 255 255;
+    --surface-2: 237 240 244;
+    --surface-3: 228 233 239;
+
+    --fg: 13 27 42;   /* deep navy, pulled from the logo mark */
+    --fg-2: 70 88 107;
+    --fg-3: 123 140 160;
+    --fg-4: 163 177 194;
+
+    --line:        rgba(13,27,42,.09);
+    --line-2:      rgba(13,27,42,.14);
+
+    --accent: 14 116 144;   /* deepened logo cyan for AA contrast on light */
+    --accent-2: 8 145 178;
+    --accent-3: 34 184 212;
+    --accent-wash: 228 244 248;
+
+    /* Semantic risk bands — data, not decoration. Darkened for light ground. */
+    --band-auto: 4 120 87;
+    --band-auto-wash: 220 243 234;
+    --band-manager: 180 83 9;
+    --band-manager-wash: 251 240 220;
+    --band-finance: 190 18 60;
+    --band-finance-wash: 252 228 234;
+
+    /* Highly diffused ambient elevation — never a harsh drop shadow */
+    --lift-1: 0 1px 2px rgba(13,27,42,.04), 0 12px 28px -14px rgba(13,27,42,.16);
+    --lift-2: 0 2px 4px rgba(13,27,42,.04), 0 28px 60px -24px rgba(13,27,42,.22);
+    --glow:   0 0 0 1px rgba(14,116,144,.16), 0 16px 40px -14px rgba(14,116,144,.30);
+  }
+
+  /* Lenis drives smooth scrolling; CSS smooth-scroll would fight it. */
+  body {
+    @apply bg-bg text-fg-2 font-sans antialiased;
+    margin: 0;
+  }
+  ::selection { background: rgba(14,116,144,.18); color: var(--fg); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+}
+
+@layer components {
+  /* Double-bezel: outer shell + concentric inner core (FRONTEND.md §4A) */
+  .bezel {
+    @apply rounded-[2rem] p-1.5 bg-surface-2 ring-1 ring-black/[.05];
+  }
+  .bezel-core {
+    @apply rounded-[calc(2rem-0.375rem)] bg-surface ring-1 ring-black/[.04];
+    box-shadow: var(--lift-1);
+  }
+  /* Button-in-button island CTA (§4B) */
+  .cta {
+    @apply inline-flex items-center gap-3 rounded-full pl-6 pr-2 py-2
+           font-display font-semibold text-sm;
+  }
+  .cta-icon {
+    @apply w-8 h-8 rounded-full flex items-center justify-center text-[13px];
+  }
+  .eyebrow {
+    @apply inline-block rounded-full px-3 py-1 text-[10px] uppercase font-medium
+           tracking-eyebrow ring-1 ring-black/[.07] bg-surface text-accent;
+  }
+  .rule { @apply border-t border-line; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  html { scroll-behavior: auto; }
+}
+
+
+/* ── Export PDF (PS A7) ─────────────────────────────────────────────────────
+   The report prints through the browser's own PDF engine. Chrome is a better
+   renderer than anything we would stand up in a day, so the work here is
+   telling it what to leave out. */
+@media print {
+  @page { margin: 14mm; size: A4 landscape; }
+  body { background: #fff !important; }
+  header, nav, .no-print { display: none !important; }
+  .report-root { gap: 10px !important; }
+  .report-root section,
+  .report-root .shadow-lift { box-shadow: none !important; break-inside: avoid; }
+  table { font-size: 10px !important; }
+  a[href]::after { content: none !important; }
+}

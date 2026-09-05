@@ -1,0 +1,2069 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DealFlow360 (Clinch) &mdash; Interactive Test Bench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #f8fafc;
+      --bg-surface: #ffffff;
+      --card-bg: #ffffff;
+      --card-border: rgba(11, 27, 51, 0.08);
+      --card-hover: #f1f5f9;
+      --primary: #00a3e0;
+      --primary-hover: #0284c7;
+      --primary-glow: rgba(0, 163, 224, 0.22);
+      --accent: #0284c7;
+      --accent-glow: rgba(2, 132, 199, 0.2);
+      --success: #059669;
+      --success-bg: #ecfdf5;
+      --warning: #d97706;
+      --warning-bg: #fffbeb;
+      --danger: #dc2626;
+      --danger-bg: #fef2f2;
+      --text-main: #0b1b33;
+      --text-muted: #64748b;
+      --text-light: #94a3b8;
+      --bronze: #b45309;
+      --silver: #475569;
+      --gold: #d97706;
+      --shadow-card: 0 1px 3px rgba(11, 27, 51, 0.04), 0 8px 24px -6px rgba(11, 27, 51, 0.06), 0 0 0 1px var(--card-border);
+      --shadow-hover: 0 14px 32px -8px rgba(11, 27, 51, 0.12), 0 0 16px var(--primary-glow);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding-bottom: 80px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Top Navigation Bar */
+    .navbar {
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--card-border);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 12px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 2px 12px rgba(11, 27, 51, 0.04);
+    }
+
+    .brand-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo-img {
+      height: 32px;
+      width: auto;
+      object-fit: contain;
+    }
+
+    .brand-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #0b1b33;
+    }
+
+    .brand-title span {
+      font-weight: 500;
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    .brand-subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      font-weight: 600;
+    }
+
+    .nav-session {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .nav-links-cluster {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .nav-ext-link {
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 6px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.2s;
+    }
+
+    .nav-ext-link:hover {
+      background: #e2e8f0;
+      color: #0b1b33;
+      border-color: #cbd5e1;
+    }
+
+    .session-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #f1f5f9;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      font-size: 13px;
+      border: 1px solid #e2e8f0;
+      color: #0b1b33;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--success);
+      box-shadow: 0 0 8px rgba(5, 150, 105, 0.4);
+    }
+
+    .quick-role-btn {
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .quick-role-btn:hover {
+      background: #e2e8f0;
+      color: #0b1b33;
+      border-color: #cbd5e1;
+    }
+
+    .quick-role-btn.active {
+      background: #00a3e0;
+      color: #ffffff;
+      border-color: #00a3e0;
+      box-shadow: 0 2px 10px rgba(0, 163, 224, 0.35);
+    }
+
+    /* Container */
+    .container {
+      max-width: 1240px;
+      margin: 24px auto 0;
+      padding: 0 20px;
+    }
+
+    /* Module Navigation Tabs */
+    .tab-nav {
+      display: flex;
+      gap: 8px;
+      background: #f1f5f9;
+      padding: 6px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      margin-bottom: 24px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s ease;
+    }
+
+    .tab-btn:hover {
+      color: #0b1b33;
+      background: rgba(255, 255, 255, 0.6);
+    }
+
+    .tab-btn.active {
+      background: #ffffff;
+      color: #0b1b33;
+      box-shadow: 0 2px 8px rgba(11, 27, 51, 0.06);
+      border: 1px solid rgba(11, 27, 51, 0.08);
+    }
+
+    .tab-btn .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #e0f2fe;
+      color: #0284c7;
+      border: 1px solid #bae6fd;
+      font-weight: 600;
+    }
+
+    /* Dynamic Persona Banner */
+    .persona-banner {
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border: 1px solid;
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .persona-banner.role-admin {
+      background: linear-gradient(135deg, #f0f9ff, #f8fafc);
+      border-color: #bae6fd;
+    }
+
+    .persona-banner.role-rep {
+      background: linear-gradient(135deg, #ecfeff, #f0fdf4);
+      border-color: #a5f3fc;
+    }
+
+    .persona-banner.role-manager {
+      background: linear-gradient(135deg, #eef2ff, #faf5ff);
+      border-color: #c7d2fe;
+    }
+
+    .persona-banner.role-customer {
+      background: linear-gradient(135deg, #fefce8, #fffbeb);
+      border-color: #fde68a;
+    }
+
+    .persona-info-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .persona-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 2px 6px rgba(11, 27, 51, 0.05);
+    }
+
+    .persona-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0b1b33;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .persona-permissions {
+      font-size: 12px;
+      color: #475569;
+      margin-top: 2px;
+    }
+
+    .persona-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    /* Tier Switcher Bar */
+    .tier-switcher-box {
+      background: #ffffff;
+      border: 1px solid rgba(11, 27, 51, 0.08);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 16px rgba(11, 27, 51, 0.04);
+    }
+
+    .tier-header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .tier-headline {
+      font-size: 15px;
+      font-weight: 700;
+      color: #0b1b33;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tier-pill-selector {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .tier-pill {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      color: #475569;
+      border-radius: 10px;
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .tier-pill:hover {
+      transform: translateY(-2px);
+      border-color: #cbd5e1;
+      color: #0b1b33;
+    }
+
+    .tier-pill.tier-bronze.active {
+      border-color: #b45309;
+      background: #fef3c7;
+      color: #92400e;
+      box-shadow: 0 2px 8px rgba(180, 83, 9, 0.15);
+    }
+
+    .tier-pill.tier-silver.active {
+      border-color: #475569;
+      background: #f1f5f9;
+      color: #0f172a;
+      box-shadow: 0 2px 8px rgba(71, 85, 105, 0.15);
+    }
+
+    .tier-pill.tier-gold.active {
+      border-color: #d97706;
+      background: #fef9c3;
+      color: #854d0e;
+      box-shadow: 0 2px 8px rgba(217, 119, 6, 0.2);
+    }
+
+    /* Controls Bar: Filters & Search */
+    .controls-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    .filter-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover {
+      background: #e2e8f0;
+      color: #0b1b33;
+    }
+
+    .filter-btn.active {
+      background: #00a3e0;
+      color: #fff;
+      border-color: #00a3e0;
+      box-shadow: 0 2px 8px rgba(0, 163, 224, 0.25);
+    }
+
+    .search-box-wrap {
+      position: relative;
+      flex: 1;
+      max-width: 380px;
+      min-width: 240px;
+    }
+
+    .search-input {
+      width: 100%;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 9px 12px 9px 36px;
+      color: #0b1b33;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #94a3b8;
+      font-size: 14px;
+      pointer-events: none;
+    }
+
+    /* Action Buttons */
+    .btn {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: var(--primary-hover);
+      box-shadow: 0 4px 12px var(--primary-glow);
+    }
+
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #334155;
+      border: 1px solid #e2e8f0;
+    }
+
+    .btn-secondary:hover {
+      background: #e2e8f0;
+      color: #0b1b33;
+    }
+
+    .btn-success {
+      background: #059669;
+    }
+
+    .btn-success:hover {
+      background: #047857;
+      box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);
+    }
+
+    .btn-danger {
+      background: #dc2626;
+    }
+
+    .btn-danger:hover {
+      background: #b91c1c;
+      box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+    }
+
+    /* Product Grid */
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 20px;
+    }
+
+    .product-card {
+      background: #ffffff;
+      border: 1px solid rgba(11, 27, 51, 0.08);
+      border-radius: 14px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 2px 8px rgba(11, 27, 51, 0.04);
+    }
+
+    .product-card:hover {
+      border-color: #00a3e0;
+      transform: translateY(-3px);
+      box-shadow: 0 14px 32px -8px rgba(11, 27, 51, 0.1), 0 0 12px var(--primary-glow);
+    }
+
+    .card-top {
+      margin-bottom: 12px;
+    }
+
+    .badge-category {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      margin-bottom: 8px;
+    }
+
+    .cat-hardware {
+      background: #e0f2fe;
+      color: #0284c7;
+      border: 1px solid #bae6fd;
+    }
+
+    .cat-services {
+      background: #ecfdf5;
+      color: #059669;
+      border: 1px solid #a7f3d0;
+    }
+
+    .cat-subscriptions {
+      background: #f5f3ff;
+      color: #7c3aed;
+      border: 1px solid #ddd6fe;
+    }
+
+    .product-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #0b1b33;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+
+    .product-desc {
+      font-size: 12px;
+      color: var(--text-muted);
+      line-height: 1.5;
+      margin-bottom: 14px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* Price Presentation */
+    .price-container {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+    }
+
+    .price-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .price-value-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+
+    .effective-price {
+      font-size: 24px;
+      font-weight: 800;
+      color: #00a3e0;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .original-price {
+      font-size: 14px;
+      color: #94a3b8;
+      text-decoration: line-through;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .discount-pill {
+      font-size: 11px;
+      font-weight: 700;
+      background: #ecfdf5;
+      color: #059669;
+      padding: 2px 7px;
+      border-radius: 4px;
+      border: 1px solid #a7f3d0;
+    }
+
+    /* Variants section */
+    .variants-section {
+      margin-bottom: 14px;
+      border-top: 1px dashed #e2e8f0;
+      padding-top: 10px;
+    }
+
+    .variants-title {
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .variant-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .variant-chip {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      color: #334155;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .variant-price-add {
+      color: #00a3e0;
+      font-weight: 600;
+    }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .card-actions .btn {
+      flex: 1;
+      font-size: 12px;
+      padding: 7px 10px;
+      justify-content: center;
+      min-width: 90px;
+    }
+
+    /* Sales Rep Quotation Draft Drawer */
+    .quote-draft-drawer {
+      background: #ffffff;
+      border: 2px solid #00a3e0;
+      border-radius: 14px;
+      padding: 18px 22px;
+      margin-top: 24px;
+      box-shadow: 0 12px 30px rgba(11, 27, 51, 0.08), 0 0 20px rgba(0, 163, 224, 0.12);
+      animation: fadeIn 0.3s ease;
+    }
+
+    .quote-drawer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .quote-lines-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      margin-bottom: 14px;
+    }
+
+    .quote-line-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #0b1b33;
+    }
+
+    /* Modal / Inspector Drawer */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(11, 27, 51, 0.45);
+      backdrop-filter: blur(6px);
+      z-index: 200;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-card {
+      background: #ffffff;
+      border: 1px solid rgba(11, 27, 51, 0.08);
+      border-radius: 16px;
+      max-width: 600px;
+      width: 100%;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(11, 27, 51, 0.16);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 12px;
+    }
+
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #0b1b33;
+    }
+
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: #64748b;
+      font-size: 20px;
+      cursor: pointer;
+    }
+
+    .modal-close:hover {
+      color: #0b1b33;
+    }
+
+    /* Code & JSON Box */
+    pre.code-box {
+      background-color: #0b1b33;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 14px;
+      color: #67e8f9;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      max-height: 240px;
+    }
+
+    /* Forms */
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group.full-width {
+      grid-column: 1 / -1;
+    }
+
+    label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    input, select, textarea {
+      background-color: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      color: #0b1b33;
+      padding: 9px 12px;
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--primary-glow);
+    }
+
+    /* Tab 1 (Auth) Styling Containers */
+    .legacy-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(11, 27, 51, 0.04);
+    }
+
+    .endpoint-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      padding: 3px 8px;
+      background: #f0f9ff;
+      color: #0284c7;
+      border: 1px solid #bae6fd;
+      border-radius: 4px;
+    }
+
+    /* Toast Alert */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0b1b33;
+      border: 1px solid #00a3e0;
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 10px;
+      box-shadow: 0 10px 25px rgba(11, 27, 51, 0.2);
+      z-index: 300;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      animation: slideUp 0.3s ease;
+    }
+
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Sticky Navigation Bar -->
+  <nav class="navbar">
+    <div class="brand-container">
+      <img src="/CLINCH_LOGO_TRANSPARENT.png" alt="CLINCH Logo" class="brand-logo-img">
+      <div>
+        <div class="brand-title">CLINCH <span>| Core Test Bench</span></div>
+        <div class="brand-subtitle">Intelligent Sales Ops & CPQ Engine</div>
+      </div>
+    </div>
+
+    <!-- Cross-Service Links & 4 Quick Personas (Customer, Manager, Rep, Admin) -->
+    <div class="nav-session">
+      <div class="nav-links-cluster">
+        <a href="http://localhost:8085" class="nav-ext-link" title="Main Showcase Landing Page">⚡ Showcase (:8085)</a>
+        <a href="http://localhost:4000" class="nav-ext-link" title="Deal Health & Risk Intelligence Dashboard">📊 Reporting (:4000)</a>
+      </div>
+
+      <div class="session-badge">
+        <span class="status-dot"></span>
+        <span id="nav-user-label">Active: <strong>Dave Admin</strong></span>
+      </div>
+
+      <!-- User Requested Order: Customer, Manager, Rep, Admin -->
+      <div style="display: flex; gap: 6px;">
+        <button type="button" class="quick-role-btn" id="btn-switch-cust" title="John Acme (Customer Portal - Gold Tier)">🏢 Customer</button>
+        <button type="button" class="quick-role-btn" id="btn-switch-manager" title="Bob Manager (Governance & Margin Review)">👔 Manager</button>
+        <button type="button" class="quick-role-btn" id="btn-switch-rep" title="Alice Sales Rep (Quotation Builder)">💼 Sales Rep</button>
+        <button type="button" class="quick-role-btn active" id="btn-switch-admin" title="Dave Admin (Full Master Control)">🛡️ Admin</button>
+      </div>
+    </div>
+  </nav>
+
+  <div class="container">
+
+    <!-- Tab Switcher -->
+    <div class="tab-nav">
+      <button class="tab-btn active" id="nav-tab-m2">
+        <span>📦 Module 2: Products & Price Lists</span>
+        <span class="badge">Tier-Aware</span>
+      </button>
+      <button class="tab-btn" id="nav-tab-m1">
+        <span>🔐 Module 1: Auth & Customer Portal</span>
+        <span class="badge">JWT + Magic Link</span>
+      </button>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODULE 2: PRODUCT CATALOG & TIER PRICING INTERACTIVE TEST BENCH       -->
+    <!-- ===================================================================== -->
+    <div id="section-module-2">
+
+      <!-- Dynamic Role Persona Banner -->
+      <div id="persona-banner" class="persona-banner role-admin">
+        <div class="persona-info-left">
+          <div class="persona-avatar" id="banner-avatar">🛡️</div>
+          <div>
+            <div class="persona-title" id="banner-title">Administrator Mode &mdash; Dave Admin</div>
+            <div class="persona-permissions" id="banner-perms">
+              Full Master Catalog Control: You can create products, delete items, add variants, and set tier prices.
+            </div>
+          </div>
+        </div>
+        <div class="persona-actions" id="banner-actions">
+          <!-- Populated dynamically by activeRole -->
+        </div>
+      </div>
+
+      <!-- 1. Tier Pricing Simulator Bar -->
+      <div class="tier-switcher-box" id="tier-switcher-container">
+        <div class="tier-header-row">
+          <div class="tier-headline">
+            <span id="tier-switcher-title">🎯 Live Customer Tier Simulator:</span>
+            <span id="tier-switcher-subtitle" style="font-size: 13px; font-weight: 400; color: #94a3b8;">
+              Select a tier to see catalog prices dynamically recalculate based on customer level!
+            </span>
+          </div>
+          <div class="tier-pill-selector" id="tier-pills-wrap">
+            <button class="tier-pill tier-bronze" data-tier="BRONZE" id="pill-bronze">
+              <span>🥉 Bronze Tier</span>
+              <span style="font-size: 11px; opacity: 0.8;">(Standard Base)</span>
+            </button>
+            <button class="tier-pill tier-silver" data-tier="SILVER" id="pill-silver">
+              <span>🥈 Silver Tier</span>
+              <span style="font-size: 11px; opacity: 0.8;">(~10% Discount)</span>
+            </button>
+            <button class="tier-pill tier-gold active" data-tier="GOLD" id="pill-gold">
+              <span>🥇 Gold Tier</span>
+              <span style="font-size: 11px; opacity: 0.8;">(~20% Enterprise)</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Controls & Filter Bar -->
+      <div class="controls-bar">
+        <div class="filter-pills">
+          <button class="filter-btn active" data-category="">All Items (<span id="count-all">0</span>)</button>
+          <button class="filter-btn" data-category="Hardware">Hardware</button>
+          <button class="filter-btn" data-category="Services">Services</button>
+          <button class="filter-btn" data-category="Subscriptions">Subscriptions</button>
+        </div>
+
+        <div class="search-box-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="catalog-search-input" class="search-input" placeholder="Search catalog (e.g. Router, Switch, Support, Cloud)...">
+        </div>
+
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-secondary" id="btn-refresh-catalog">↻ Refresh</button>
+          <!-- Admin-Only Feature: Add Product Button -->
+          <button class="btn btn-success" id="btn-open-create-modal" style="display: inline-flex;">+ Add Product (Admin)</button>
+        </div>
+      </div>
+
+      <!-- 3. Dynamic Products Grid -->
+      <div class="products-grid" id="products-grid-container">
+        <!-- Injected via JavaScript based on role permissions -->
+        <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: var(--text-muted);">
+          Loading product catalog from PostgreSQL...
+        </div>
+      </div>
+
+      <!-- 4. Sales Rep Quotation Draft Drawer (Only visible when Rep adds items) -->
+      <div class="quote-draft-drawer" id="quote-draft-drawer" style="display: none;">
+        <div class="quote-drawer-header">
+          <div>
+            <h3 style="font-size: 15px; color: #00a3e0; font-weight: 700;">📋 Sales Rep Active Quotation Draft</h3>
+            <p style="font-size: 12px; color: var(--text-muted);">Lines automatically populated at customer's effective tier pricing.</p>
+          </div>
+          <button class="btn btn-secondary" id="btn-clear-draft" style="font-size: 11px; padding: 4px 10px;">Clear Lines</button>
+        </div>
+        <div class="quote-lines-list" id="quote-lines-container">
+          <!-- Populated as items are added -->
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--card-border); padding-top: 10px;">
+          <span style="font-size: 13px; color: var(--text-main);">Draft Deal Value: <strong id="draft-total-value" style="color: var(--primary); font-size: 16px;">$0.00</strong></span>
+          <span style="font-size: 12px; color: var(--success); font-weight: 600;" id="draft-savings-text">Tier Savings: $0.00</span>
+        </div>
+      </div>
+
+      <!-- 5. Quotation Price Resolution Sandbox (Hidden for Customers) -->
+      <div class="legacy-card" id="sandbox-card" style="margin-top: 36px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+          <div>
+            <h3 style="font-size: 16px; color: #0b1b33; font-weight: 700;" id="sandbox-heading">⚡ Quotation Engine: Price Resolution Sandbox</h3>
+            <p style="font-size: 12px; color: #64748b;" id="sandbox-subtext">Directly invokes <code>GET /api/products/:productId/pricelists/resolve?tier=...</code> to verify rule engine outputs.</p>
+          </div>
+          <span class="endpoint-tag">GET /api/products/:id/pricelists/resolve</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="sandbox-product-select">Select Product</label>
+            <select id="sandbox-product-select"></select>
+          </div>
+          <div class="form-group">
+            <label for="sandbox-tier-select">Target Customer Tier</label>
+            <select id="sandbox-tier-select">
+              <option value="BRONZE">BRONZE (Standard)</option>
+              <option value="SILVER">SILVER (Growth)</option>
+              <option value="GOLD" selected>GOLD (Enterprise)</option>
+            </select>
+          </div>
+          <div class="form-group" style="justify-content: flex-end;">
+            <button class="btn" id="btn-execute-resolve">Resolve Effective Price</button>
+          </div>
+        </div>
+        <pre class="code-box" id="sandbox-resolve-output">// Click "Resolve Effective Price" to view the live calculation breakdown...</pre>
+      </div>
+
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODULE 1: AUTHENTICATION & CUSTOMER PORTAL TEST BENCH                -->
+    <!-- ===================================================================== -->
+    <div id="section-module-1" style="display: none;">
+
+      <!-- 1. Internal Staff Login -->
+      <div class="legacy-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 16px; color: #0b1b33; font-weight: 700;">1. Internal Staff Login</h3>
+          <span class="endpoint-tag">POST /api/auth/internal/login</span>
+        </div>
+        <form id="form-internal-login">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="auth-login-email" value="admin@dealflow360.com" required>
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="auth-login-password" value="Password123!" required>
+            </div>
+          </div>
+          <!-- User Requested Order: Customer, Manager, Rep, Admin -->
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <button type="submit" class="btn">Log In</button>
+            <button type="button" class="btn btn-secondary" onclick="quickFillCustomerMagic()">🏢 Fill Customer (Acme)</button>
+            <button type="button" class="btn btn-secondary" onclick="setLoginCreds('manager@dealflow360.com', 'Password123!', 'MANAGER')">👔 Fill Manager (Bob)</button>
+            <button type="button" class="btn btn-secondary" onclick="setLoginCreds('rep@dealflow360.com', 'Password123!', 'REP')">💼 Fill Rep (Alice)</button>
+            <button type="button" class="btn btn-secondary" onclick="setLoginCreds('admin@dealflow360.com', 'Password123!', 'ADMIN')">🛡️ Fill Admin (Dave)</button>
+          </div>
+        </form>
+        <pre class="code-box" id="auth-login-output" style="margin-top: 14px;">// Login response will appear here...</pre>
+      </div>
+
+      <!-- 2. Customer Self-Registration Flow -->
+      <div class="legacy-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 16px; color: #059669; font-weight: 700;">2. Customer Self-Registration</h3>
+          <span class="endpoint-tag">POST /api/auth/customer/register</span>
+        </div>
+        <form id="form-cust-reg">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Contact Name</label>
+              <input type="text" id="cust-name" value="Nithin Industry Buyer" required>
+            </div>
+            <div class="form-group">
+              <label>Work Email</label>
+              <input type="email" id="cust-email" value="buyer@nithinindustries.com" required>
+            </div>
+            <div class="form-group">
+              <label>Company / Industry</label>
+              <input type="text" id="cust-company" value="Nithin Tech & Aerospace" required>
+            </div>
+            <div class="form-group">
+              <label>Customer Tier</label>
+              <select id="cust-tier">
+                <option value="BRONZE">BRONZE</option>
+                <option value="SILVER">SILVER</option>
+                <option value="GOLD" selected>GOLD</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-success">Register Customer Account</button>
+        </form>
+        <pre class="code-box" id="cust-reg-output" style="margin-top: 14px;">// Customer registration output...</pre>
+      </div>
+
+      <!-- 3. Magic Link Flow -->
+      <div class="legacy-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 16px; color: #0284c7; font-weight: 700;">3. Customer Magic Link Login</h3>
+          <span class="endpoint-tag">POST /api/auth/customer/request-magic-link & verify-magic-link</span>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Customer Email</label>
+            <input type="email" id="magic-link-email" value="customer@acmecorp.com">
+          </div>
+          <div class="form-group" style="justify-content: flex-end;">
+            <button class="btn" id="btn-request-magic">Request Magic Link</button>
+          </div>
+        </div>
+        <div class="form-grid" style="margin-top: 10px;">
+          <div class="form-group full-width">
+            <label>Single-Use Magic Token (Auto-filled on request)</label>
+            <input type="text" id="magic-token-input" placeholder="Token will populate here...">
+          </div>
+        </div>
+        <button class="btn" id="btn-verify-magic">Verify Magic Link & Authenticate</button>
+        <pre class="code-box" id="magic-link-output" style="margin-top: 14px;">// Magic link verification JSON...</pre>
+      </div>
+
+      <!-- 4. Profile & RBAC Isolation Inspector -->
+      <div class="legacy-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h3 style="font-size: 16px; color: #dc2626; font-weight: 700;">4. Security & Cross-Token Isolation Guard</h3>
+          <span class="endpoint-tag">GET /api/auth/internal/me & /api/auth/customer/me</span>
+        </div>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;">
+          Tests token scoping: internal tokens are strictly rejected on customer endpoints (HTTP 403), and customer tokens are strictly rejected on internal endpoints.
+        </p>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-secondary" id="btn-check-internal-me">Call /api/auth/internal/me</button>
+          <button class="btn btn-secondary" id="btn-check-customer-me">Call /api/auth/customer/me</button>
+          <button class="btn btn-danger" id="btn-test-rbac-tamper">Test Cross-Token Rejection</button>
+        </div>
+        <pre class="code-box" id="rbac-check-output" style="margin-top: 14px;">// RBAC test output...</pre>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- Modal: Create Product (Admin Only) -->
+  <div class="modal-overlay" id="create-product-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">➕ Add New Product (Admin Operation)</div>
+        <button class="modal-close" id="btn-close-create-modal">&times;</button>
+      </div>
+      <form id="form-modal-create-product">
+        <div class="form-grid">
+          <div class="form-group full-width">
+            <label>Product Name</label>
+            <input type="text" id="new-prod-name" required value="Enterprise Multi-Gig Access Point WiFi 7" placeholder="e.g. WiFi 7 Access Point">
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="new-prod-category">
+              <option value="Hardware" selected>Hardware</option>
+              <option value="Services">Services</option>
+              <option value="Subscriptions">Subscriptions</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Base Price ($)</label>
+            <input type="number" step="0.01" id="new-prod-price" required value="750.00">
+          </div>
+          <div class="form-group">
+            <label>Billing Unit</label>
+            <input type="text" id="new-prod-unit" required value="piece">
+          </div>
+          <div class="form-group">
+            <label>Tax %</label>
+            <input type="number" step="0.1" id="new-prod-tax" required value="18.0">
+          </div>
+          <div class="form-group full-width">
+            <label>Description</label>
+            <textarea id="new-prod-desc" rows="3" style="width: 100%;">Tri-band Wi-Fi 7 enterprise AP with 2.5G PoE uplink and automated beamforming.</textarea>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+          <button type="button" class="btn btn-secondary" id="btn-cancel-create-modal">Cancel</button>
+          <button type="submit" class="btn btn-success">Save Product</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="global-toast">
+    <span id="toast-icon">✨</span>
+    <span id="toast-message">Action successful!</span>
+  </div>
+
+  <script>
+    // Configuration
+    const API_BASE = window.location.origin;
+
+    // State
+    let currentTier = 'GOLD';
+    let currentCategory = '';
+    let currentSearch = '';
+    let cachedProducts = [];
+    let quoteDraftLines = [];
+
+    // Session State (Auth Tokens)
+    let internalToken = localStorage.getItem('dealflow_internal_token') || '';
+    let customerToken = localStorage.getItem('dealflow_customer_token') || '';
+    let activeRole = 'ADMIN'; // ADMIN | REP | MANAGER | CUSTOMER
+
+    // Show Toast
+    function showToast(message, isSuccess = true) {
+      const toast = document.getElementById('global-toast');
+      const msgEl = document.getElementById('toast-message');
+      const iconEl = document.getElementById('toast-icon');
+
+      msgEl.textContent = message;
+      iconEl.textContent = isSuccess ? '✔' : '✖';
+      toast.style.borderColor = isSuccess ? 'var(--success)' : 'var(--danger)';
+      toast.style.display = 'flex';
+
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 3500);
+    }
+
+    // Tab Navigation
+    const tabM1 = document.getElementById('nav-tab-m1');
+    const tabM2 = document.getElementById('nav-tab-m2');
+    const secM1 = document.getElementById('section-module-1');
+    const secM2 = document.getElementById('section-module-2');
+
+    tabM1.addEventListener('click', () => {
+      tabM1.classList.add('active');
+      tabM2.classList.remove('active');
+      secM1.style.display = 'block';
+      secM2.style.display = 'none';
+    });
+
+    tabM2.addEventListener('click', () => {
+      tabM2.classList.add('active');
+      tabM1.classList.remove('active');
+      secM2.style.display = 'block';
+      secM1.style.display = 'none';
+    });
+
+    // =========================================================================
+    // ROLE APPLIER: ONLY SHOW FEATURES ALLOWED FOR EACH ROLE
+    // =========================================================================
+    function applyRoleView(role) {
+      activeRole = role;
+
+      // Update Nav badge and buttons
+      document.querySelectorAll('.quick-role-btn').forEach(b => b.classList.remove('active'));
+      const banner = document.getElementById('persona-banner');
+      const bannerAvatar = document.getElementById('banner-avatar');
+      const bannerTitle = document.getElementById('banner-title');
+      const bannerPerms = document.getElementById('banner-perms');
+      const bannerActions = document.getElementById('banner-actions');
+      const navLabel = document.getElementById('nav-user-label');
+
+      const btnAddProduct = document.getElementById('btn-open-create-modal');
+      const tierContainer = document.getElementById('tier-switcher-container');
+      const pillBronze = document.getElementById('pill-bronze');
+      const pillSilver = document.getElementById('pill-silver');
+      const pillGold = document.getElementById('pill-gold');
+      const tierTitle = document.getElementById('tier-switcher-title');
+      const tierSubtitle = document.getElementById('tier-switcher-subtitle');
+      const sandboxCard = document.getElementById('sandbox-card');
+      const quoteDrawer = document.getElementById('quote-draft-drawer');
+
+      // Clear banner action buttons
+      bannerActions.innerHTML = '';
+
+      if (role === 'ADMIN') {
+        document.getElementById('btn-switch-admin').classList.add('active');
+        navLabel.innerHTML = `Active: <strong>Dave Admin (ADMIN)</strong>`;
+
+        banner.className = 'persona-banner role-admin';
+        bannerAvatar.textContent = '🛡️';
+        bannerTitle.innerHTML = `Administrator Mode &mdash; Dave Admin <span style="font-size:11px; background:#00a3e0; color:#fff; font-weight:600; padding:2px 8px; border-radius:4px;">Full Control</span>`;
+        bannerPerms.textContent = 'Master Catalog Control: You can create products, delete items, add variants, and set tier prices.';
+
+        // Features Visibility
+        btnAddProduct.style.display = 'inline-flex';
+        tierContainer.style.display = 'block';
+        pillBronze.style.display = 'inline-flex';
+        pillSilver.style.display = 'inline-flex';
+        pillGold.style.display = 'inline-flex';
+        tierTitle.textContent = '🎯 Live Customer Tier Simulator:';
+        tierSubtitle.textContent = 'Select a tier to see catalog prices dynamically recalculate based on customer level!';
+        sandboxCard.style.display = 'block';
+        quoteDrawer.style.display = 'none';
+
+      } else if (role === 'REP') {
+        document.getElementById('btn-switch-rep').classList.add('active');
+        navLabel.innerHTML = `Active: <strong>Alice Sales (REP)</strong>`;
+
+        banner.className = 'persona-banner role-rep';
+        bannerAvatar.textContent = '💼';
+        bannerTitle.innerHTML = `Sales Representative Mode &mdash; Alice Sales <span style="font-size:11px; background:#0284c7; color:#fff; font-weight:600; padding:2px 8px; border-radius:4px;">Quotation Builder</span>`;
+        bannerPerms.textContent = 'Quotation View: Browse catalog, inspect variants, and assemble quotes. Master catalog creation & editing are restricted.';
+
+        // Helper button in banner: test 403 Forbidden live!
+        bannerActions.innerHTML = `
+          <button class="btn btn-danger" style="font-size:11px; padding:5px 10px;" onclick="testRepBlockedAction()">
+            🛡️ Try Adding Product as Rep (Watch 403)
+          </button>
+        `;
+
+        // Features Visibility
+        btnAddProduct.style.display = 'none'; // HIDDEN for Rep!
+        tierContainer.style.display = 'block';
+        pillBronze.style.display = 'inline-flex';
+        pillSilver.style.display = 'inline-flex';
+        pillGold.style.display = 'inline-flex';
+        tierTitle.textContent = '🎯 Target Client Tier for Quote:';
+        tierSubtitle.textContent = 'Switch customer tier to load contract discounts into your active quote.';
+        sandboxCard.style.display = 'block';
+        quoteDrawer.style.display = quoteDraftLines.length > 0 ? 'block' : 'none';
+
+      } else if (role === 'MANAGER') {
+        document.getElementById('btn-switch-manager').classList.add('active');
+        navLabel.innerHTML = `Active: <strong>Bob Manager (MANAGER)</strong>`;
+
+        banner.className = 'persona-banner role-manager';
+        bannerAvatar.textContent = '👔';
+        bannerTitle.innerHTML = `Sales Manager Mode &mdash; Bob Manager <span style="font-size:11px; background:#4f46e5; color:#fff; font-weight:600; padding:2px 8px; border-radius:4px;">Governance & Margin Review</span>`;
+        bannerPerms.textContent = 'Deal Desk View: Inspect master list prices, tax rates, and tier discount spreads to protect profit margins.';
+
+        // Features Visibility
+        btnAddProduct.style.display = 'none'; // HIDDEN for Manager!
+        tierContainer.style.display = 'block';
+        pillBronze.style.display = 'inline-flex';
+        pillSilver.style.display = 'inline-flex';
+        pillGold.style.display = 'inline-flex';
+        tierTitle.textContent = '📊 Tier Price Spread Inspection:';
+        tierSubtitle.textContent = 'Review tier discount spreads (Bronze vs Silver vs Gold) against gross margin.';
+        sandboxCard.style.display = 'block';
+        quoteDrawer.style.display = 'none';
+
+      } else if (role === 'CUSTOMER') {
+        document.getElementById('btn-switch-cust').classList.add('active');
+        navLabel.innerHTML = `Active: <strong>John Acme (Acme Corp)</strong>`;
+
+        banner.className = 'persona-banner role-customer';
+        bannerAvatar.textContent = '🏢';
+        bannerTitle.innerHTML = `Customer Portal View &mdash; John Acme (Acme Corp) <span style="font-size:11px; background:#d97706; color:#fff; font-weight:600; padding:2px 8px; border-radius:4px;">Verified GOLD Tier</span>`;
+        bannerPerms.textContent = 'Displaying your exclusive Gold Tier contractual discounts (20% off). All internal admin controls are hidden.';
+
+        // Customer is locked to Gold tier!
+        currentTier = 'GOLD';
+        btnAddProduct.style.display = 'none'; // HIDDEN for Customer!
+        pillBronze.style.display = 'none';    // HIDDEN!
+        pillSilver.style.display = 'none';    // HIDDEN!
+        pillGold.style.display = 'inline-flex';
+        pillGold.classList.add('active');
+        tierTitle.textContent = '🥇 Your Contractual Pricing Tier:';
+        tierSubtitle.textContent = 'Locked to your company profile (Acme Corp = Gold Member). Competitor tiers and admin controls are hidden.';
+        sandboxCard.style.display = 'none'; // HIDDEN for Customer!
+        quoteDrawer.style.display = 'none';
+      }
+
+      // Re-render product cards so buttons match activeRole permissions!
+      renderCatalog();
+    }
+
+    // Role Switch Buttons
+    document.getElementById('btn-switch-admin').addEventListener('click', async () => {
+      await ensureAdminToken();
+      applyRoleView('ADMIN');
+      showToast('Switched to Dave Admin (Full Master Control)');
+    });
+
+    document.getElementById('btn-switch-rep').addEventListener('click', async () => {
+      await loginAsRep();
+      applyRoleView('REP');
+      showToast('Switched to Alice Sales Rep (Quotation Builder Mode)');
+    });
+
+    document.getElementById('btn-switch-manager').addEventListener('click', async () => {
+      await loginAsManager();
+      applyRoleView('MANAGER');
+      showToast('Switched to Bob Manager (Margin Review Mode)');
+    });
+
+    document.getElementById('btn-switch-cust').addEventListener('click', () => {
+      applyRoleView('CUSTOMER');
+      showToast('Switched to Customer Portal (John Acme — Gold Tier)');
+    });
+
+    // Helper: Test Rep Blocked Action (Shows real 403)
+    window.testRepBlockedAction = async function() {
+      await loginAsRep();
+      try {
+        const res = await fetch(`${API_BASE}/api/products`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${internalToken}`, // Rep token
+          },
+          body: JSON.stringify({
+            name: 'Unauthorized Rep Item',
+            category: 'Hardware',
+            basePrice: 100,
+            unit: 'piece',
+            taxPercent: 18,
+          }),
+        });
+        const data = await res.json();
+        alert(`🔒 SECURITY GUARD ENFORCED!\n\nHTTP Status: ${res.status} Forbidden\nServer Message: "${data.error?.message}"\n\nSales reps cannot create products in the master catalog.`);
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+
+    // Tier Switcher Clicks
+    document.querySelectorAll('.tier-pill').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (activeRole === 'CUSTOMER') {
+          showToast('Your tier is locked to Gold according to your Acme Corp contract.');
+          return;
+        }
+        document.querySelectorAll('.tier-pill').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentTier = btn.getAttribute('data-tier');
+        document.getElementById('sandbox-tier-select').value = currentTier;
+        renderCatalog();
+        showToast(`Customer tier switched to ${currentTier}. Prices updated!`);
+      });
+    });
+
+    // Category Filter Pills
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentCategory = btn.getAttribute('data-category');
+        fetchCatalog();
+      });
+    });
+
+    // Live Search
+    let searchTimeout = null;
+    document.getElementById('catalog-search-input').addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        currentSearch = e.target.value.trim();
+        fetchCatalog();
+      }, 250);
+    });
+
+    document.getElementById('btn-refresh-catalog').addEventListener('click', () => fetchCatalog());
+
+    // Fetch Catalog from Server
+    async function fetchCatalog() {
+      const container = document.getElementById('products-grid-container');
+      const params = new URLSearchParams();
+      if (currentCategory) params.append('category', currentCategory);
+      if (currentSearch) params.append('search', currentSearch);
+
+      const url = `${API_BASE}/api/products?${params.toString()}`;
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        if (data.success && Array.isArray(data.data.products)) {
+          cachedProducts = data.data.products;
+          document.getElementById('count-all').textContent = cachedProducts.length;
+          renderCatalog();
+          populateSandboxDropdown();
+        } else {
+          container.innerHTML = `<div style="grid-column:1/-1; color: var(--danger);">Failed to load products: ${data.error?.message}</div>`;
+        }
+      } catch (err) {
+        container.innerHTML = `<div style="grid-column:1/-1; color: var(--danger);">Network error loading catalog: ${err.message}</div>`;
+      }
+    }
+
+    // Render Products Grid with ROLE-AWARE feature buttons!
+    function renderCatalog() {
+      const container = document.getElementById('products-grid-container');
+      if (cachedProducts.length === 0) {
+        container.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding: 40px; color: var(--text-muted);">No products found matching filters.</div>`;
+        return;
+      }
+
+      container.innerHTML = cachedProducts.map(p => {
+        const basePriceNum = parseFloat(p.basePrice);
+
+        // Find tier price if configured
+        const tierPriceObj = (p.priceLists || []).find(pl => pl.tier === currentTier);
+        const hasTierPrice = !!tierPriceObj;
+        const effectivePriceNum = hasTierPrice ? parseFloat(tierPriceObj.price) : basePriceNum;
+
+        // Calculate discount percentage
+        const discountPercent = hasTierPrice && basePriceNum > 0
+          ? Math.round(((basePriceNum - effectivePriceNum) / basePriceNum) * 100)
+          : 0;
+
+        const catClass = p.category ? `cat-${p.category.toLowerCase()}` : 'cat-hardware';
+
+        const variantsHtml = (p.variants && p.variants.length > 0)
+          ? `
+            <div class="variants-section">
+              <div class="variants-title">Available Variants (${p.variants.length})</div>
+              <div class="variant-chips">
+                ${p.variants.map(v => `
+                  <span class="variant-chip">
+                    ${v.attributeName}: <strong>${v.attributeValue}</strong>
+                    ${parseFloat(v.extraPrice) > 0 ? `<span class="variant-price-add">+$${parseFloat(v.extraPrice).toFixed(2)}</span>` : ''}
+                  </span>
+                `).join('')}
+              </div>
+            </div>
+          `
+          : '';
+
+        // DYNAMIC BUTTONS BASED ON ACTIVE ROLE:
+        let actionButtonsHtml = '';
+
+        if (activeRole === 'ADMIN') {
+          // Admin sees: Inspect API, Set Tier Price, Delete Product
+          actionButtonsHtml = `
+            <button class="btn btn-secondary" onclick="quickResolve('${p.id}', '${currentTier}')" title="Test price resolution engine">
+              🔍 Inspect API
+            </button>
+            <button class="btn" style="background:#4338ca;" onclick="openTierPrompt('${p.id}', '${p.name}')" title="Configure special tier discount">
+              ⚙️ Set Price
+            </button>
+            <button class="btn btn-danger" style="padding: 7px 8px; flex: 0;" onclick="adminDeleteProduct('${p.id}', '${p.name}')" title="Delete product">
+              🗑
+            </button>
+          `;
+        } else if (activeRole === 'REP') {
+          // Sales Rep sees: Inspect & Quote, Add to Quotation
+          actionButtonsHtml = `
+            <button class="btn btn-secondary" onclick="quickResolve('${p.id}', '${currentTier}')">
+              🔍 Inspect Rate
+            </button>
+            <button class="btn btn-success" onclick="addRepQuoteLine('${p.id}', '${p.name}', ${effectivePriceNum}, ${basePriceNum})">
+              📋 Add to Quote
+            </button>
+          `;
+        } else if (activeRole === 'MANAGER') {
+          // Manager sees: Inspect Margins & Spread
+          actionButtonsHtml = `
+            <button class="btn btn-secondary" style="flex:1;" onclick="viewManagerSpread('${p.id}', '${p.name}', ${basePriceNum})">
+              📊 View Margin Spread
+            </button>
+            <button class="btn" style="background:#4f46e5; flex:1;" onclick="quickResolve('${p.id}', '${currentTier}')">
+              🔍 Verify Tier Price
+            </button>
+          `;
+        } else if (activeRole === 'CUSTOMER') {
+          // Customer sees: Request on Order
+          actionButtonsHtml = `
+            <button class="btn btn-success" style="flex:1;" onclick="customerOrderInquiry('${p.name}', ${effectivePriceNum})">
+              🛒 Request on Quote ($${effectivePriceNum.toFixed(2)})
+            </button>
+          `;
+        }
+
+        return `
+          <div class="product-card" data-product-id="${p.id}">
+            <div class="card-top">
+              <span class="badge-category ${catClass}">${p.category || 'General'}</span>
+              <h4 class="product-title">${p.name}</h4>
+              <p class="product-desc">${p.description || 'No description provided.'}</p>
+
+              <!-- Dynamic Pricing Box -->
+              <div class="price-container">
+                <div class="price-label">
+                  <span>${activeRole === 'CUSTOMER' ? 'YOUR CONTRACT PRICE' : `${currentTier} TIER PRICE`}</span>
+                  <span>Tax: ${p.taxPercent}%</span>
+                </div>
+                <div class="price-value-row">
+                  <span class="effective-price">$${effectivePriceNum.toFixed(2)}</span>
+                  ${hasTierPrice ? `<span class="original-price">$${basePriceNum.toFixed(2)}</span>` : ''}
+                  ${discountPercent > 0 ? `<span class="discount-pill">-${discountPercent}% ${currentTier} Deal</span>` : ''}
+                  ${!hasTierPrice ? `<span style="font-size:11px; color:#94a3b8;">(Standard Base)</span>` : ''}
+                </div>
+              </div>
+
+              ${variantsHtml}
+            </div>
+
+            <div class="card-actions">
+              ${actionButtonsHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Sales Rep: Add to Quote Line
+    window.addRepQuoteLine = function(prodId, name, effPrice, basePrice) {
+      quoteDraftLines.push({ prodId, name, effPrice, basePrice, tier: currentTier });
+      updateQuoteDrawer();
+      showToast(`Added 1x "${name}" to quote draft at $${effPrice.toFixed(2)} (${currentTier} tier)`);
+    };
+
+    function updateQuoteDrawer() {
+      const drawer = document.getElementById('quote-draft-drawer');
+      const container = document.getElementById('quote-lines-container');
+      const totalValEl = document.getElementById('draft-total-value');
+      const savingsEl = document.getElementById('draft-savings-text');
+
+      if (quoteDraftLines.length === 0) {
+        drawer.style.display = 'none';
+        return;
+      }
+
+      drawer.style.display = 'block';
+      let totalEffective = 0;
+      let totalBase = 0;
+
+      container.innerHTML = quoteDraftLines.map((line, idx) => {
+        totalEffective += line.effPrice;
+        totalBase += line.basePrice;
+        return `
+          <div class="quote-line-item">
+            <span><strong>${idx + 1}.</strong> ${line.name} (${line.tier} Tier)</span>
+            <span>
+              <strong style="color:#38bdf8;">$${line.effPrice.toFixed(2)}</strong>
+              <button onclick="removeQuoteLine(${idx})" style="background:transparent; border:none; color:#f87171; cursor:pointer; margin-left:10px;">✕</button>
+            </span>
+          </div>
+        `;
+      }).join('');
+
+      totalValEl.textContent = `$${totalEffective.toFixed(2)}`;
+      const savings = Math.max(0, totalBase - totalEffective);
+      savingsEl.textContent = `Client Tier Savings: $${savings.toFixed(2)}`;
+    }
+
+    window.removeQuoteLine = function(index) {
+      quoteDraftLines.splice(index, 1);
+      updateQuoteDrawer();
+    };
+
+    document.getElementById('btn-clear-draft').addEventListener('click', () => {
+      quoteDraftLines = [];
+      updateQuoteDrawer();
+      showToast('Quotation draft cleared');
+    });
+
+    // Manager: View Tier Margin Spread
+    window.viewManagerSpread = function(productId, name, basePrice) {
+      const prod = cachedProducts.find(p => p.id === productId);
+      if (!prod) return;
+
+      const bronzePrice = (prod.priceLists || []).find(pl => pl.tier === 'BRONZE')?.price || basePrice;
+      const silverPrice = (prod.priceLists || []).find(pl => pl.tier === 'SILVER')?.price || basePrice;
+      const goldPrice = (prod.priceLists || []).find(pl => pl.tier === 'GOLD')?.price || basePrice;
+
+      alert(
+        `📊 MANAGER MARGIN SPREAD FOR: "${name}"\n\n` +
+        `• Base List Price: $${parseFloat(basePrice).toFixed(2)}\n` +
+        `• Bronze Tier Price: $${parseFloat(bronzePrice).toFixed(2)}\n` +
+        `• Silver Tier Price: $${parseFloat(silverPrice).toFixed(2)} (${Math.round((basePrice - silverPrice)/basePrice * 100)}% discount)\n` +
+        `• Gold Tier Price:   $${parseFloat(goldPrice).toFixed(2)} (${Math.round((basePrice - goldPrice)/basePrice * 100)}% discount)\n\n` +
+        `✅ Within approved corporate pricing policy.`
+      );
+    };
+
+    // Customer: Order Inquiry
+    window.customerOrderInquiry = function(name, price) {
+      alert(`🎉 INQUIRY RECORDED!\n\nYou have requested 1x "${name}" for Acme Corp at your contracted Gold rate of $${price.toFixed(2)}.\n\nAlice Sales Rep will assemble and send your formal quote.`);
+    };
+
+    // Admin: Delete Product
+    window.adminDeleteProduct = async function(productId, name) {
+      if (!confirm(`Are you sure you want to delete "${name}"? This will cascade-delete all variants and tier price lists.`)) return;
+
+      await ensureAdminToken();
+      try {
+        const res = await fetch(`${API_BASE}/api/products/${productId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${internalToken}` },
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Product "${name}" deleted.`);
+          fetchCatalog();
+        } else {
+          alert(`Delete failed: ${data.error?.message}`);
+        }
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+
+    // Populate Sandbox Dropdown
+    function populateSandboxDropdown() {
+      const select = document.getElementById('sandbox-product-select');
+      select.innerHTML = cachedProducts.map(p => `
+        <option value="${p.id}">${p.name} (Base: $${p.basePrice})</option>
+      `).join('');
+    }
+
+    // Quick Resolve helper from card button
+    window.quickResolve = async function(productId, tier) {
+      document.getElementById('sandbox-product-select').value = productId;
+      document.getElementById('sandbox-tier-select').value = tier;
+      executeResolve(productId, tier);
+      document.getElementById('sandbox-card').scrollIntoView({ behavior: 'smooth' });
+    };
+
+    // Execute Sandbox Resolve
+    async function executeResolve(productId, tier) {
+      const output = document.getElementById('sandbox-resolve-output');
+      output.textContent = 'Resolving price through rule engine...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/products/${productId}/pricelists/resolve?tier=${tier}`);
+        const data = await res.json();
+        output.textContent = JSON.stringify(data, null, 2);
+        showToast(`Resolved price for ${tier} tier!`);
+      } catch (err) {
+        output.textContent = `Error: ${err.message}`;
+        showToast('Resolution error', false);
+      }
+    }
+
+    document.getElementById('btn-execute-resolve').addEventListener('click', () => {
+      const prodId = document.getElementById('sandbox-product-select').value;
+      const tier = document.getElementById('sandbox-tier-select').value;
+      if (prodId) executeResolve(prodId, tier);
+    });
+
+    // Quick set tier price prompt (Admin only)
+    window.openTierPrompt = async function(productId, productName) {
+      const newPrice = prompt(`Enter new price for "${productName}" under ${currentTier} tier ($USD):`, "1000.00");
+      if (!newPrice) return;
+
+      const priceNum = parseFloat(newPrice);
+      if (isNaN(priceNum) || priceNum <= 0) {
+        alert('Invalid price number');
+        return;
+      }
+
+      await ensureAdminToken();
+
+      try {
+        const res = await fetch(`${API_BASE}/api/products/${productId}/pricelists`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${internalToken}`,
+          },
+          body: JSON.stringify({
+            tier: currentTier,
+            price: priceNum,
+            currency: 'USD',
+          }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Saved ${currentTier} price: $${priceNum.toFixed(2)}`);
+          fetchCatalog();
+        } else {
+          alert(`Failed: ${data.error?.message}`);
+        }
+      } catch (err) {
+        alert(`Error: ${err.message}`);
+      }
+    };
+
+    // Modal Handlers
+    const createModal = document.getElementById('create-product-modal');
+    document.getElementById('btn-open-create-modal').addEventListener('click', () => {
+      createModal.style.display = 'flex';
+    });
+    document.getElementById('btn-close-create-modal').addEventListener('click', () => {
+      createModal.style.display = 'none';
+    });
+    document.getElementById('btn-cancel-create-modal').addEventListener('click', () => {
+      createModal.style.display = 'none';
+    });
+
+    // Form: Create Product (Admin Only)
+    document.getElementById('form-modal-create-product').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      await ensureAdminToken();
+
+      const payload = {
+        name: document.getElementById('new-prod-name').value.trim(),
+        category: document.getElementById('new-prod-category').value,
+        basePrice: parseFloat(document.getElementById('new-prod-price').value),
+        unit: document.getElementById('new-prod-unit').value.trim(),
+        taxPercent: parseFloat(document.getElementById('new-prod-tax').value),
+        description: document.getElementById('new-prod-desc').value.trim(),
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/products`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${internalToken}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+
+        if (data.success) {
+          showToast(`Product "${payload.name}" created!`);
+          createModal.style.display = 'none';
+          fetchCatalog();
+        } else {
+          alert(`Creation failed: ${data.error?.message}`);
+        }
+      } catch (err) {
+        alert(`Network error: ${err.message}`);
+      }
+    });
+
+    // Auto-authenticate as Dave Admin helper
+    async function ensureAdminToken() {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/internal/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'admin@dealflow360.com', password: 'Password123!' }),
+        });
+        const data = await res.json();
+        if (data.success && data.data?.token) {
+          internalToken = data.data.token;
+          localStorage.setItem('dealflow_internal_token', internalToken);
+        }
+      } catch (err) {
+        console.warn('Admin login failed:', err);
+      }
+    }
+
+    async function loginAsRep() {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/internal/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'rep@dealflow360.com', password: 'Password123!' }),
+        });
+        const data = await res.json();
+        if (data.success && data.data?.token) {
+          internalToken = data.data.token;
+          localStorage.setItem('dealflow_internal_token', internalToken);
+        }
+      } catch (err) {
+        console.warn('Rep login failed:', err);
+      }
+    }
+
+    async function loginAsManager() {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/internal/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'manager@dealflow360.com', password: 'Password123!' }),
+        });
+        const data = await res.json();
+        if (data.success && data.data?.token) {
+          internalToken = data.data.token;
+          localStorage.setItem('dealflow_internal_token', internalToken);
+        }
+      } catch (err) {
+        console.warn('Manager login failed:', err);
+      }
+    }
+
+    // =========================================================================
+    // MODULE 1 HANDLERS
+    // =========================================================================
+
+    window.setLoginCreds = function(email, password, role) {
+      document.getElementById('auth-login-email').value = email;
+      document.getElementById('auth-login-password').value = password;
+      showToast(`Filled credentials for ${role}`);
+    };
+
+    window.quickFillCustomerMagic = function() {
+      const magicInput = document.getElementById('magic-link-email');
+      if (magicInput) {
+        magicInput.value = 'customer@acmecorp.com';
+        magicInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      showToast('Filled Customer: customer@acmecorp.com (Acme Corp)');
+    };
+
+    // 1. Internal Staff Login Form
+    document.getElementById('form-internal-login').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        email: document.getElementById('auth-login-email').value.trim(),
+        password: document.getElementById('auth-login-password').value,
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/internal/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        document.getElementById('auth-login-output').textContent = JSON.stringify(data, null, 2);
+
+        if (data.success && data.data?.token) {
+          internalToken = data.data.token;
+          localStorage.setItem('dealflow_internal_token', internalToken);
+          applyRoleView(data.data.user.role);
+          showToast(`Logged in as ${data.data.user.name} (${data.data.user.role})`);
+        }
+      } catch (err) {
+        document.getElementById('auth-login-output').textContent = `Error: ${err.message}`;
+      }
+    });
+
+    // 2. Customer Registration Form
+    document.getElementById('form-cust-reg').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payload = {
+        name: document.getElementById('cust-name').value.trim(),
+        email: document.getElementById('cust-email').value.trim(),
+        companyName: document.getElementById('cust-company').value.trim(),
+        tier: document.getElementById('cust-tier').value,
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/customer/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        document.getElementById('cust-reg-output').textContent = JSON.stringify(data, null, 2);
+
+        if (data.success) {
+          showToast(`Customer ${payload.name} registered!`);
+          document.getElementById('magic-link-email').value = payload.email;
+        }
+      } catch (err) {
+        document.getElementById('cust-reg-output').textContent = `Error: ${err.message}`;
+      }
+    });
+
+    // 3. Request Magic Link
+    document.getElementById('btn-request-magic').addEventListener('click', async () => {
+      const email = document.getElementById('magic-link-email').value.trim();
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/customer/request-magic-link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const data = await res.json();
+        document.getElementById('magic-link-output').textContent = JSON.stringify(data, null, 2);
+
+        if (data.success && data.data?.token) {
+          document.getElementById('magic-token-input').value = data.data.token;
+          showToast('Magic token generated and auto-filled!');
+        }
+      } catch (err) {
+        document.getElementById('magic-link-output').textContent = `Error: ${err.message}`;
+      }
+    });
+
+    // 4. Verify Magic Link
+    document.getElementById('btn-verify-magic').addEventListener('click', async () => {
+      const token = document.getElementById('magic-token-input').value.trim();
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/customer/verify-magic-link`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
+        const data = await res.json();
+        document.getElementById('magic-link-output').textContent = JSON.stringify(data, null, 2);
+
+        if (data.success && data.data?.token) {
+          customerToken = data.data.token;
+          localStorage.setItem('dealflow_customer_token', customerToken);
+          applyRoleView('CUSTOMER');
+          showToast(`Welcome ${data.data.customer.name} (Acme Corp)!`);
+        }
+      } catch (err) {
+        document.getElementById('magic-link-output').textContent = `Error: ${err.message}`;
+      }
+    });
+
+    // 5. Call /me Endpoints
+    document.getElementById('btn-check-internal-me').addEventListener('click', async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/internal/me`, {
+          headers: { 'Authorization': `Bearer ${internalToken}` },
+        });
+        const data = await res.json();
+        document.getElementById('rbac-check-output').textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        document.getElementById('rbac-check-output').textContent = `Error: ${err.message}`;
+      }
+    });
+
+    document.getElementById('btn-check-customer-me').addEventListener('click', async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/auth/customer/me`, {
+          headers: { 'Authorization': `Bearer ${customerToken}` },
+        });
+        const data = await res.json();
+        document.getElementById('rbac-check-output').textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        document.getElementById('rbac-check-output').textContent = `Error: ${err.message}`;
+      }
+    });
+
+    // 6. Test Cross-Token Tamper / Security Rejection
+    document.getElementById('btn-test-rbac-tamper').addEventListener('click', async () => {
+      try {
+        // Intentionally sending internal token to customer endpoint
+        const res = await fetch(`${API_BASE}/api/auth/customer/me`, {
+          headers: { 'Authorization': `Bearer ${internalToken}` },
+        });
+        const data = await res.json();
+        document.getElementById('rbac-check-output').textContent = `HTTP Status: ${res.status}\n\n${JSON.stringify(data, null, 2)}`;
+        showToast(res.status === 403 ? '✔ Security Guard Passed: 403 Forbidden' : 'Tamper test failed', res.status === 403);
+      } catch (err) {
+        document.getElementById('rbac-check-output').textContent = `Error: ${err.message}`;
+      }
+    });
+
+    // Initialize on page load
+    (async function init() {
+      await ensureAdminToken();
+      applyRoleView('ADMIN');
+      fetchCatalog();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLINCH DealFlow360 — Intelligent Sales Operations Platform</title>
+  <meta name="description" content="Intelligent, Self-Governing Sales Operations Platform. Real-time blended risk scoring, dynamic CPQ margin optimization, and automated warehouse fulfillment.">
+
+  <!-- Google Fonts: Plus Jakarta Sans, Outfit, JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="styles.css">
+
+  <!-- Immediate Intro-Check Guardrail (Show intro only once per session) -->
+  <script>
+    (function() {
+      try {
+        if (sessionStorage.getItem('clinch_showcase_intro_seen') === 'true' || localStorage.getItem('clinch_showcase_intro_seen') === 'true') {
+          document.documentElement.classList.add('intro-seen');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+
+  <!-- Ambient Scene (Cyber Grid, Glow Orbs & Film Grain) -->
+  <div class="ambient-scene" aria-hidden="true">
+    <div class="ambient-grid"></div>
+    <div class="ambient-glow-1"></div>
+    <div class="ambient-glow-2"></div>
+  </div>
+  <div class="ambient-noise" aria-hidden="true"></div>
+
+  <!-- ========================================================================
+       PHASE 1: FULLSCREEN VIDEO INTRO (ONLY VIDEO, NO WORDS, LIGHT THEME)
+       ======================================================================== -->
+  <section id="intro-stage" class="intro-stage" aria-label="Fullscreen Video Intro" title="Click anywhere to proceed">
+    <div class="intro-fullscreen-video-wrapper" id="intro-video-outer">
+      <video 
+        id="intro-video" 
+        class="intro-video-element" 
+        src="LOGO_ANIMATION.mp4" 
+        autoplay 
+        muted 
+        playsinline 
+        preload="auto"
+        poster="CLINCH_LOGO.png">
+      </video>
+    </div>
+  </section>
+
+  <!-- ========================================================================
+       PHASE 2: SIGNATURE FLYING LOGO CONTAINER ("Sit Back to Top Right")
+       ======================================================================== -->
+  <div id="flying-logo-container" aria-hidden="true">
+    <img id="flying-logo-img" src="CLINCH_LOGO_TRANSPARENT.png" alt="CLINCH Flying Logo">
+  </div>
+
+  <!-- ========================================================================
+       TOP NAVIGATION BAR & TOP-RIGHT BRAND DOCK
+       ======================================================================== -->
+  <header class="site-header">
+    <div class="nav-left-cluster">
+      <span class="nav-product-tag">DealFlow360 Platform</span>
+      <nav aria-label="Main Navigation">
+        <ul class="nav-links">
+          <li><a href="#demo-cockpit" class="nav-link">Risk Engine</a></li>
+          <li><a href="#fulfillment-section" class="nav-link">Fulfillment</a></li>
+          <li><a href="#portal-section" class="nav-link">Customer Portal</a></li>
+          <li><a href="#architecture-section" class="nav-link">Architecture</a></li>
+          <li><a href="http://localhost:5173/app/admin" class="nav-link highlight-link" target="_blank" title="DealFlow360 Revenue Operations Admin Portal">Admin Portal</a></li>
+          <li><a href="http://localhost:4000" class="nav-link highlight-link" target="_blank" title="Deal Health & Risk Intelligence Dashboard">Reporting (:4000)</a></li>
+          <li><a href="http://localhost:5000" class="nav-link highlight-link" target="_blank" title="Core CPQ & RBAC Test Bench">Test Bench (:5000)</a></li>
+          <li><a href="http://localhost:5173/login" class="nav-link highlight-link" target="_blank" title="Sign In & Open Workspace">Workspace (:5173)</a></li>
+        </ul>
+      </nav>
+    </div>
+
+    <!-- The Top-Right Brand Dock (Where the Animated Logo Sits Back!) -->
+    <div class="nav-right-cluster">
+      <div id="brand-dock" class="brand-dock" title="DealFlow360 Live Node">
+        <div id="dock-logo-anchor" class="dock-logo-anchor">
+          <img id="dock-logo-img" class="dock-logo-img" src="CLINCH_LOGO_TRANSPARENT.png" alt="CLINCH Logo">
+        </div>
+        <div class="dock-status-pill">
+          <span class="pulse-dot"></span>
+          <span>ONLINE v2.4</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================
+       LANDING PAGE CONTENT
+       ======================================================================== -->
+  <main id="landing-content" class="landing-content">
+    
+    <!-- Hero Section -->
+    <section class="section hero-section">
+      <div class="container">
+        <div class="eyebrow-pill">
+          <span class="pulse-dot"></span>
+          <span>INTELLIGENT SALES OPERATIONS PLATFORM</span>
+        </div>
+
+        <h1 class="hero-headline">
+          Close High-Margin Enterprise Deals <br>
+          <span class="gradient-text">On Autopilot.</span>
+        </h1>
+
+        <p class="hero-description">
+          CLINCH DealFlow360 computes statistical risk deviations, suggests margin-boosting add-ons, auto-routes multi-tier approvals, and splits warehouse fulfillment in real-time.
+        </p>
+
+        <div class="hero-actions">
+          <a href="http://localhost:5173/login" target="_blank" class="island-cta island-cta-primary">
+            <span>Open Workspace</span>
+            <span class="cta-icon-subpill">↗</span>
+          </a>
+          <a href="#demo-cockpit" class="island-cta island-cta-secondary">
+            <span>Test Live Risk Cockpit</span>
+            <span class="cta-icon-subpill">↓</span>
+          </a>
+          <button id="btn-view-flow" class="island-cta island-cta-secondary">
+            <span>View Architecture Blueprint</span>
+            <span class="cta-icon-subpill">↗</span>
+          </button>
+        </div>
+
+        <!-- Floating Metrics Bar -->
+        <div class="metrics-strip">
+          <div class="metric-shell">
+            <div class="metric-core">
+              <div class="metric-number">+4.2% <span class="metric-lift">LIFT</span></div>
+              <div class="metric-label">Average Margin Expansion</div>
+            </div>
+          </div>
+          <div class="metric-shell">
+            <div class="metric-core">
+              <div class="metric-number">0 <span class="metric-lift">MANUAL</span></div>
+              <div class="metric-label">Stalled Escalation Tickets</div>
+            </div>
+          </div>
+          <div class="metric-shell">
+            <div class="metric-core">
+              <div class="metric-number">98.4% <span class="metric-lift">ON-TIME</span></div>
+              <div class="metric-label">Multi-Warehouse Fulfillment</div>
+            </div>
+          </div>
+          <div class="metric-shell">
+            <div class="metric-core">
+              <div class="metric-number">&lt; 2.4s <span class="metric-lift">INSTANT</span></div>
+              <div class="metric-label">Blended ML Risk Calculation</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Multi-Persona Login & Workspace Switcher (Customer, Manager, Rep, Admin) -->
+        <div class="persona-switcher-strip">
+          <div class="persona-strip-header">
+            <span class="persona-strip-title">
+              <span class="pulse-dot"></span>
+              Persona Workspaces & Unified Role Access
+            </span>
+            <span class="persona-strip-badge">Live RBAC Engine • 4 Personas</span>
+          </div>
+
+          <!-- User Requested Order: Customer, Manager, Rep, Admin -->
+          <div class="persona-button-cluster">
+            <button class="persona-choice-btn active" data-role="CUSTOMER" id="pbtn-customer">
+              <span class="p-icon" style="font-weight: 700; font-family: var(--font-mono); font-size: 0.75rem;">CU</span>
+              <span class="p-text">
+                <strong>Customer</strong>
+                <small>John Acme (Gold Tier Portal)</small>
+              </span>
+            </button>
+            <button class="persona-choice-btn" data-role="MANAGER" id="pbtn-manager">
+              <span class="p-icon" style="font-weight: 700; font-family: var(--font-mono); font-size: 0.75rem;">MG</span>
+              <span class="p-text">
+                <strong>Manager</strong>
+                <small>Bob Manager (Governance)</small>
+              </span>
+            </button>
+            <button class="persona-choice-btn" data-role="REP" id="pbtn-rep">
+              <span class="p-icon" style="font-weight: 700; font-family: var(--font-mono); font-size: 0.75rem;">RP</span>
+              <span class="p-text">
+                <strong>Rep</strong>
+                <small>Alice Sales (CPQ Builder)</small>
+              </span>
+            </button>
+            <button class="persona-choice-btn" data-role="ADMIN" id="pbtn-admin">
+              <span class="p-icon" style="font-weight: 700; font-family: var(--font-mono); font-size: 0.75rem;">AD</span>
+              <span class="p-text">
+                <strong>Admin</strong>
+                <small>Dave Admin (Master Control)</small>
+              </span>
+            </button>
+          </div>
+
+          <!-- Contextual Persona Action Card -->
+          <div class="persona-detail-card" id="persona-detail-display">
+            <!-- Dynamically rendered via app.js -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         INTERACTIVE DEMO 1: CPQ COCKPIT & RISK SCORER (CLINCH.md Stage 2 & 3)
+         ====================================================================== -->
+    <section id="demo-cockpit" class="section">
+      <div class="container">
+        <div class="section-header">
+          <div class="eyebrow-pill">
+            <span class="pulse-dot"></span>
+            <span>CORE NOVELTY SHOWCASE • STAGE 2 & 3</span>
+          </div>
+          <h2 class="section-title">Algorithmic Risk Scorer & Dynamic Margin Bar</h2>
+          <p class="section-desc">
+            Unlike static if/else thresholds, DealFlow360 computes blended order risk based on category limits and rep discounting history (Z-score anomaly detection).
+          </p>
+        </div>
+
+        <!-- The Interactive Cockpit Shell (Double Bezel) -->
+        <div class="demo-cockpit-shell">
+          <div class="demo-cockpit-inner">
+            <div class="cockpit-header">
+              <div class="window-dots">
+                <span class="window-dot dot-red"></span>
+                <span class="window-dot dot-amber"></span>
+                <span class="window-dot dot-green"></span>
+              </div>
+              <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-secondary);">
+                Active Quote: #Q-8492 • Acme Corp Enterprise Deal
+              </span>
+              <span class="dock-status-pill">● LIVE CALCULATOR</span>
+            </div>
+
+            <div class="cockpit-body">
+              <!-- Left Panel: Running Cart & Margin Slider -->
+              <div class="cockpit-cart-panel">
+                <table class="cart-table">
+                  <thead>
+                    <tr>
+                      <th>Product Line</th>
+                      <th>Qty</th>
+                      <th>Base Price</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <div class="item-name">Titan Edge Server Node</div>
+                        <div class="item-category">Hardware Line</div>
+                      </td>
+                      <td>10</td>
+                      <td>$12,000</td>
+                      <td><span style="color: var(--color-success); font-family: var(--font-mono); font-size: 0.8rem;">● In Stock</span></td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="item-name">Enterprise Managed Setup</div>
+                        <div class="item-category">Services Line (Limit: 15%)</div>
+                      </td>
+                      <td>1</td>
+                      <td>$3,500</td>
+                      <td><span style="color: var(--accent-cyan-light); font-family: var(--font-mono); font-size: 0.8rem;">● Variable</span></td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="item-name">Autonomous CPQ Cloud Sub</div>
+                        <div class="item-category">Recurring Annual SaaS</div>
+                      </td>
+                      <td>12 mo</td>
+                      <td>$8,400/yr</td>
+                      <td><span style="color: var(--color-purple); font-family: var(--font-mono); font-size: 0.8rem;">● Prorated</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+
+                <!-- Interactive Pricing Slider -->
+                <div class="slider-control-box">
+                  <div class="slider-label-row">
+                    <span class="slider-title">Simulate Rep Discount Rate:</span>
+                    <span id="discount-val-badge" class="slider-val-badge">12% Off</span>
+                  </div>
+                  <input 
+                    type="range" 
+                    id="discount-slider" 
+                    class="modern-range-slider" 
+                    min="0" 
+                    max="35" 
+                    value="12" 
+                    step="1">
+
+                  <div class="margin-meter-wrapper">
+                    <div class="margin-meter-label">
+                      <span style="color: var(--text-secondary); font-size: 0.8rem;">Blended Deal Gross Margin:</span>
+                      <span id="margin-val-text" style="font-family: var(--font-mono); font-weight: 700; color: var(--color-success);">53%</span>
+                    </div>
+                    <div class="margin-bar-track">
+                      <div id="margin-bar-fill" class="margin-bar-fill"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right Panel: SHAP Explainability & Real-Time Approval Stepper -->
+              <div class="cockpit-risk-panel">
+                <div class="panel-section-title">
+                  <span>STATISTICAL RISK EXPLAINABILITY</span>
+                </div>
+
+                <div class="risk-score-display">
+                  <span id="score-number" class="score-number">18</span>
+                  <div>
+                    <div id="score-status" class="score-status">Safe Margin • Auto-Approved</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">Blended order composite score (0-100)</div>
+                  </div>
+                </div>
+
+                <!-- SHAP-Style Factor Breakdown -->
+                <div class="shap-card-list">
+                  <div id="shap-service-item" class="shap-item">
+                    <span>Setup Service Category:</span>
+                    <span id="shap-service-delta" class="shap-delta positive">Within limit (12% &lt;= 15%)</span>
+                  </div>
+                  <div id="shap-zscore-item" class="shap-item">
+                    <span>Rep Historical Z-Score:</span>
+                    <span id="shap-zscore" class="shap-delta positive">+0.4σ (Normal Rep Range)</span>
+                  </div>
+                  <div class="shap-item">
+                    <span>Recurring Mix Factor:</span>
+                    <span class="shap-delta positive">+6.2 pts (SaaS Margin Lift)</span>
+                  </div>
+                </div>
+
+                <!-- Approval Chain Stepper -->
+                <div class="stepper-chain">
+                  <div style="font-size: 0.75rem; font-family: var(--font-mono); color: var(--text-secondary); margin-bottom: 0.75rem;">
+                    APPROVAL ROUTING STATE MACHINE:
+                  </div>
+                  <div class="stepper-track">
+                    <div class="stepper-step">
+                      <div class="step-node active">1</div>
+                      <span class="step-text">Sales Rep</span>
+                    </div>
+                    <div class="stepper-step">
+                      <div class="step-node active">2</div>
+                      <span class="step-text">Sales Manager</span>
+                    </div>
+                    <div class="stepper-step">
+                      <div id="step-vp-finance" class="step-node">3</div>
+                      <span id="step-vp-text" class="step-text">Bypassed (Safe)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         ASYMMETRIC BENTO GRID: FULFILLMENT, UPSELL & NEGOTIATION
+         ====================================================================== -->
+    <section id="fulfillment-section" class="section">
+      <div class="container">
+        <div class="section-header">
+          <div class="eyebrow-pill">
+            <span class="pulse-dot"></span>
+            <span>END-TO-END EXECUTION</span>
+          </div>
+          <h2 class="section-title">Engineered For Autonomous Sales Velocity</h2>
+          <p class="section-desc">
+            Every module communicates through real-time state machines, eliminating human delay from initial quote to final fulfillment.
+          </p>
+        </div>
+
+        <div class="bento-grid">
+          <!-- Bento Card 1: Multi-Warehouse Split Optimizer (Col 7) -->
+          <div class="bezel-card-outer col-span-7">
+            <div class="bezel-card-inner">
+              <div class="optimizer-controls">
+                <div>
+                  <div class="eyebrow-pill" style="margin-bottom: 0.5rem;">STAGE 4 OPTIMIZER</div>
+                  <h3 style="font-family: var(--font-display); font-size: 1.4rem; color: var(--text-pure);">
+                    Warehouse Inventory Split
+                  </h3>
+                </div>
+                <!-- Mode Toggle -->
+                <div class="mode-toggle-group">
+                  <button id="btn-mode-shipments" class="toggle-option-btn active">Min Shipments</button>
+                  <button id="btn-mode-cost" class="toggle-option-btn">Min Cost</button>
+                </div>
+              </div>
+
+              <div class="warehouse-grid">
+                <div class="wh-card">
+                  <div class="wh-name">Austin (Central Hub)</div>
+                  <div id="wh-austin-units" class="wh-units">40 Units</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Stock: 120 avail</div>
+                </div>
+                <div class="wh-card">
+                  <div class="wh-name">Chicago Hub</div>
+                  <div id="wh-chicago-units" class="wh-units">10 Units</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Stock: 45 avail</div>
+                </div>
+                <div class="wh-card">
+                  <div class="wh-name">Seattle West</div>
+                  <div id="wh-seattle-units" class="wh-units">0 Units</div>
+                  <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Stock: 80 avail</div>
+                </div>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 0.85rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+                <span id="wh-metric-shipments" style="color: var(--text-secondary);">2 Consolidated Shipments</span>
+                <span id="wh-metric-cost" style="color: var(--color-success); font-weight: 700;">$140 Freight</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bento Card 2: AI Cross-Sell Recommender (Col 5) -->
+          <div class="bezel-card-outer col-span-5">
+            <div class="bezel-card-inner">
+              <div class="eyebrow-pill" style="margin-bottom: 0.5rem;">STAGE 2 RECOMMENDER</div>
+              <h3 style="font-family: var(--font-display); font-size: 1.4rem; color: var(--text-pure); margin-bottom: 0.5rem;">
+                Collaborative Margin Lift
+              </h3>
+              <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1.5rem;">
+                Item-item co-purchase model dynamically suggests margin-boosting add-ons.
+              </p>
+
+              <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-cyan); border-radius: 1rem; padding: 1rem; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                  <span style="font-weight: 600; color: var(--text-pure);">Titan 3-Yr Extended Care</span>
+                  <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-success); background: rgba(16,185,129,0.15); padding: 0.2rem 0.5rem; border-radius: 9999px;">+4.2% Margin</span>
+                </div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Frequently bundled with Server Node Qty &gt; 5</div>
+                <button class="island-cta island-cta-primary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem; width: 100%; justify-content: center;">
+                  <span>Add to Quote (+$1,800)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bento Card 3: Hybrid Billing & Subscription Proration (Col 5) -->
+          <div id="portal-section" class="bezel-card-outer col-span-5">
+            <div class="bezel-card-inner">
+              <div class="eyebrow-pill" style="margin-bottom: 0.5rem;">STAGE 5 BILLING</div>
+              <h3 style="font-family: var(--font-display); font-size: 1.4rem; color: var(--text-pure); margin-bottom: 0.5rem;">
+                Hybrid Billing & Proration
+              </h3>
+              <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
+                Mix one-time physical hardware with recurring SaaS subscription lines on a single unified invoice.
+              </p>
+
+              <div style="font-family: var(--font-mono); font-size: 0.8rem; background: rgba(0,0,0,0.4); border-radius: 0.75rem; padding: 1rem; border: 1px solid var(--border-subtle);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                  <span style="color: var(--text-muted);">One-Time Hardware:</span>
+                  <span style="color: var(--text-pure);">$12,000.00</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                  <span style="color: var(--text-muted);">SaaS Cloud (Prorated 8mo):</span>
+                  <span style="color: var(--accent-cyan-light);">$5,600.00</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding-top: 0.5rem; border-top: 1px solid var(--border-subtle); font-weight: 700;">
+                  <span style="color: var(--text-pure);">First Invoice Total:</span>
+                  <span style="color: var(--color-success);">$17,600.00</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bento Card 4: Customer Live Negotiation Portal (Col 7) -->
+          <div class="bezel-card-outer col-span-7">
+            <div class="bezel-card-inner">
+              <div class="eyebrow-pill" style="margin-bottom: 0.5rem;">STAGE 6 LIVE PORTAL</div>
+              <h3 style="font-family: var(--font-display); font-size: 1.4rem; color: var(--text-pure); margin-bottom: 0.5rem;">
+                Collaborative Buyer Negotiation
+              </h3>
+              <p style="font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1.25rem;">
+                Feels like Google Docs comments crossed with DocuSign. Counter-offers automatically re-route into approval state machines without human friction.
+              </p>
+
+              <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: 1rem; padding: 1.25rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--color-success);"></span>
+                    <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-pure);">Acme Corp (Viewing Now)</span>
+                  </div>
+                  <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--accent-cyan-light);">Under Negotiation</span>
+                </div>
+                <div style="background: rgba(0, 180, 216, 0.06); border-left: 3px solid var(--accent-cyan); padding: 0.6rem 0.85rem; border-radius: 0.35rem; font-size: 0.825rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                  "Can you drop setup to $2,800 if we sign a 2-year commitment?"
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                  <button class="skip-intro-btn" style="padding: 0.3rem 0.8rem; font-size: 0.75rem;">Reject Counter</button>
+                  <button class="island-cta island-cta-primary" style="padding: 0.3rem 0.85rem; font-size: 0.75rem;">
+                    <span>Accept & Re-route Approval ↗</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         STAGE 7: DEAL HEALTH DASHBOARD & LIVE ALERT FEED
+         ====================================================================== -->
+    <section id="health-section" class="section">
+      <div class="container">
+        <div class="section-header">
+          <div class="eyebrow-pill">
+            <span class="pulse-dot"></span>
+            <span>STAGE 7 COCKPIT</span>
+          </div>
+          <h2 class="section-title">Gong-Style Deal Health & Predictive Stalls</h2>
+          <p class="section-desc">
+            Catch stalled, over-discounted, and rogue deals before they quietly die in the pipeline.
+          </p>
+        </div>
+
+        <div class="bezel-card-outer">
+          <div class="bezel-card-inner">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; margin-bottom: 2rem;">
+              <div style="padding: 1.25rem; background: rgba(255,255,255,0.02); border-radius: 1rem; border: 1px solid var(--border-subtle);">
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.25rem;">Active Pipeline Value</div>
+                <div style="font-family: var(--font-display); font-size: 2rem; font-weight: 700; color: var(--text-pure);">$4,820,000</div>
+              </div>
+              <div style="padding: 1.25rem; background: rgba(244,63,94,0.05); border-radius: 1rem; border: 1px solid rgba(244,63,94,0.3);">
+                <div style="font-size: 0.8rem; color: var(--color-danger); margin-bottom: 0.25rem;">Stalled Deals Detected</div>
+                <div style="font-family: var(--font-display); font-size: 2rem; font-weight: 700; color: var(--color-danger);">3 Deals ($320k)</div>
+              </div>
+              <div style="padding: 1.25rem; background: rgba(16,185,129,0.05); border-radius: 1rem; border: 1px solid rgba(16,185,129,0.3);">
+                <div style="font-size: 0.8rem; color: var(--color-success); margin-bottom: 0.25rem;">Avg Deal Margin</div>
+                <div style="font-family: var(--font-display); font-size: 2rem; font-weight: 700; color: var(--color-success);">54.8% (+3.1%)</div>
+              </div>
+            </div>
+
+            <!-- Live Alert Stream -->
+            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-radius: 0.75rem; background: rgba(244,63,94,0.08); border: 1px solid rgba(244,63,94,0.3);">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--color-danger);"></span>
+                  <div>
+                    <span style="font-weight: 600; color: var(--text-pure); font-size: 0.9rem;">Acme Corp (#Q-8492)</span>
+                    <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;">Setup Service discount 8 pts over rep limit. 2 days inactivity.</span>
+                  </div>
+                </div>
+                <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-danger);">Stall Risk 78%</span>
+              </div>
+
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.85rem 1.25rem; border-radius: 0.75rem; background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                  <span style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--color-success);"></span>
+                  <div>
+                    <span style="font-weight: 600; color: var(--text-pure); font-size: 0.9rem;">Globex Logistics (#Q-8488)</span>
+                    <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;">Warehouse split confirmed across Austin + Chicago. Signed.</span>
+                  </div>
+                </div>
+                <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--color-success);">Confirmed</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ======================================================================
+         ARCHITECTURE BLUEPRINT SECTION
+         ====================================================================== -->
+    <section id="architecture-section" class="section">
+      <div class="container">
+        <div class="section-header">
+          <div class="eyebrow-pill">
+            <span class="pulse-dot"></span>
+            <span>SYSTEM BLUEPRINT</span>
+          </div>
+          <h2 class="section-title">End-to-End Product Flow</h2>
+          <p class="section-desc">
+            Complete architectural mapping of the 24-hour hackathon build from initial catalog to automated warehouse split and financial ledger sync.
+          </p>
+        </div>
+
+        <div class="bezel-card-outer" style="cursor: pointer;" onclick="document.getElementById('btn-view-flow').click()">
+          <div class="bezel-card-inner" style="align-items: center; padding: 1.5rem; background: #ffffff;">
+            <img 
+              src="DealFlow360 - End to End Product Flow 24 hours oxp.png" 
+              alt="DealFlow360 Architecture Flow Diagram" 
+              style="width: 100%; max-height: 480px; object-fit: contain; border-radius: calc(var(--radius-inner) - 0.5rem);">
+            <div style="margin-top: 1rem; font-family: var(--font-mono); font-size: 0.85rem; color: #0f172a; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;">
+              <span>Click to Expand High-Resolution Blueprint</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ========================================================================
+       PRODUCT ARCHITECTURE MODAL LIGHTBOX
+       ======================================================================== -->
+  <div id="lightbox-modal" class="lightbox-modal" role="dialog" aria-modal="true" aria-label="Architecture Diagram">
+    <div class="lightbox-content-outer">
+      <button id="lightbox-close" class="lightbox-close-btn" aria-label="Close Lightbox">Close</button>
+      <div class="lightbox-content-inner">
+        <img src="DealFlow360 - End to End Product Flow 24 hours oxp.png" alt="DealFlow360 Architecture Flow Detailed View">
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================
+       AGENCY-GRADE FOOTER
+       ======================================================================== -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand-col">
+          <img src="CLINCH_LOGO_TRANSPARENT.png" alt="CLINCH Logo" class="footer-logo">
+          <p class="footer-desc">
+            CLINCH DealFlow360 — Intelligent, Self-Governing Sales Operations Platform. Autonomous CPQ, live risk explainability, and multi-warehouse fulfillment.
+          </p>
+          <div class="eyebrow-pill">
+            <span class="pulse-dot"></span>
+            <span>24-HOUR HACKATHON BUILD</span>
+          </div>
+        </div>
+
+        <div class="footer-links-grid">
+          <div>
+            <div class="footer-col-title">Platform</div>
+            <ul class="footer-links-list">
+              <li><a href="#demo-cockpit" class="footer-link">Quotation Builder</a></li>
+              <li><a href="#demo-cockpit" class="footer-link">Risk Scorer</a></li>
+              <li><a href="#fulfillment-section" class="footer-link">Warehouse Optimizer</a></li>
+              <li><a href="#portal-section" class="footer-link">Customer Portal</a></li>
+            </ul>
+          </div>
+          <div>
+            <div class="footer-col-title">Intelligence</div>
+            <ul class="footer-links-list">
+              <li><a href="#demo-cockpit" class="footer-link">SHAP Explainability</a></li>
+              <li><a href="#health-section" class="footer-link">Predictive Stall Score</a></li>
+              <li><a href="#fulfillment-section" class="footer-link">Proration Engine</a></li>
+              <li><a href="#architecture-section" class="footer-link">Architecture PDF</a></li>
+            </ul>
+          </div>
+          <div>
+            <div class="footer-col-title">Engineering</div>
+            <ul class="footer-links-list">
+              <li><span class="footer-link">Claude Pro (Balaji)</span></li>
+              <li><span class="footer-link">Gemini Pro (Nithin)</span></li>
+              <li><span class="footer-link">Gemini Pro (Santhosh)</span></li>
+              <li><span class="footer-link">Gemini Pro (Prabanjan)</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div>© 2026 CLINCH DealFlow360. All rights reserved.</div>
+        <div class="team-credits">Built by Team Balaji, Nithin, Santhosh & Prabanjan</div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,950 @@
+<title>DealFlow360 Architecture Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+/* ── Tokens ───────────────────────────────────────────────────────────────
+   Light is the base. Dark redefines tokens only, in both the un-stamped
+   (prefers-color-scheme) and explicitly-stamped cases.                      */
+:root{
+  --paper:#F5F7F8;      --surface:#FFFFFF;    --surface-2:#EDF1F3;
+  --ink:#12191E;        --ink-2:#3D4C55;      --ink-3:#6B7C86;
+  --rule:#D9E1E5;       --rule-2:#C3CFD5;
+  --accent:#0E6A87;     --accent-2:#0A5064;   --accent-wash:#E1EFF4;
+  --auto:#2E7D5B;       --auto-wash:#E2F0EA;
+  --manager:#9C6B1F;    --manager-wash:#F6ECD9;
+  --finance:#A93F35;    --finance-wash:#F7E4E1;
+  --code-bg:#EDF1F3;
+  --shadow:0 1px 2px rgba(18,25,30,.06), 0 8px 24px -12px rgba(18,25,30,.18);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0D1216;    --surface:#141C21;    --surface-2:#1B252C;
+    --ink:#E8EEF1;      --ink-2:#A9BAC3;      --ink-3:#7B8D97;
+    --rule:#243138;     --rule-2:#31424B;
+    --accent:#4FB3D1;   --accent-2:#7FCBE2;   --accent-wash:#12303B;
+    --auto:#5FC08F;     --auto-wash:#14322A;
+    --manager:#D9A85A;  --manager-wash:#332714;
+    --finance:#E0776B;  --finance-wash:#351916;
+    --code-bg:#1B252C;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0D1216;    --surface:#141C21;    --surface-2:#1B252C;
+  --ink:#E8EEF1;      --ink-2:#A9BAC3;      --ink-3:#7B8D97;
+  --rule:#243138;     --rule-2:#31424B;
+  --accent:#4FB3D1;   --accent-2:#7FCBE2;   --accent-wash:#12303B;
+  --auto:#5FC08F;     --auto-wash:#14322A;
+  --manager:#D9A85A;  --manager-wash:#332714;
+  --finance:#E0776B;  --finance-wash:#351916;
+  --code-bg:#1B252C;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--paper); color:var(--ink);
+  font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-size:15.5px; line-height:1.62; margin:0;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,h4{font-family:"Zilla Slab",Georgia,serif; text-wrap:balance; margin:0}
+code,kbd,.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace}
+a{color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:3px}
+
+/* ── Shell ─────────────────────────────────────────────────────────────── */
+.wrap{max-width:1240px; margin:0 auto; padding:0 24px 96px}
+.layout{display:grid; grid-template-columns:236px minmax(0,1fr); gap:56px; align-items:start}
+
+/* ── Masthead ──────────────────────────────────────────────────────────── */
+.masthead{border-bottom:2px solid var(--ink); padding:36px 0 20px; margin-bottom:40px}
+.kicker{
+  font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.18em;
+  text-transform:uppercase; color:var(--accent); margin:0 0 10px
+}
+.masthead h1{font-size:clamp(30px,4.6vw,46px); font-weight:700; letter-spacing:-.015em; line-height:1.06}
+.dek{color:var(--ink-2); max-width:62ch; margin:14px 0 0; font-size:16.5px}
+.meta{
+  display:flex; flex-wrap:wrap; gap:8px 20px; margin-top:20px;
+  font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-3);
+}
+.meta b{color:var(--ink); font-weight:500}
+
+/* ── Controls ──────────────────────────────────────────────────────────── */
+.controls{
+  display:flex; flex-wrap:wrap; gap:14px 22px; align-items:center;
+  padding:14px 18px; margin:24px 0 0; background:var(--surface);
+  border:1px solid var(--rule); border-radius:10px; box-shadow:var(--shadow);
+}
+.ctl-label{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink-3);
+}
+.seg{display:flex; background:var(--surface-2); border-radius:7px; padding:3px; gap:2px}
+.seg button{
+  font:500 12.5px/1 "IBM Plex Sans",sans-serif; color:var(--ink-2);
+  background:none; border:0; padding:7px 13px; border-radius:5px; cursor:pointer;
+}
+.seg button[aria-pressed="true"]{background:var(--accent); color:#fff}
+.seg button:hover:not([aria-pressed="true"]){color:var(--ink)}
+.switch{display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--ink-2)}
+.switch input{accent-color:var(--accent); width:15px; height:15px; cursor:pointer}
+
+/* ── Nav rail ──────────────────────────────────────────────────────────── */
+.rail{position:sticky; top:24px; display:flex; flex-direction:column; gap:2px}
+.rail a{
+  display:flex; gap:11px; padding:5px 0; font-size:13.5px;
+  color:var(--ink-2); text-decoration:none; border-bottom:1px solid transparent;
+}
+.rail a:hover{color:var(--accent)}
+.rail .n{font-family:"IBM Plex Mono",monospace; font-size:11px; color:var(--ink-3); padding-top:3px}
+.rail-head{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--ink-3); margin:0 0 12px;
+  padding-bottom:8px; border-bottom:1px solid var(--rule);
+}
+
+/* ── Sections ──────────────────────────────────────────────────────────── */
+section{margin:0 0 60px; scroll-margin-top:20px}
+section > h2{
+  font-size:25px; font-weight:600; letter-spacing:-.01em;
+  padding-bottom:9px; border-bottom:1px solid var(--rule-2); margin-bottom:22px;
+}
+section > h2 .num{
+  font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--accent);
+  margin-right:12px; font-weight:500;
+}
+h3{font-size:17.5px; font-weight:600; margin:30px 0 10px}
+p{margin:0 0 14px; max-width:70ch}
+ul{margin:0 0 14px; padding-left:20px; max-width:70ch}
+li{margin-bottom:6px}
+
+/* ── Dual-depth blocks ─────────────────────────────────────────────────── */
+.pair{display:grid; gap:14px; margin:18px 0}
+@media(min-width:900px){.pair.two{grid-template-columns:1fr 1fr}}
+.blk{
+  padding:16px 18px; border-radius:9px; background:var(--surface);
+  border:1px solid var(--rule);
+}
+.blk.tech{background:var(--surface-2); border-color:var(--rule)}
+.blk h4{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:500;
+  letter-spacing:.14em; text-transform:uppercase; margin:0 0 9px;
+}
+.blk.plain h4{color:var(--accent)}
+.blk.tech h4{color:var(--ink-3)}
+.blk p:last-child{margin-bottom:0}
+.why{
+  border-left:3px solid var(--accent); padding:2px 0 2px 16px; margin:18px 0;
+  max-width:70ch;
+}
+.why h4{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:500;
+  letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin:0 0 6px;
+}
+.why p{margin-bottom:0; color:var(--ink-2)}
+
+/* depth filtering */
+:root[data-depth="simple"] .tech-only{display:none}
+:root[data-depth="technical"] .plain-only{display:none}
+
+/* ── Tables ────────────────────────────────────────────────────────────── */
+.scroll{overflow-x:auto; margin:18px 0; border:1px solid var(--rule); border-radius:9px}
+table{border-collapse:collapse; width:100%; font-size:13.5px; background:var(--surface)}
+th,td{padding:9px 14px; text-align:left; border-bottom:1px solid var(--rule)}
+thead th{
+  background:var(--surface-2); font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink-3); font-weight:500; white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right; font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums}
+
+/* ── Pills & tags ──────────────────────────────────────────────────────── */
+.pill{
+  display:inline-block; padding:2px 9px; border-radius:99px;
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; font-weight:500;
+  letter-spacing:.06em; white-space:nowrap;
+}
+.pill.auto{background:var(--auto-wash); color:var(--auto)}
+.pill.manager{background:var(--manager-wash); color:var(--manager)}
+.pill.finance{background:var(--finance-wash); color:var(--finance)}
+.pill.real{background:var(--auto-wash); color:var(--auto)}
+.pill.stub{background:var(--surface-2); color:var(--ink-3)}
+
+/* ── Code ──────────────────────────────────────────────────────────────── */
+pre{
+  background:var(--code-bg); border:1px solid var(--rule); border-radius:9px;
+  padding:15px 17px; overflow-x:auto; margin:16px 0;
+  font-size:12.8px; line-height:1.62;
+}
+pre code{color:var(--ink)}
+p code,li code,td code{
+  background:var(--code-bg); padding:1.5px 5px; border-radius:4px; font-size:.88em;
+}
+.path{
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--ink-3);
+  display:block; margin-top:-8px; margin-bottom:16px;
+}
+
+/* ── Callout ───────────────────────────────────────────────────────────── */
+.note{
+  border:1px solid var(--rule); border-left:3px solid var(--manager);
+  background:var(--surface); border-radius:0 9px 9px 0;
+  padding:15px 18px; margin:20px 0; max-width:72ch;
+}
+.note.key{border-left-color:var(--accent)}
+.note strong{color:var(--ink)}
+.note p:last-child{margin-bottom:0}
+.note-tag{
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--manager); display:block; margin-bottom:6px;
+}
+.note.key .note-tag{color:var(--accent)}
+
+/* ── Thesis ────────────────────────────────────────────────────────────── */
+.thesis{
+  background:var(--surface); border:1px solid var(--rule-2);
+  border-radius:12px; padding:26px 28px; box-shadow:var(--shadow); margin-bottom:22px;
+}
+.thesis p{font-size:17px; line-height:1.58; color:var(--ink); margin-bottom:0}
+.thesis .lead{
+  font-family:"Zilla Slab",Georgia,serif; font-size:20px; font-weight:600;
+  line-height:1.42; margin-bottom:14px;
+}
+
+/* ── Contribution chart ────────────────────────────────────────────────── */
+.chart{margin:20px 0}
+.chart figcaption{font-size:13px; color:var(--ink-2); margin-top:12px; max-width:70ch}
+.legend{display:flex; flex-wrap:wrap; gap:16px; margin:12px 0 4px; font-size:12px; color:var(--ink-2)}
+.legend span{display:flex; align-items:center; gap:6px}
+.sw{width:11px; height:11px; border-radius:2px; display:inline-block}
+
+/* ── Q&A drill ─────────────────────────────────────────────────────────── */
+.qa{display:flex; flex-direction:column; gap:11px; margin:18px 0}
+.q{
+  background:var(--surface); border:1px solid var(--rule);
+  border-radius:9px; padding:15px 17px;
+}
+.q .ask{font-weight:600; margin:0 0 8px; color:var(--ink)}
+.q .ans{margin:0; color:var(--ink-2); font-size:14.5px}
+:root[data-quiz="on"] .q .ans{
+  filter:blur(5.5px); cursor:pointer; user-select:none; transition:filter .16s ease;
+}
+:root[data-quiz="on"] .q.revealed .ans{filter:none}
+.reveal-hint{
+  display:none; font-family:"IBM Plex Mono",monospace; font-size:10.5px;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin-top:8px;
+}
+:root[data-quiz="on"] .q:not(.revealed) .reveal-hint{display:block}
+
+/* ── Diagram ───────────────────────────────────────────────────────────── */
+.diagram{margin:20px 0; overflow-x:auto}
+.diagram svg{display:block; min-width:640px; width:100%; height:auto}
+
+@media (max-width:920px){
+  .layout{grid-template-columns:1fr; gap:0}
+  .rail{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important; animation:none !important}
+}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="kicker">Review preparation · Internal</p>
+    <h1>DealFlow360 Architecture Map</h1>
+    <p class="dek">Everything in the backend, explained twice — once in plain English for the pitch, once technically for the questions that follow. Written so you can defend any line of it cold.</p>
+    <div class="meta">
+      <span><b>43</b> tests passing</span>
+      <span><b>9</b> real / <b>19</b> stub endpoints</span>
+      <span><b>~3,500</b> lines backend</span>
+      <span>Frontend <b>not started</b></span>
+      <span>Updated after <b>contracts + stubs</b></span>
+    </div>
+    <div class="controls">
+      <span class="ctl-label">Depth</span>
+      <div class="seg" role="group" aria-label="Explanation depth">
+        <button type="button" data-depth="both" aria-pressed="true">Both</button>
+        <button type="button" data-depth="simple" aria-pressed="false">Plain English</button>
+        <button type="button" data-depth="technical" aria-pressed="false">Technical</button>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="quiz"> Quiz me <span class="ctl-label">(blurs answers in §9)</span>
+      </label>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="rail" aria-label="Contents">
+      <p class="rail-head">Contents</p>
+      <a href="#thesis"><span class="n">00</span> The thesis</a>
+      <a href="#map"><span class="n">01</span> System map</a>
+      <a href="#engine"><span class="n">02</span> Scoring engine</a>
+      <a href="#examples"><span class="n">03</span> Worked examples</a>
+      <a href="#simulator"><span class="n">04</span> Policy Simulator</a>
+      <a href="#recommender"><span class="n">05</span> Recommender</a>
+      <a href="#portal"><span class="n">06</span> Portal boundary</a>
+      <a href="#state"><span class="n">07</span> State &amp; guardrails</a>
+      <a href="#numbers"><span class="n">08</span> Numbers to know</a>
+      <a href="#drill"><span class="n">09</span> Q&amp;A drill</a>
+      <a href="#honest"><span class="n">10</span> Real vs stub</a>
+      <a href="#glossary"><span class="n">11</span> Glossary</a>
+    </nav>
+
+    <main>
+
+      <!-- 00 ───────────────────────────────────────────────────────────── -->
+      <section id="thesis">
+        <h2><span class="num">00</span>The thesis</h2>
+        <div class="thesis">
+          <p class="lead">We built a governance engine, not a quotation form.</p>
+          <p>The core is a <strong>pure function</strong> — <code>(policy, quote, rep_history) → decision + explanation</code>. Because policy is an <em>argument</em> rather than a hardcoded constant, we can re-run that function against a policy nobody has saved yet, across the whole open pipeline, and show the blast radius before committing. That is the Policy Simulator, and it is roughly forty lines <em>only because</em> of that one design decision.</p>
+        </div>
+        <p>Three claims, each provable with a single click:</p>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Claim</th><th>Proof on screen</th></tr></thead>
+            <tbody>
+              <tr><td>The logic is real, not hardcoded</td><td>Policy Simulator re-routes 4 of 15 deals live</td></tr>
+              <tr><td>We check the <em>pattern</em>, not the worst line</td><td>Q-1039 has no line worse than 3 pts over and still flags</td></tr>
+              <tr><td>The portal is genuinely restricted</td><td>DevTools — the margin field does not exist in the response</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 01 ───────────────────────────────────────────────────────────── -->
+      <section id="map">
+        <h2><span class="num">01</span>System map</h2>
+        <p>Five layers. Dependencies point only downward — the engine imports nothing from the API. That is what lets the simulator call the scorer fifteen times in four milliseconds with a policy that does not exist in any database.</p>
+
+        <div class="diagram">
+          <svg viewBox="0 0 700 396" role="img" aria-label="Five-layer architecture: HTTP routers on top, then derivations, then state and engine side by side, then fixtures at the base.">
+            <defs>
+              <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/>
+              </marker>
+            </defs>
+
+            <!-- L4 -->
+            <rect x="8" y="8" width="684" height="58" rx="8" fill="var(--surface)" stroke="var(--rule-2)"/>
+            <text x="24" y="30" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--accent)" letter-spacing="1.4">LAYER 4 · HTTP</text>
+            <text x="24" y="49" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="600" fill="var(--ink)">routers.py</text>
+            <text x="108" y="49" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="var(--ink-2)">28 endpoints · 6 routers · 409 on illegal transitions</text>
+            <text x="668" y="30" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)">668 ln</text>
+
+            <line x1="350" y1="66" x2="350" y2="84" stroke="var(--ink-3)" stroke-width="1.4" marker-end="url(#ar)"/>
+
+            <!-- L3 -->
+            <rect x="8" y="88" width="684" height="58" rx="8" fill="var(--surface)" stroke="var(--rule-2)"/>
+            <text x="24" y="110" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--accent)" letter-spacing="1.4">LAYER 3 · DERIVATIONS</text>
+            <text x="24" y="129" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="600" fill="var(--ink)">services.py</text>
+            <text x="112" y="129" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="var(--ink-2)">totals · narrate · leakage · </text>
+            <text x="290" y="129" font-family="IBM Plex Sans, sans-serif" font-size="12" font-weight="600" fill="var(--accent)">simulate() ← the moat</text>
+            <text x="668" y="110" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)">229 ln</text>
+
+            <line x1="180" y1="146" x2="180" y2="176" stroke="var(--ink-3)" stroke-width="1.4" marker-end="url(#ar)"/>
+            <line x1="520" y1="146" x2="520" y2="176" stroke="var(--ink-3)" stroke-width="1.4" marker-end="url(#ar)"/>
+
+            <!-- L2 -->
+            <rect x="8" y="180" width="330" height="118" rx="8" fill="var(--surface)" stroke="var(--rule-2)"/>
+            <text x="24" y="202" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--accent)" letter-spacing="1.4">LAYER 2 · STATE</text>
+            <text x="24" y="221" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="600" fill="var(--ink)">state.py</text>
+            <text x="24" y="243" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="var(--ink-2)">live policy · quote states · SSE fan-out</text>
+            <text x="24" y="261" font-family="IBM Plex Sans, sans-serif" font-size="11.5" fill="var(--ink-2)">idempotency cache · reset() → golden</text>
+            <text x="24" y="281" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="500" fill="var(--manager)">deal_events — APPEND-ONLY</text>
+            <text x="314" y="202" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)">144 ln</text>
+
+            <!-- L1 -->
+            <rect x="352" y="180" width="340" height="118" rx="8" fill="var(--accent-wash)" stroke="var(--accent)" stroke-width="1.5"/>
+            <text x="368" y="202" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--accent)" letter-spacing="1.4">LAYER 1 · ENGINE — PURE</text>
+            <text x="368" y="221" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="600" fill="var(--ink)">scoring.py · recommender.py</text>
+            <text x="368" y="243" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--ink-2)">score_quote() · coach() · recommend()</text>
+            <text x="368" y="264" font-family="IBM Plex Sans, sans-serif" font-size="11.5" font-weight="600" fill="var(--ink)">No DB. No HTTP. No globals.</text>
+            <text x="368" y="282" font-family="IBM Plex Sans, sans-serif" font-size="11.5" font-weight="600" fill="var(--accent)">Policy arrives as an argument.</text>
+            <text x="676" y="202" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)">770 ln</text>
+
+            <line x1="522" y1="330" x2="522" y2="302" stroke="var(--ink-3)" stroke-width="1.4" marker-end="url(#ar)"/>
+
+            <!-- L0 -->
+            <rect x="8" y="334" width="684" height="54" rx="8" fill="var(--surface-2)" stroke="var(--rule-2)"/>
+            <text x="24" y="355" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--accent)" letter-spacing="1.4">LAYER 0 · DATA</text>
+            <text x="24" y="374" font-family="IBM Plex Sans, sans-serif" font-size="12" fill="var(--ink-2)">fixtures.py — 15 open quotes · 120 closed orders (seed 42) · 14 products · 2 warehouses</text>
+            <text x="668" y="355" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)">378 ln</text>
+          </svg>
+        </div>
+
+        <div class="note key">
+          <span class="note-tag">Why it is layered this way</span>
+          <p>Purity at Layer 1 is not stylistic tidiness — it is the product. If anyone adds a database read inside <code>score_quote()</code>, the Policy Simulator becomes impossible and the demo loses its centrepiece.</p>
+        </div>
+      </section>
+
+      <!-- 02 ───────────────────────────────────────────────────────────── -->
+      <section id="engine">
+        <h2><span class="num">02</span>The scoring engine</h2>
+        <span class="path">backend/engine/scoring.py · 548 lines</span>
+
+        <div class="pair two">
+          <div class="blk plain plain-only">
+            <h4>Plain English</h4>
+            <p>The part that decides whether a discount needs approval, and explains why in a sentence a salesperson would accept.</p>
+          </div>
+          <div class="blk tech tech-only">
+            <h4>Technical</h4>
+            <p><code>score_quote(policy, quote, rep_history) → RiskResult</code>. Pure module, no I/O. Same inputs always produce the same output, so it is safe to call in a loop against hypothetical policy.</p>
+          </div>
+        </div>
+
+        <h3>The four terms</h3>
+        <p>The score blends four <strong>orthogonal</strong> signals — orthogonal matters, because each one catches something none of the others can see.</p>
+
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr><th>Term</th><th>Plain English</th><th class="tech-only">Formula</th><th>Catches</th><th class="num">Weight</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>S</strong> Severity</td>
+                <td>One line is way over the limit</td>
+                <td class="tech-only mono">max(over<sub>i</sub>)</td>
+                <td>The flagrant single breach</td>
+                <td class="num">0.35</td>
+              </tr>
+              <tr>
+                <td><strong>A</strong> Aggregate</td>
+                <td>Lots of lines are slightly over, and it adds up</td>
+                <td class="tech-only mono">Σ(over<sub>i</sub> × rev_weight<sub>i</sub>)</td>
+                <td><strong>The blended requirement</strong></td>
+                <td class="num">0.30</td>
+              </tr>
+              <tr>
+                <td><strong>L</strong> Leakage</td>
+                <td>How much money we actually gave away</td>
+                <td class="tech-only mono">Σ leaked / gross_margin</td>
+                <td>Absolute exposure, not just %</td>
+                <td class="num">0.20</td>
+              </tr>
+              <tr>
+                <td><strong>Z</strong> Behavioural</td>
+                <td>This is unusual <em>for this rep</em></td>
+                <td class="tech-only mono">(x − median) / (1.4826 × MAD)</td>
+                <td>Discount above a rep's own average</td>
+                <td class="num">0.15</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <pre class="tech-only"><code>score = 100 × ( 0.35·norm(S) + 0.30·norm(A) + 0.20·norm(L) + 0.15·norm(Z) )
+
+caps:  S_cap = 20 pts   A_cap = 5 pts   Z maps [1σ, 3σ] → [0, 1]</code></pre>
+
+        <h3>Routing bands</h3>
+        <p>These are rows in the policy table, not constants in code — which is precisely why the simulator can move them.</p>
+        <div class="scroll">
+          <table>
+            <thead><tr><th class="num">Score</th><th>Route</th></tr></thead>
+            <tbody>
+              <tr><td class="num">&lt; 20</td><td><span class="pill auto">AUTO</span> &nbsp;Auto-approve</td></tr>
+              <tr><td class="num">20 – 60</td><td><span class="pill manager">MANAGER</span> &nbsp;Sales Manager</td></tr>
+              <tr><td class="num">≥ 60</td><td><span class="pill finance">FINANCE</span> &nbsp;Sales Manager → Finance</td></tr>
+              <tr><td class="num">any line ≥ 15 pts over</td><td><span class="pill finance">FINANCE</span> &nbsp;Hard override, regardless of score</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>The effective ceiling</h3>
+        <pre><code>ceiling = min(tier_ceiling[tier], category_ceiling[category])</code></pre>
+        <div class="pair two">
+          <div class="blk plain plain-only">
+            <h4>Plain English</h4>
+            <p>A Gold customer is allowed 15%. But Services are capped at 10% because they are thin-margin. The <em>stricter</em> limit wins, so a Services line on a Gold order is governed at 10%.</p>
+          </div>
+          <div class="blk tech tech-only">
+            <h4>Technical</h4>
+            <p><code>Policy.ceiling_for()</code> takes the minimum of the two ceilings. Category limits therefore only ever <em>restrict</em> below the tier allowance — they can never grant headroom above it.</p>
+          </div>
+        </div>
+
+        <div class="note">
+          <span class="note-tag">A trap I hit while building this</span>
+          <p>Because the ceiling is a <code>min()</code>, setting Software to 20% while the top tier caps at 15% does <strong>nothing at all</strong> — the tier still binds. That is dead config, and an admin who writes it will believe a rule is active when it is not. So <code>dead_config_warnings()</code> detects it and surfaces it inline on the admin screen.</p>
+        </div>
+
+        <h3>Why MAD instead of standard deviation</h3>
+        <div class="pair two">
+          <div class="blk plain plain-only">
+            <h4>Plain English</h4>
+            <p>We measure "unusual for this rep" against their median rather than their average, because averages get dragged around by exactly the outliers we are hunting.</p>
+          </div>
+          <div class="blk tech tech-only">
+            <h4>Technical</h4>
+            <p>Median absolute deviation, scaled by 1.4826 so it is comparable to σ for normal data. <code>robust_z()</code> returns <code>None</code> rather than a number when the history is too thin to be honest.</p>
+          </div>
+        </div>
+        <div class="why">
+          <h4>Why</h4>
+          <p>One wild 30% quote inflates a rep's σ enough to make their <em>next</em> wild quote look ordinary. That is precisely the failure mode an anomaly detector must not have.</p>
+        </div>
+
+        <h3>Honest degradation — demo this on purpose</h3>
+        <p>When a rep has fewer than five prior orders, or gave the identical discount every time, we cannot compute a behavioural signal. So we drop the Z term, <strong>renormalise the surviving weights to sum to 1</strong>, and say so in the UI:</p>
+        <pre><code>"Insufficient rep history (3 prior orders) — scoring on policy components only."</code></pre>
+        <div class="why">
+          <h4>Why renormalise instead of just skipping</h4>
+          <p>Dropping Z's 0.15 weight without redistributing it would make every score for a new rep silently 15% lower — meaning a brand-new rep could discount <em>more freely</em> than a veteran. That is a real governance bug, not a cosmetic one.</p>
+        </div>
+        <p>Show this deliberately on <strong>Q-1047</strong> (rep S. Nair, 3 orders). A model that says out loud what it does not know reads as trustworthy.</p>
+
+        <h3>Attribution is exact, not estimated</h3>
+        <pre class="tech-only"><code>contributions = {k: 100 × weight[k] × term[k] for k in terms}
+assert sum(contributions.values()) == score   # always</code></pre>
+        <div class="note key">
+          <span class="note-tag">If asked "is this SHAP?"</span>
+          <p>"For an additive model, Shapley values reduce in closed form to each term's contribution — so we compute them exactly rather than sampling." That is true, and it is a strong answer.</p>
+        </div>
+      </section>
+
+      <!-- 03 ───────────────────────────────────────────────────────────── -->
+      <section id="examples">
+        <h2><span class="num">03</span>The two worked examples</h2>
+        <p>Memorise both. The first proves we implemented the brief; the second proves we understood it.</p>
+
+        <h3>Q-1042 · Acme Corp — the problem statement's own example</h3>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Line</th><th>Category</th><th class="num">Given</th><th class="num">Allowed</th><th class="num">Over</th></tr></thead>
+            <tbody>
+              <tr><td>Laptop Pro 14</td><td>Hardware</td><td class="num">12%</td><td class="num">15%</td><td class="num">0</td></tr>
+              <tr><td>Onsite Setup Service</td><td>Services</td><td class="num">18%</td><td class="num">10%</td><td class="num"><strong>8 pts</strong></td></tr>
+              <tr><td>Extended Warranty</td><td>Hardware</td><td class="num">15%</td><td class="num">15%</td><td class="num">0</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>One Services line breaks its own stricter limit, so the whole quotation is flagged — even though the customer is Gold and 15% "sounds fine on paper".</p>
+
+        <h3>Q-1039 · Beta Industries — the differentiator</h3>
+        <p>Four lines, over by <strong>3, 2, 3 and 2</strong> points. Nothing dramatic anywhere. Every <code>max()</code>-based rule on earth auto-approves this quote. Ours flags it.</p>
+
+        <figure class="chart">
+          <div class="legend">
+            <span><i class="sw" style="background:var(--finance)"></i> S · Severity</span>
+            <span><i class="sw" style="background:var(--accent)"></i> A · Aggregate</span>
+            <span><i class="sw" style="background:var(--manager)"></i> L · Leakage</span>
+            <span><i class="sw" style="background:var(--ink-3)"></i> Z · Behavioural</span>
+          </div>
+          <svg viewBox="0 0 700 210" role="img" aria-label="Stacked contribution bars. Q-1042 totals 25.9 driven mainly by Severity at 14.0. Q-1039 totals 22.1 driven mainly by Aggregate at 15.37. Both clear the manager threshold of 20.">
+            <!-- scale: 0..30 maps to x 150..660 -->
+            <line x1="150" y1="150" x2="660" y2="150" stroke="var(--rule-2)"/>
+            <g font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)" text-anchor="middle">
+              <line x1="150" y1="150" x2="150" y2="156" stroke="var(--rule-2)"/><text x="150" y="170">0</text>
+              <line x1="320" y1="150" x2="320" y2="156" stroke="var(--rule-2)"/><text x="320" y="170">10</text>
+              <line x1="490" y1="150" x2="490" y2="156" stroke="var(--rule-2)"/><text x="490" y="170">20</text>
+              <line x1="660" y1="150" x2="660" y2="156" stroke="var(--rule-2)"/><text x="660" y="170">30</text>
+            </g>
+            <!-- manager threshold -->
+            <line x1="490" y1="26" x2="490" y2="150" stroke="var(--manager)" stroke-width="1.4" stroke-dasharray="4 3"/>
+            <text x="496" y="22" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--manager)">approval threshold · 20</text>
+
+            <!-- Q-1042: S 14.0, A 6.23, L 0.59, Z 5.03  → 25.9 -->
+            <text x="140" y="60" text-anchor="end" font-family="IBM Plex Sans, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Q-1042</text>
+            <text x="140" y="76" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)">Acme Corp</text>
+            <rect x="150"    y="44" width="238"  height="30" fill="var(--finance)"/>
+            <rect x="388"    y="44" width="105.9" height="30" fill="var(--accent)"/>
+            <rect x="493.9"  y="44" width="10"   height="30" fill="var(--manager)"/>
+            <rect x="503.9"  y="44" width="85.5" height="30" fill="var(--ink-3)"/>
+            <text x="269" y="63" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="500" fill="#fff">S 14.0</text>
+            <text x="441" y="63" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="500" fill="#fff">A 6.2</text>
+            <text x="546" y="63" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="500" fill="#fff">Z 5.0</text>
+            <text x="600" y="63" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="500" fill="var(--ink)">= 25.9</text>
+
+            <!-- Q-1039: S 5.25, A 15.37, L 1.49, Z 0 → 22.1 -->
+            <text x="140" y="115" text-anchor="end" font-family="IBM Plex Sans, sans-serif" font-size="12.5" font-weight="600" fill="var(--ink)">Q-1039</text>
+            <text x="140" y="131" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="10" fill="var(--ink-3)">Beta Industries</text>
+            <rect x="150"   y="99" width="89.3"  height="30" fill="var(--finance)"/>
+            <rect x="239.3" y="99" width="261.3" height="30" fill="var(--accent)"/>
+            <rect x="500.6" y="99" width="25.3"  height="30" fill="var(--manager)"/>
+            <text x="195" y="118" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="500" fill="#fff">S 5.3</text>
+            <text x="370" y="118" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" font-weight="500" fill="#fff">A 15.4</text>
+            <text x="536" y="118" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="500" fill="var(--ink)">= 22.1</text>
+          </svg>
+          <figcaption>Both quotes route to a manager, but for opposite reasons — and the contribution bar says which without anyone explaining it. Q-1042 is <em>severity</em>: one flagrant line. Q-1039 is <em>aggregate</em>: a pattern no single-line rule would ever see.</figcaption>
+        </figure>
+
+        <div class="note key">
+          <span class="note-tag">Demo instruction</span>
+          <p>Show Q-1039 for fifteen seconds immediately after Q-1042. It is the cleanest available proof that we implemented the brief's actual requirement rather than a threshold with extra steps.</p>
+        </div>
+
+        <h3>coach() — the same engine, inverted</h3>
+        <p>Instead of "why was I flagged", it answers "what would it take not to be". Output for Q-1042: <em>"Drop Onsite Setup Service to 10% and this quote auto-approves."</em></p>
+        <div class="blk tech tech-only">
+          <h4>Technical</h4>
+          <p>The score is monotonic in any single line's discount, so we binary-search each line (24 iterations) for the highest discount that still reaches the target band, round down to a clean 0.5% step, then verify the rounded value.</p>
+        </div>
+        <p>Two design decisions worth being ready to defend:</p>
+        <ul>
+          <li><strong>It prefers lines that are actually over their ceiling.</strong> The naive "cheapest cut" answer suggested trimming a <em>compliant</em> Laptop line, because lowering the order-wide discount cheaply reduces the Z term. Technically valid, useless as advice — and a rep who follows it and gets flagged again stops trusting the tool.</li>
+          <li><strong>Advice is capped at the ceiling.</strong> A small line can sit six points over policy and still land under the approval threshold once revenue-weighted. Coaching to <em>that</em> number means telling a rep "stay over policy, you'll slip through" — the exact behaviour this product exists to stop.</li>
+        </ul>
+      </section>
+
+      <!-- 04 ───────────────────────────────────────────────────────────── -->
+      <section id="simulator">
+        <h2><span class="num">04</span>The Policy Simulator — the moat</h2>
+        <span class="path">backend/api/services.py · simulate()</span>
+
+        <div class="pair two">
+          <div class="blk plain plain-only">
+            <h4>What the room sees</h4>
+            <p>An admin drags the Services ceiling from 10% to 8%. Before saving anything, the open pipeline re-scores live — cards change colour, counters roll, and a headline appears.</p>
+          </div>
+          <div class="blk tech tech-only">
+            <h4>What the code does</h4>
+            <p>Clones the live policy with the proposed overrides, then scores every open quote twice — once against live, once against the clone — and classifies each as escalated, relaxed or unchanged.</p>
+          </div>
+        </div>
+
+        <pre><code>proposed = live_policy.clone(**overrides)     # a COPY — nothing persisted
+for q in all_quotes():
+    before = score_quote(live_policy, q, history)
+    after  = score_quote(proposed,    q, history)
+    ...classify: escalated / relaxed / unchanged</code></pre>
+
+        <div class="thesis" style="margin-top:20px">
+          <p class="lead">"Re-routes 4 of 15 open deals · exposes ₹846 of leaking margin"</p>
+          <p>AUTO 7 → 4 &nbsp;·&nbsp; MANAGER 6 → 8 &nbsp;·&nbsp; FINANCE 2 → 3 &nbsp;·&nbsp; computed in <strong>4 ms</strong></p>
+        </div>
+
+        <div class="why">
+          <h4>Why this is the winning feature</h4>
+          <p>Faking it is strictly <em>harder</em> than building it. A blast-radius preview requires the scorer to be genuinely re-invokable against uncommitted state — you cannot hardcode "three turn red" and survive a judge dragging the slider to an arbitrary value. And it costs almost nothing: the same function, in a loop.</p>
+        </div>
+
+        <div class="note">
+          <span class="note-tag">Know this before you rehearse</span>
+          <p><strong>Tightening a ceiling can only ever raise scores.</strong> A single downward drag therefore produces escalations only — never a green flip. To show two-way movement, <strong>drag the slider back</strong>; the reverse ripple is the cleanest possible non-hardcoded proof. Keep it in reserve for questions rather than spending it in the scripted fifteen seconds.</p>
+        </div>
+
+        <p><code>clone()</code> is defensive, and there is a test asserting that mutating a simulated policy cannot corrupt the live one. Without it, a judge playing with the slider would silently poison the demo database.</p>
+      </section>
+
+      <!-- 05 ───────────────────────────────────────────────────────────── -->
+      <section id="recommender">
+        <h2><span class="num">05</span>The recommender</h2>
+        <span class="path">backend/engine/recommender.py · 222 lines</span>
+
+        <div class="pair two">
+          <div class="blk plain plain-only">
+            <h4>Plain English</h4>
+            <p>"73% of orders containing a laptop also contain a docking station" — learned from 120 historical orders, not typed into a lookup table.</p>
+          </div>
+          <div class="blk tech tech-only">
+            <h4>Technical</h4>
+            <p>Association-rule mining. A pair co-occurrence index is built once at startup, then support, confidence and lift are computed per candidate against everything already in the cart.</p>
+          </div>
+        </div>
+
+        <pre class="tech-only"><code>support(j)       = orders with j / all orders
+confidence(C→j)  = orders with C and j / orders with C
+lift(C→j)        = confidence / support(j)</code></pre>
+
+        <div class="why">
+          <h4>Why lift is the number that matters</h4>
+          <p>A docking station appearing in 40% of <em>all</em> orders is not interesting. It is interesting because it appears in 73% of orders that contain a laptop — lift 2.6×. Lift separates a real relationship from mere popularity.</p>
+        </div>
+
+        <h3>Three filters, each defensible</h3>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Filter</th><th class="num">Threshold</th><th>Why it exists</th></tr></thead>
+            <tbody>
+              <tr><td>Margin floor</td><td class="num">≥ 25%</td><td>The brief explicitly requires it. Hard filter, applied before ranking</td></tr>
+              <tr><td>Minimum pair count</td><td class="num">≥ 5</td><td>Standard apriori guard — a pair seen twice in 120 orders can show spectacular lift <em>by accident</em></td></tr>
+              <tr><td>Minimum confidence</td><td class="num">≥ 15%</td><td>Stops 7%-confidence coincidences reaching a rep's panel</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>I added the last two after watching 7% and 9%-confidence suggestions surface in testing. <em>"Why is a 7%-confidence pairing being recommended to me?"</em> is a fair hit, and now it cannot happen.</p>
+
+        <h3>Ranking uses margin rate, not rupees</h3>
+        <pre><code>rank = lift × margin_pct × (1.15 if promoted else 1.0)</code></pre>
+        <div class="why">
+          <h4>Why</h4>
+          <p>Ranking by absolute margin made a ₹5,400 Support SLA outrank the laptop's actual companion products every single time. That collapses into "sorted by price with a lift column decorating it" — exactly how a sharp reviewer would characterise it. Using the rate keeps lift load-bearing. The absolute rupee figure is still what we <em>display</em>, because that is the number a rep acts on.</p>
+        </div>
+
+        <div class="note">
+          <span class="note-tag">Small honesty that matters</span>
+          <p>The response carries a <code>basis</code> field — <code>co-purchase</code>, <code>promoted</code> or <code>none</code> — and the panel takes its label from it. Showing "Frequently bought together" above results derived from nothing but a promo flag is a small lie, and a reviewer who adds one obscure item to an empty cart will catch it.</p>
+        </div>
+      </section>
+
+      <!-- 06 ───────────────────────────────────────────────────────────── -->
+      <section id="portal">
+        <h2><span class="num">06</span>The portal boundary</h2>
+        <p>The brief requires "a real, separate, restricted view, not just another internal screen with a different label". This is graded, and a judge will open DevTools.</p>
+
+        <div class="pair two">
+          <div class="blk plain plain-only">
+            <h4>Plain English</h4>
+            <p>The customer's page is not the internal page with fields hidden. It is a different response, built from scratch, that never contained cost or margin in the first place.</p>
+          </div>
+          <div class="blk tech tech-only">
+            <h4>Technical</h4>
+            <p>The portal handler constructs a fresh dictionary field by field. It is not a filtered projection of the internal object, so there is no field to accidentally forget to strip.</p>
+          </div>
+        </div>
+
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Endpoint</th><th>Carries</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">/quotes/Q-1042</td><td class="mono">cost · margin · risk_score · ceiling · over · rep · contributions</td></tr>
+              <tr><td class="mono">/portal/{token}</td><td class="mono">name · qty · unit_price · discount_pct · line_total</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="why">
+          <h4>Why structural rather than filtered</h4>
+          <p>If we filtered a shared object, adding a field internally next week would silently leak it. Building a separate structure means a leak requires someone to <em>deliberately type the field name</em> into the portal handler.</p>
+        </div>
+
+        <p>The test asserts on the <strong>serialised bytes</strong>, so it catches a leak no matter how it arrived. It then confirms the internal endpoint <em>does</em> carry those fields — proving the difference is real redaction rather than an accident of this quote having no margin.</p>
+
+        <div class="note key">
+          <span class="note-tag">Rehearsed move · 10 seconds</span>
+          <p>DevTools → Network → the portal payload. <strong>"The margin field doesn't exist in this response. It isn't hidden by CSS — the serialiser can't emit it."</strong></p>
+        </div>
+
+        <h3>The negotiation loop</h3>
+        <p>When a customer counters from the portal:</p>
+        <ul>
+          <li>The quote enters <strong>NEGOTIATION</strong> — legal from both APPROVED and CONFIRMED</li>
+          <li>It is re-scored <em>as if the counter were accepted</em></li>
+          <li>If the new band is not AUTO, it moves to PENDING_MANAGER <strong>automatically</strong>, with no rep action</li>
+        </ul>
+        <div class="note">
+          <span class="note-tag">A test caught this</span>
+          <p>My first version jumped straight to PENDING_MANAGER, skipping NEGOTIATION. Routing through it keeps the audit trail's ordering honest: the customer asked, <em>then</em> the system re-routed.</p>
+        </div>
+      </section>
+
+      <!-- 07 ───────────────────────────────────────────────────────────── -->
+      <section id="state">
+        <h2><span class="num">07</span>State, audit and guardrails</h2>
+        <span class="path">backend/api/state.py · schemas.py</span>
+
+        <h3>The state machine</h3>
+        <pre><code>DRAFT → PENDING_MANAGER → PENDING_FINANCE → APPROVED → CONFIRMED
+                                    → FULFILLED → INVOICED → PAID
+  ↕ NEGOTIATION (re-entrant)
+  ↓ REJECTED / returned to DRAFT</code></pre>
+        <p>Defined once, in one table, so the UI and the server cannot drift apart. Illegal transitions return <strong>409</strong> — never a 500, never a silent success — with the legal set attached:</p>
+        <pre><code>{ "error": "illegal_transition", "current_state": "PAID",
+  "attempted": "APPROVED", "allowed": [] }</code></pre>
+
+        <div class="why">
+          <h4>Why this is the highest-stakes guardrail</h4>
+          <p>A judge approving twice, or hitting browser-back, is the one failure that is <em>unrecoverable mid-demo</em> — it poisons every step that follows. A crashed narrator embarrasses you for ten seconds; corrupted state ends the run.</p>
+        </div>
+
+        <p>The UI derives button state from <code>allowed_transitions</code>, so illegal actions are <strong>disabled with a reason</strong> ("Already approved by M. Shah, Aug 21"). A disabled button that explains itself reads as rigour; a missing one reads as an unfinished screen.</p>
+
+        <h3>The audit spine</h3>
+        <p><code>deal_events</code> is append-only — every mutation writes actor, role, event type, reason and timestamp. Three other features are projections of it, for free:</p>
+        <ul>
+          <li>The approval history table</li>
+          <li>The real-time dashboard, via SSE fan-out</li>
+          <li>The stall detector — <code>now − max(event.timestamp)</code></li>
+        </ul>
+        <div class="why">
+          <h4>Why it had to be decided at hour zero</h4>
+          <p>Choosing an append-only log on day one was free. Retrofitting one at hour twenty would have been impossible, and all three of those features would have had to be built separately.</p>
+        </div>
+
+        <h3>Two smaller guardrails</h3>
+        <ul>
+          <li><strong>Idempotency keys</strong> on approve, confirm and payment — replaying returns the identical response rather than double-writing. A double-click on a projector is a real hazard.</li>
+          <li><strong><code>POST /admin/reset</code></strong> restores golden state in <strong>0.19 ms</strong>. Rehearse the line: <em>"Let me reset to a clean state — one click."</em> That reads as production tooling; debugging on stage does not.</li>
+        </ul>
+      </section>
+
+      <!-- 08 ───────────────────────────────────────────────────────────── -->
+      <section id="numbers">
+        <h2><span class="num">08</span>Numbers to have cold</h2>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Metric</th><th class="num">Value</th><th>Context</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Leakage headline</strong></td><td class="num">₹31,080</td><td>Across 120 closed orders — 2.74% of gross margin</td></tr>
+              <tr><td>Open pipeline</td><td class="num">₹242,351</td><td>15 quotes · 1 stalled</td></tr>
+              <tr><td>Band split</td><td class="num">7 / 6 / 2</td><td>AUTO / MANAGER / FINANCE</td></tr>
+              <tr><td>Q-1042 score</td><td class="num">25.9</td><td><span class="pill manager">MANAGER</span> driven by S (14.0)</td></tr>
+              <tr><td>Q-1039 score</td><td class="num">22.1</td><td><span class="pill manager">MANAGER</span> driven by A (15.37)</td></tr>
+              <tr><td>Simulator ripple</td><td class="num">4 of 15</td><td>₹846 exposed, computed in 4 ms</td></tr>
+              <tr><td>Demo reset</td><td class="num">0.19 ms</td><td>Golden state restored</td></tr>
+              <tr><td>Tests</td><td class="num">43</td><td>23 engine · 20 API</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note key">
+          <span class="note-tag">Say this exactly right</span>
+          <p>The leakage figure is <strong>computed from the seeded history, never hardcoded</strong>. If a judge asks where it comes from, the answer is a query. Never quote an external industry statistic — one "source?" kills the momentum.</p>
+        </div>
+      </section>
+
+      <!-- 09 ───────────────────────────────────────────────────────────── -->
+      <section id="drill">
+        <h2><span class="num">09</span>Q&amp;A drill</h2>
+        <p>Turn on <strong>Quiz me</strong> in the header to blur the answers, then click any answer to reveal it.</p>
+        <div class="qa">
+          <div class="q">
+            <p class="ask">Is the score hardcoded?</p>
+            <p class="ans">"Rather than tell you — let me show you." Then run the simulator. Best possible outcome for this question.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+          <div class="q">
+            <p class="ask">Is this real machine learning?</p>
+            <p class="ans">A transparent additive model plus item-item association rules. We chose explainability deliberately — a manager has to justify a routing decision to a rep, and a black box cannot. Being additive, Shapley values reduce in closed form, so attribution is exact rather than estimated.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+          <div class="q">
+            <p class="ask">Why not just use the worst line?</p>
+            <p class="ans">Because §10 of your own problem statement warns against exactly that. Three lines at 2, 3 and 2 points over pass every max() rule while giving away real margin — that is what our aggregate term catches.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+          <div class="q">
+            <p class="ask">How is the customer portal actually separate?</p>
+            <p class="ans">DevTools → Network → the portal payload. The margin field does not exist in this response; it is not hidden by CSS, the serialiser cannot emit it.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+          <div class="q">
+            <p class="ask">What happens with a brand-new rep who has no history?</p>
+            <p class="ans">We drop the behavioural term and renormalise the remaining weights, and we say so in the UI. Renormalising matters — otherwise a new rep's scores would be silently lower and they could discount more freely than a veteran.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+          <div class="q">
+            <p class="ask">Why MAD rather than standard deviation?</p>
+            <p class="ans">One outlier inflates σ enough to hide the next outlier — the exact failure an anomaly detector cannot have.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+          <div class="q">
+            <p class="ask">Why is that particular item being recommended?</p>
+            <p class="ans">Point at the reason line on the card: confidence percentage, lift multiple, and margin, all visible. Plus we require a pair to have occurred at least five times, so we never surface a coincidence.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+          <div class="q">
+            <p class="ask">What would you build next with more time?</p>
+            <p class="ans">The data model is already isomorphic to the standard Sales, Inventory and Subscription object graph, so the next step is packaging the engine as a drop-in module that decorates the existing quotation object rather than replacing it. The scorer is a pure function with no UI coupling — it ports as-is.</p>
+            <span class="reveal-hint">Click to reveal</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 10 ──────────────────────────────────────────────────────────── -->
+      <section id="honest">
+        <h2><span class="num">10</span>Real versus stubbed</h2>
+        <p>Judges respect a clear answer far more than a vague one. <code>GET /_status</code> shows the live board at any moment.</p>
+        <div class="scroll">
+          <table>
+            <thead><tr><th class="num">State</th><th>Endpoints</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="num"><span class="pill real">REAL · 9</span></td>
+                <td class="mono">score · coach · recommend · policy get/put · policy/simulate · portal read · events/stream · admin/reset</td>
+              </tr>
+              <tr>
+                <td class="num"><span class="pill stub">STUB · 19</span></td>
+                <td class="mono">auth · products · quotes CRUD · submit · approvals · warehouses/split · subscriptions · invoices/payment · dashboard · reports</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="note key">
+          <span class="note-tag">How to say it</span>
+          <p>"The intelligence layer is real today. The CRUD around it returns contract-shaped fixtures so the UI could be built in parallel — each one swaps to a real handler without changing a response shape."</p>
+        </div>
+        <p>The stubs are not dumb. <code>submit</code> routes off the <em>real</em> score, the dashboard's leakage figure is <em>genuinely computed</em>, and the state machine is <em>fully enforced</em>.</p>
+
+        <h3>Known gaps — say these before a judge finds them</h3>
+        <ul>
+          <li><strong>Frontend not started.</strong> Next: Quotation Builder, then the Policy Simulator screen.</li>
+          <li><strong>In-memory state</strong>, not SQLite yet. Response shapes are frozen, so the swap is invisible to the UI.</li>
+          <li><strong>Narrator is template-based</strong>, not LLM. Deliberate — the LLM sits behind a 3-second timeout as an upgrade, never a dependency. The template output is often better anyway.</li>
+          <li><strong>Warehouse split is greedy</strong>, not yet the exact subset enumeration.</li>
+        </ul>
+      </section>
+
+      <!-- 11 ──────────────────────────────────────────────────────────── -->
+      <section id="glossary">
+        <h2><span class="num">11</span>Glossary — define these cold</h2>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Term</th><th>One-line definition</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Blended risk score</strong></td><td>A 0–100 number combining four signals to decide approval routing</td></tr>
+              <tr><td><strong>Effective ceiling</strong></td><td>The stricter of the customer-tier limit and the product-category limit</td></tr>
+              <tr><td><strong>Overage</strong></td><td>Points by which a line's discount exceeds its effective ceiling</td></tr>
+              <tr><td><strong>Revenue weight</strong></td><td>A line's share of order revenue; how the aggregate term is weighted</td></tr>
+              <tr><td><strong>Leakage</strong></td><td>Currency discounted beyond policy — overage% × list price × qty</td></tr>
+              <tr><td><strong>Robust z-score</strong></td><td>Deviation measured with median and MAD instead of mean and σ</td></tr>
+              <tr><td><strong>MAD</strong></td><td>Median absolute deviation — an outlier-resistant measure of spread</td></tr>
+              <tr><td><strong>Additive attribution</strong></td><td>Each term's exact contribution to the score; they sum to the total</td></tr>
+              <tr><td><strong>Lift</strong></td><td>How much more likely item B is given item A, versus B's baseline rate</td></tr>
+              <tr><td><strong>Confidence</strong></td><td>P(B | A) — the share of A-orders that also contain B</td></tr>
+              <tr><td><strong>Support</strong></td><td>The share of all orders containing an item</td></tr>
+              <tr><td><strong>Band</strong></td><td>The routing outcome: AUTO, MANAGER or FINANCE</td></tr>
+              <tr><td><strong>Hard override</strong></td><td>Any line 15+ points over forces Finance regardless of score</td></tr>
+              <tr><td><strong>Idempotency key</strong></td><td>A token making a repeated request safe to replay</td></tr>
+              <tr><td><strong>SSE</strong></td><td>Server-Sent Events — one-way live push over plain HTTP</td></tr>
+              <tr><td><strong>Dead config</strong></td><td>A policy row that can never fire, e.g. a category ceiling above every tier</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script>
+(function(){
+  var root = document.documentElement;
+  root.setAttribute('data-depth','both');
+
+  document.querySelectorAll('.seg button').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      document.querySelectorAll('.seg button').forEach(function(b){
+        b.setAttribute('aria-pressed', String(b === btn));
+      });
+      root.setAttribute('data-depth', btn.dataset.depth);
+    });
+  });
+
+  var quiz = document.getElementById('quiz');
+  quiz.addEventListener('change', function(){
+    root.setAttribute('data-quiz', quiz.checked ? 'on' : 'off');
+    if (!quiz.checked) {
+      document.querySelectorAll('.q.revealed').forEach(function(q){
+        q.classList.remove('revealed');
+      });
+    }
+  });
+
+  document.querySelectorAll('.q').forEach(function(q){
+    q.addEventListener('click', function(){
+      if (root.getAttribute('data-quiz') === 'on') q.classList.add('revealed');
+    });
+  });
+})();
+</script>

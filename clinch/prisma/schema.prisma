@@ -1,0 +1,178 @@
+// Prisma Schema for DealFlow360 Backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum UserRole {
+  REP
+  MANAGER
+  FINANCE
+  ADMIN
+}
+
+enum CustomerTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+enum ApprovalStatus {
+  DRAFT
+  PENDING_MANAGER_APPROVAL
+  PENDING_FINANCE_APPROVAL
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+// -----------------------------------------------------------------------------
+// Authentication Models
+// -----------------------------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(REP)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Customer {
+  id          String           @id @default(uuid())
+  name        String
+  email       String           @unique
+  companyName String
+  tier        CustomerTier     @default(BRONZE)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  magicLinks  MagicLinkToken[]
+
+  @@map("customers")
+}
+
+model MagicLinkToken {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  token      String   @unique
+  expiresAt  DateTime
+  used       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([token])
+  @@index([customerId])
+  @@map("magic_link_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// Product & Price List Models
+// -----------------------------------------------------------------------------
+
+model Product {
+  id          String           @id @default(uuid())
+  name        String
+  category    String           // e.g. "Hardware", "Services", "Subscriptions"
+  basePrice   Decimal          @db.Decimal(10, 2)
+  unit        String           @default("piece") // "piece", "hour", "license"
+  taxPercent  Decimal          @default(0.0) @db.Decimal(5, 2)
+  description String?          @db.Text
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  variants    ProductVariant[]
+  priceLists  PriceList[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id             String   @id @default(uuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeName  String   // e.g. "Size", "Pack", "Port Configuration"
+  attributeValue String   // e.g. "24-Port", "Pack of 5", "Annual"
+  extraPrice     Decimal  @default(0.0) @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model PriceList {
+  id        String       @id @default(uuid())
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tier      CustomerTier // BRONZE, SILVER, GOLD
+  price     Decimal      @db.Decimal(10, 2)
+  currency  String       @default("USD")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([productId, tier])
+  @@index([productId])
+  @@map("price_lists")
+}
+
+model DiscountTier {
+  id             String       @id @default(uuid())
+  customerTier   CustomerTier
+  category       String?
+  maxDiscountPct Decimal      @db.Decimal(5, 2)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@map("discount_tiers")
+}
+
+model ApprovalChain {
+  id                      String   @id @default(uuid())
+  name                    String
+  minDiscountPct          Decimal  @db.Decimal(5, 2)
+  maxDiscountPct          Decimal  @db.Decimal(5, 2)
+  requiresManagerApproval  Boolean  @default(true)
+  requiresFinanceApproval  Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("approval_chains")
+}
+
+model Quote {
+  id              String         @id @default(uuid())
+  quoteNumber     String         @unique
+  customerId      String?
+  salesRepId      String?
+  totalAmount     Decimal        @default(0.0) @db.Decimal(12, 2)
+  blendedDiscount  Decimal        @default(0.0) @db.Decimal(5, 2)
+  riskScore       Decimal?       @db.Decimal(5, 2)
+  approvalStatus  ApprovalStatus @default(DRAFT)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("quotes")
+}
+
+model ApprovalLog {
+  id        String   @id @default(uuid())
+  quoteId   String
+  action    String   // SUBMITTED, APPROVED, REJECTED, REVISION_REQUESTED
+  actorId   String
+  actorRole String
+  comment   String?
+  createdAt DateTime @default(now())
+
+  @@map("approval_logs")
+}
