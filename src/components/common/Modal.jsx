@@ -19,15 +19,15 @@ export function Modal({ isOpen, onClose, title, width = '600px', children, foote
   if (!isOpen) return null;
 
   return (
-    <div className="modal-backdrop active" onClick={onClose}>
+    <div className="modal-overlay active" onClick={onClose}>
       <div
-        className="modal-box animate-scale-up"
+        className="modal-container"
         style={{ width, maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-header">
           <h3 className="modal-title">{title}</h3>
-          <button className="modal-close-btn" onClick={onClose} aria-label="Close modal">
+          <button className="btn-icon" onClick={onClose} aria-label="Close modal" style={{ border: 'none', background: 'transparent' }}>
             <X size={18} />
           </button>
         </div>
