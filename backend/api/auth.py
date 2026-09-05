@@ -51,6 +51,7 @@ PERMISSIONS: dict[Role, set[str]] = {
         "quote.view", "quote.edit", "quote.submit",
         "product.view", "fulfilment.view", "dealhealth.view", "portal.share",
         "approval.manager",          # first-level sign-off
+        "policy.config",             # PS: "Configures discount tiers and approval chains"
         "reports.view",
     },
     "finance": {
@@ -61,7 +62,11 @@ PERMISSIONS: dict[Role, set[str]] = {
         "reports.view",
     },
     "admin": set(),                  # filled below — admin holds everything
-    "customer": {"portal.view"},
+    # A customer account grants authority over its own basket and its own
+    # quotations, and nothing else. None of these appear in any internal
+    # role, and no internal permission appears here -- the two sets are
+    # disjoint by construction, so there is no route both can reach.
+    "customer": {"portal.view", "shop.browse", "shop.cart", "shop.quote"},
 }
 
 ALL_PERMISSIONS: set[str] = {

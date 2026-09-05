@@ -77,6 +77,107 @@
   .rule { @apply border-t border-line; }
 }
 
+
+/* ──────────────────────────────────────────────────────────────────────────
+   COCKPIT REGISTER — the internal console only.
+   
+   The tokens above are tuned for the marketing surface: 2rem radii, macro
+   whitespace, diffused lift. That language is wrong for an operations screen,
+   where an operator scans forty rows for the one that is bleeding margin. This
+   layer is the dense counterpart — tighter radii, hairline grid rules, chamfered
+   instrument panels, and numerals that line up in columns.
+   
+   Two registers, one palette. The customer portal and the landing page keep the
+   airy language; /app/* uses this one. That is the air gap made visible.
+   ────────────────────────────────────────────────────────────────────────── */
+@layer components {
+
+  /* Chamfered panel. A cut corner, not a rounded one — it reads as an
+     instrument bezel rather than another rounded card, and it is the single
+     silhouette that tells you at a glance you are in the console. */
+  .panel {
+    @apply bg-surface ring-1 ring-black/[.07] relative;
+    clip-path: polygon(
+      10px 0, 100% 0, 100% calc(100% - 10px),
+      calc(100% - 10px) 100%, 0 100%, 0 10px
+    );
+    box-shadow: var(--lift-1);
+  }
+  /* Where a chamfer would clip a dropdown or tooltip, use the square variant. */
+  .panel-sq { @apply bg-surface ring-1 ring-black/[.07] rounded-lg; box-shadow: var(--lift-1); }
+
+  .panel-head {
+    @apply flex items-center justify-between gap-3 px-4 py-2.5
+           border-b border-line bg-surface-2/60;
+  }
+  .panel-title {
+    @apply font-mono text-[10px] uppercase tracking-eyebrow text-fg-3 font-medium;
+  }
+
+  /* Data grid. Rows are separated by hairlines, never by gaps or shadows —
+     whitespace between rows is what makes a 40-row table need scrolling. */
+  .grid-table { @apply w-full text-[12.5px] border-collapse; }
+  .grid-table thead th {
+    @apply sticky top-0 z-10 bg-surface-2 px-3 py-2 text-left font-mono
+           text-[10px] uppercase tracking-eyebrow text-fg-3 font-medium
+           border-b border-line-2 whitespace-nowrap;
+  }
+  .grid-table tbody td { @apply px-3 py-[7px] border-b border-line align-middle; }
+  .grid-table tbody tr { @apply transition-colors duration-150; }
+  .grid-table tbody tr:hover { @apply bg-accent-wash/60; }
+  /* Every numeric cell lines up. Proportional digits in a money column are the
+     fastest way to make a finance screen feel amateur. */
+  .grid-table .num { @apply text-right font-mono tabular-nums tracking-tight; }
+
+  /* Severity rail: a 2px edge carrying state, instead of another coloured pill
+     competing with the data. */
+  .rail { @apply relative pl-3; }
+  .rail::before {
+    content: ''; @apply absolute left-0 top-0 bottom-0 w-[2px] rounded-full;
+  }
+  .rail-auto::before    { @apply bg-band-auto; }
+  .rail-manager::before { @apply bg-band-manager; }
+  .rail-finance::before { @apply bg-band-finance; }
+  .rail-idle::before    { @apply bg-fg-4/40; }
+
+  /* Dense metric tile. Deliberately not a "big number card" — the label leads,
+     the figure is the size it needs to be read, and the tile earns its border
+     only by carrying a rail. */
+  .metric { @apply px-3.5 py-3 flex flex-col gap-1; }
+  .metric-label {
+    @apply font-mono text-[9.5px] uppercase tracking-eyebrow text-fg-3;
+  }
+  .metric-value {
+    @apply font-display text-[22px] font-semibold text-fg leading-none tabular-nums;
+  }
+
+  /* Console control. Small, square-ish, and quiet until you touch it. */
+  .ctl {
+    @apply inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5
+           text-[12px] font-medium text-fg-2 bg-surface
+           ring-1 ring-black/[.08] transition-colors duration-150;
+  }
+  .ctl:hover:not(:disabled) { @apply text-accent ring-accent/40 bg-accent-wash/50; }
+  .ctl:disabled { @apply opacity-40 cursor-not-allowed; }
+  .ctl-primary {
+    @apply bg-fg text-white ring-0 hover:bg-fg hover:text-white
+           hover:shadow-lift active:scale-[.98];
+  }
+  .ctl-danger { @apply text-band-finance ring-band-finance/25 hover:bg-band-financeWash; }
+
+  /* Monospaced key for refs, SKUs and IDs — anything a human reads back aloud. */
+  .key {
+    @apply font-mono text-[11.5px] tracking-tight text-fg-2;
+  }
+}
+
+/* Wide data must scroll inside its own container, never the page body. */
+.scroll-x { @apply overflow-x-auto; scrollbar-width: thin; }
+.scroll-x::-webkit-scrollbar { height: 8px; }
+.scroll-x::-webkit-scrollbar-thumb {
+  background: var(--line-2); border-radius: 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
   html { scroll-behavior: auto; }

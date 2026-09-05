@@ -54,17 +54,38 @@ def by_email(email: str, *, with_hash: bool = False) -> dict[str, Any] | None:
         return None
 
 
-def by_id(user_id: str, *, with_hash: bool = False) -> dict[str, Any] | None:
-    if not with_hash and user_id in _USERS_CACHE:
+def by_id(user_id: str, *, with_hash: bool = False,
+          authoritative: bool = False) -> dict[str, Any] | None:
+    """Look up a user.
+
+    `authoritative=True` bypasses the cache and fails closed. Authentication
+    MUST use it, and `deps.get_current_user` does.
+
+    The cache is a convenience for display lookups, but on the auth path it was
+    a hole: it was consulted before the database and only evicted by writes that
+    went through this module, so a row deleted by anything else -- a raw DELETE,
+    the admin panel, another process -- left the account fully usable until the
+    server restarted. Deleting an account did not revoke its live tokens, which
+    is the opposite of what deps.py promises ("re-reads the user from the
+    database every request"). The old `except: return _USERS_CACHE.get(...)`
+    made it worse still, serving stale users whenever the database erred.
+    """
+    if not authoritative and not with_hash and user_id in _USERS_CACHE:
         return _USERS_CACHE[user_id]
     try:
         row = db.one("SELECT * FROM app_user WHERE id = ?", (user_id,))
-        user = _row_to_user(row, with_hash=with_hash) if row else None
-        if user and not with_hash:
-            _USERS_CACHE[user_id] = user
-        return user
     except Exception:
+        # Fail closed on the auth path; only a display lookup may fall back.
+        if authoritative:
+            raise
         return _USERS_CACHE.get(user_id)
+    user = _row_to_user(row, with_hash=with_hash) if row else None
+    if user is None:
+        _USERS_CACHE.pop(user_id, None)      # the row is gone; so is the cache
+        return None
+    if not with_hash:
+        _USERS_CACHE[user_id] = user
+    return user
 
 
 def list_all() -> list[dict[str, Any]]:

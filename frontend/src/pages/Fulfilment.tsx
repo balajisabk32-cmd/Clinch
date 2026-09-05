@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, inr, type QueueRow, type Warehouse } from '../lib/api'
 import { ErrorBar, Workspace } from '../components/Workspace'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { EASE_CSS } from '../lib/motion'
 
 /**
@@ -50,7 +51,7 @@ export default function Fulfilment() {
 
         <header className="flex flex-wrap items-end gap-4">
           <div>
-            <h1 className="font-display text-[22px] font-bold text-fg">Fulfilment &amp; Stock</h1>
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Fulfilment &amp; Stock</h1>
             <p className="text-[12.5px] text-fg-3 mt-0.5">
               Live stock per depot, plus every order awaiting despatch.
             </p>
@@ -79,7 +80,7 @@ export default function Fulfilment() {
             const low = rows.filter(s => s.available <= s.reorder_point).length
             return (
               <div key={w.name}
-                   className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+                   className="panel">
                 <div className="px-4 py-3 border-b border-line flex items-center gap-3">
                   <h2 className="font-display text-[14px] font-semibold text-fg">{w.name}</h2>
                   <span className="font-mono text-[10.5px] text-fg-3">
@@ -93,8 +94,8 @@ export default function Fulfilment() {
                     </span>
                   )}
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-[13px] min-w-[420px]">
+                <div className="scroll-x">
+                  <table className="grid-table min-w-[420px]">
                     <thead>
                       <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
                                      border-b border-line">
@@ -143,7 +144,7 @@ export default function Fulfilment() {
         </section>
 
         {/* ── Orders awaiting fulfilment ──────────────────────────── */}
-        <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+        <section className="panel">
           <div className="px-4 py-3 border-b border-line">
             <h2 className="font-display text-[14px] font-semibold text-fg">
               Orders Awaiting Fulfilment
@@ -158,8 +159,8 @@ export default function Fulfilment() {
               Nothing awaiting despatch. Orders appear here once approved.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px] min-w-[720px]">
+            <div className="scroll-x">
+              <table className="grid-table min-w-[720px]">
                 <thead>
                   <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
                                  border-b border-line">
@@ -199,8 +200,9 @@ export default function Fulfilment() {
                           </span>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-mono tabular-nums text-fg-2">
-                        {inr(r.total_cost)}
+                      <td className="num text-fg-2">
+                        <AnimatedNumber value={r.total_cost} format="inr"
+                                        polarity="lower-better" />
                       </td>
                     </tr>
                   ))}

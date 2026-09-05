@@ -234,11 +234,20 @@ def build_quote(ref: str) -> Quote | None:
     )
 
 
-def create_quote(customer: str, rep: str) -> str:
+def create_quote(customer: str, rep: str, tier: str | None = None) -> str:
+    """Open a DRAFT quotation.
+
+    `tier` is explicit for self-registered customers, whose company is not in
+    the seeded CUSTOMERS map — they carry their own earned tier on their account
+    instead. Looking it up unconditionally raised KeyError the moment a customer
+    who signed up through the storefront requested a quotation.
+    """
     _next_ref[0] += 1
     ref = f"Q-{_next_ref[0]}"
     QUOTES[ref] = dict(
-        customer=customer, tier=fx.CUSTOMERS[customer]["tier"], rep=rep,
+        customer=customer,
+        tier=tier or fx.CUSTOMERS.get(customer, {}).get("tier", "Bronze"),
+        rep=rep,
         order_discount_pct=0.0, lines=[],
     )
     QUOTE_STATE[ref] = "DRAFT"

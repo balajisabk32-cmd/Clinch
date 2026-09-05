@@ -24,6 +24,10 @@ PUBLIC = {
     ("POST", "/auth/login"),          # the door itself
     ("POST", "/auth/logout"),         # idempotent, reveals nothing
     ("POST", "/auth/password-policy"),# the rules, so the UI can show them live
+    # Customer self-registration. Public on purpose: the no-self-signup rule
+    # covers INTERNAL roles, which are authority grants. This endpoint pins
+    # the role to "customer" in code and cannot mint anything else.
+    ("POST", "/auth/register"),
     ("GET",  "/health"),              # liveness probe
     ("GET",  "/_status"),             # build/endpoint board
     ("GET",  "/events/stream"),       # SSE; carries no privileged payload
@@ -75,7 +79,7 @@ def test_endpoint_rejects_anonymous_callers(method, path):
 
 def test_the_public_list_is_not_quietly_growing():
     """A tripwire: PUBLIC is small on purpose."""
-    assert len(PUBLIC) == 12, (
+    assert len(PUBLIC) == 13, (
         "The set of unauthenticated endpoints changed. That is allowed, but it "
         "should be a decision -- update this count deliberately."
     )

@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import registry, state
 from .accounts import accounts, admin
+from .storefront import storefront
 from .routers import infra, insights, intelligence, operations, portal, sales
 
 app = FastAPI(
@@ -34,7 +35,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (accounts, admin, intelligence, sales, operations, portal, insights, infra):
+for r in (accounts, admin, storefront, intelligence, sales,
+          operations, portal, insights, infra):
     app.include_router(r)
 
 

@@ -45,7 +45,7 @@ export default function Login() {
     setBusy(true)
     try {
       const user = await login(email, password)
-      navigate(user.role === 'customer' ? '/portal' : (from || '/app/dashboard'),
+      navigate(user.role === 'customer' ? '/shop' : (from || '/app/dashboard'),
                { replace: true })
     } catch (err) {
       // Never echo which half was wrong — the server deliberately does not say,
@@ -152,8 +152,11 @@ export default function Login() {
           </form>
 
           <p className="text-[11.5px] leading-relaxed text-fg-3 border-t border-line pt-4">
-            Internal access only. Accounts are provisioned by system
-            administration — there is no self-service registration.
+            Staff accounts are provisioned by system administration. Buying from
+            us?{' '}
+            <Link to="/register" className="text-accent hover:underline font-medium">
+              Create a buyer account
+            </Link>.
           </p>
 
           {/* Quick Demo Sign-In */}
@@ -179,7 +182,7 @@ export default function Login() {
                     setBusy(true)
                     try {
                       const user = await login(acc.email, acc.pass)
-                      navigate(user.role === 'customer' ? '/portal' : (from || '/app/dashboard'), { replace: true })
+                      navigate(user.role === 'customer' ? '/shop' : (from || '/app/dashboard'), { replace: true })
                     } catch (err: any) {
                       setFormError(err?.message || 'Sign in failed')
                     } finally {

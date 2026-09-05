@@ -59,21 +59,22 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict[s
     if not user_id:
         raise _unauthorised("Invalid authentication token")
 
-    user = users.by_id(user_id)
+    # Authoritative: never answer an authentication question from a cache.
+    user = users.by_id(user_id, authoritative=True)
     if user is None:
-        # Fallback to verified JWT claims rather than kicking active user out on a DB blip
-        role = claims.get("role")
-        email = claims.get("email")
-        if role and email:
-            user = {
-                "id": user_id,
-                "name": email.split("@")[0].replace(".", " ").title(),
-                "email": email,
-                "role": role,
-                "is_active": True,
-            }
-        else:
-            raise _unauthorised("Account no longer exists")
+        # No row means no account. There was briefly a fallback here that built
+        # a user out of the token's own `role` and `email` claims whenever the
+        # lookup came back empty, to avoid signing people out during a database
+        # blip. It could not tell a blip from a deletion, so the effect was that
+        # a deleted account kept working forever -- the token asserted its own
+        # role and the server believed it. Revoking access became impossible,
+        # which is the one thing this function exists to make possible.
+        #
+        # A genuine outage is a different condition and is already handled:
+        # by_id(authoritative=True) RAISES on a database error rather than
+        # returning None, so an outage surfaces as a 500 (the server is broken)
+        # and a missing row surfaces here as a 401 (the caller is not anyone).
+        raise _unauthorised("Account no longer exists")
     if not user.get("is_active", True):
         # 401, not 403. The account was disabled after this token was issued,
         # so the token no longer identifies anyone -- it is void rather than
@@ -97,6 +98,13 @@ def optional_user(authorization: str | None = Header(default=None)) -> dict[str,
 
 def require_role(allowed_roles: Iterable[str]):
     """Dependency factory: caller must hold one of `allowed_roles`."""
+    # A bare string is iterable, so require_role("customer") would silently
+    # become ('c','u','s','t','o','m','e','r') and refuse every caller with an
+    # ordinary-looking 403. Fail at import instead of at 3am.
+    if isinstance(allowed_roles, str):
+        raise TypeError(
+            "require_role() takes a sequence of roles, not a bare string — "
+            f'use ["{allowed_roles}"] rather than "{allowed_roles}".')
     allowed = tuple(allowed_roles)
 
     def _guard(authorization: str | None = Header(default=None)) -> dict[str, Any]:

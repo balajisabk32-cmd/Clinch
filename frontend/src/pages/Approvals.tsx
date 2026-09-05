@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError, request } from '../lib/authClient'
+import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import {
   CheckCircle2,
   XCircle,
@@ -42,6 +43,12 @@ export default function Approvals() {
   const [search, setSearch] = useState('')
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [busyRef, setBusyRef] = useState<string | null>(null)
+  // The turnaround figure was hardcoded '4.2h / 92% within SLA' while the
+  // dashboard reported the real median from the same event log. Two screens
+  // stating different values for one metric is worse than showing neither,
+  // so this reads the computed figure and the SLA claim is gone -- nothing
+  // in the engine defines an SLA to measure against.
+  const [dash, setDash] = useState<any>(null)
 
   // Identity comes from the verified session; localStorage is not an
   // authority on who anyone is.
@@ -56,6 +63,7 @@ export default function Approvals() {
 
       // 2. Fetch full quotes to get financial totals and rep info
       const quotesData = await request<any[]>('/quotes')
+      request<any>('/dashboard').then(setDash).catch(() => { /* header degrades */ })
       const quotesMap = new Map(quotesData.map(q => [q.ref, q]))
 
       const enriched: ApprovalItem[] = approvalsData.map(a => {
@@ -72,9 +80,15 @@ export default function Approvals() {
           stage: a.stage,
           assigned_to: a.assigned_to,
           days_inactive: q?.days_inactive || 1,
-          breach_detail: a.risk_band === 'FINANCE'
-            ? 'Order discount exceeds 25% allowance; margin below 20%'
-            : 'Discount exceeds Rep ceiling (15% hardware / 20% software)',
+          // Derived from this quotation's own score, not a blanket sentence.
+          // The previous copy asserted a fixed "15% hardware / 20% software"
+          // ceiling on every row -- a figure that was already wrong (software
+          // caps at 15%) and that ignored the tier ceiling entirely, which is
+          // frequently the binding one.
+          breach_detail: `Blended risk ${(a.risk_score ?? q?.risk_score ?? 0).toFixed(1)} — ${
+            a.risk_band === 'FINANCE'
+              ? 'above the 60-point finance threshold'
+              : 'above the 20-point manager threshold'}`,
         }
       })
       setItems(enriched)
@@ -154,8 +168,8 @@ export default function Approvals() {
         {error && <ErrorBar message={error} onRetry={load} />}
 
         {actionSuccess && (
-          <div className="flex items-center gap-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/25 px-4 py-3 text-[13px] text-emerald-800 font-medium">
-            <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+          <div className="flex items-center gap-2.5 rounded-xl bg-band-auto/10 border border-band-auto/25 px-4 py-3 text-[13px] text-band-auto font-medium">
+            <CheckCircle2 size={16} className="text-band-auto shrink-0" />
             <span>{actionSuccess}</span>
           </div>
         )}
@@ -188,66 +202,69 @@ export default function Approvals() {
         </header>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+        <div className="panel grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-line">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Manager Queue</span>
+              <span className="metric-label">Manager Queue</span>
               <UserCheck size={16} className="text-accent" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              {managerQueueCount}
-            </div>
+            <AnimatedNumber value={managerQueueCount} format="int"
+                            polarity="lower-better" className="metric-value" />
             <div className="text-[11.5px] text-fg-3 mt-1.5 font-mono">
               Assigned to {user?.name}
             </div>
           </div>
 
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Finance Escalations</span>
-              <ShieldAlert size={16} className="text-amber-600" />
+              <span className="metric-label">Finance Escalations</span>
+              <ShieldAlert size={16} className="text-band-manager" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              {financeQueueCount}
-            </div>
-            <div className="text-[11.5px] text-amber-700 mt-1.5 font-mono">
+            <AnimatedNumber value={financeQueueCount} format="int"
+                            polarity="lower-better" className="metric-value" />
+            <div className="text-[11.5px] text-band-manager mt-1.5 font-mono">
               High-discount credit reviews
             </div>
           </div>
 
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Pending Order Value</span>
-              <DollarSign size={16} className="text-emerald-600" />
+              <span className="metric-label">Pending Order Value</span>
+              <DollarSign size={16} className="text-band-auto" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              {inr(totalPendingValue)}
-            </div>
+            <AnimatedNumber value={totalPendingValue} format="inr"
+                            className="metric-value" />
             <div className="text-[11.5px] text-fg-3 mt-1.5 font-mono">
               Across {pendingItems.length} active opportunities
             </div>
           </div>
 
-          <div className="rounded-2xl bg-surface p-4 border border-black/[.06] shadow-lift">
+          <div className="metric">
             <div className="flex items-center justify-between text-fg-3 mb-2">
-              <span className="text-[11px] font-mono uppercase tracking-wider">Turnaround Velocity</span>
-              <Clock size={16} className="text-blue-600" />
+              <span className="metric-label">Turnaround Velocity</span>
+              <Clock size={16} className="text-accent" />
             </div>
-            <div className="font-display text-[26px] font-bold text-fg tabular-nums leading-none">
-              4.2h
-            </div>
-            <div className="text-[11.5px] text-emerald-600 mt-1.5 font-mono">
-              92% approved within SLA
+            {dash ? (
+              <AnimatedNumber
+                value={dash.median_approval_hours} format="dec" precision={0} suffix="h"
+                polarity="lower-better"
+                className="font-display text-[26px] font-bold text-fg leading-none"
+              />
+            ) : (
+              <div className="font-display text-[26px] font-bold text-fg-4 leading-none">—</div>
+            )}
+            <div className="text-[11.5px] text-fg-3 mt-1.5 font-mono">
+              Median, submission to sign-off
             </div>
           </div>
         </div>
 
         {/* Filters and Search Strip */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-2.5 rounded-2xl border border-black/[.06] shadow-lift">
+        <div className="panel flex flex-wrap items-center justify-between gap-3 px-2.5 py-2">
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => setFilter('ALL')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'ALL' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -255,7 +272,7 @@ export default function Approvals() {
             </button>
             <button
               onClick={() => setFilter('MANAGER')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'MANAGER' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -263,7 +280,7 @@ export default function Approvals() {
             </button>
             <button
               onClick={() => setFilter('FINANCE')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'FINANCE' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -271,7 +288,7 @@ export default function Approvals() {
             </button>
             <button
               onClick={() => setFilter('RESOLVED')}
-              className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
+              className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
                 filter === 'RESOLVED' ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:bg-surface-2'
               }`}
             >
@@ -339,7 +356,7 @@ export default function Approvals() {
 
                         {/* Breach / Reason */}
                         <td className="px-3 py-3">
-                          <span className="text-[12px] text-amber-800 bg-amber-500/10 rounded-md px-2 py-1 font-medium inline-block max-w-[260px] truncate" title={item.breach_detail}>
+                          <span className="text-[12px] text-band-manager bg-band-manager/10 rounded-md px-2 py-1 font-medium inline-block max-w-[260px] truncate" title={item.breach_detail}>
                             {item.breach_detail}
                           </span>
                         </td>
@@ -375,7 +392,7 @@ export default function Approvals() {
                                 onClick={() => handleAction(item.ref, 'approve')}
                                 disabled={isBusy}
                                 title="Approve quote within manager discretion"
-                                className="inline-flex items-center gap-1 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1 font-medium text-[12px] shadow-sm disabled:opacity-40 transition-all active:scale-[.98]"
+                                className="inline-flex items-center gap-1 rounded-full bg-band-auto hover:bg-band-auto text-white px-3 py-1 font-medium text-[12px] shadow-sm disabled:opacity-40 transition-all active:scale-[.98]"
                               >
                                 <CheckCircle2 size={13} />
                                 <span>Approve</span>
@@ -386,7 +403,7 @@ export default function Approvals() {
                                 onClick={() => handleAction(item.ref, 'reject')}
                                 disabled={isBusy}
                                 title="Reject discount proposal"
-                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-financeWash text-band-finance border border-band-finance px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
                               >
                                 <XCircle size={13} />
                                 <span>Reject</span>
@@ -397,7 +414,7 @@ export default function Approvals() {
                                 onClick={() => handleAction(item.ref, 'return')}
                                 disabled={isBusy}
                                 title="Return to Rep for revision"
-                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-band-managerWash text-band-manager border border-band-manager px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
                               >
                                 <RotateCcw size={12} />
                                 <span>Revise</span>

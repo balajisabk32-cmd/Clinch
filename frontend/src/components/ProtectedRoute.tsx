@@ -97,10 +97,11 @@ export function ProtectedRoute({
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
 
-  // A customer never belongs in the internal workspace at all — they get the
-  // separately served, field-redacted portal.
+  // A customer never belongs in the internal workspace at all. They now have a
+  // storefront of their own, so send them there rather than to the single-quote
+  // token portal, which they may not even hold a link for.
   if (user.role === 'customer') {
-    return <Navigate to="/portal" replace />
+    return <Navigate to="/shop" replace />
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
@@ -115,7 +116,7 @@ export function PublicOnlyRoute({ children }: { children: ReactElement }) {
   const { isAuthenticated, isLoading, user } = useAuth()
   if (isLoading) return <AuthLoading />
   if (isAuthenticated) {
-    return <Navigate to={user?.role === 'customer' ? '/portal' : '/app/dashboard'} replace />
+    return <Navigate to={user?.role === 'customer' ? '/shop' : '/app/dashboard'} replace />
   }
   return children
 }

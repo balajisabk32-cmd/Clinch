@@ -4,10 +4,12 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AuthProvider } from './context/AuthContext'
 import { AuthLoading, ProtectedRoute, PublicOnlyRoute } from './components/ProtectedRoute'
+import { CustomerRoute } from './components/ShopShell'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 import Landing from './pages/Landing'
 import Login from './pages/Login'
+import Register from './pages/Register'
 import Portal from './pages/Portal'
 import Dashboard from './pages/Dashboard'
 import Quotations from './pages/Quotations'
@@ -23,6 +25,11 @@ import Products from './pages/Products'
 import ProductDetail from './pages/ProductDetail'
 import Settings from './pages/Settings'
 import AdminUsers from './pages/AdminUsers'
+import Shop from './pages/Shop'
+import ShopProductPage from './pages/ShopProduct'
+import Cart from './pages/Cart'
+import MyQuotations from './pages/MyQuotations'
+import MyQuotationDetail from './pages/MyQuotationDetail'
 import Profile from './pages/Profile'
 import './index.css'
 
@@ -69,12 +76,27 @@ root.render(
             {/* ── Public ─────────────────────────────────────────────── */}
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<PublicOnlyRoute><Login /></PublicOnlyRoute>} />
+            <Route path="/register" element={<PublicOnlyRoute><Register /></PublicOnlyRoute>} />
 
             {/* Customer surface: deliberately OUTSIDE the /app tree and outside
                 the internal shell. Access is by signed, single-quote token, so
                 it carries no role guard of its own. */}
             <Route path="/portal" element={<Portal />} />
             <Route path="/portal/:token" element={<Portal />} />
+
+            {/* ── Customer storefront ────────────────────────────────────
+                A separate tree with its own guard and its own shell. The two
+                populations never share a route: CustomerRoute sends an internal
+                user to /app, ProtectedRoute sends a customer to /shop, and the
+                server refuses either one's paths for the other regardless. */}
+            <Route path="/shop" element={<CustomerRoute><Shop /></CustomerRoute>} />
+            <Route path="/shop/:sku" element={<CustomerRoute><ShopProductPage /></CustomerRoute>} />
+            <Route path="/cart" element={<CustomerRoute><Cart /></CustomerRoute>} />
+            <Route path="/my/quotations"
+                   element={<CustomerRoute><MyQuotations /></CustomerRoute>} />
+            <Route path="/my/quotations/:ref"
+                   element={<CustomerRoute><MyQuotationDetail /></CustomerRoute>} />
+            <Route path="/my/*" element={<Navigate to="/my/quotations" replace />} />
 
             {/* ── Internal workspace ─────────────────────────────────── */}
             <Route path="/app" element={<Navigate to="/app/dashboard" replace />} />

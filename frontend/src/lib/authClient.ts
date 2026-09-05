@@ -162,6 +162,106 @@ export const authApi = {
       { method: 'POST', body: JSON.stringify({ password }) }),
 }
 
+/* ── Customer storefront ───────────────────────────────────────────────────
+   A separate surface with a separate client, so nothing here can accidentally
+   be called from an internal screen and vice versa. Every one of these paths
+   is refused outright for an internal role, and every internal path is refused
+   for a customer -- the permission sets are disjoint on the server. */
+
+export interface ShopProduct {
+  sku: string; name: string; category: string; description: string
+  uom: string; tax_pct: number
+  is_recurring: boolean; recurrence: string | null; is_promoted: boolean
+  list_price: number; your_price: number
+  availability: 'in_stock' | 'low_stock' | 'made_to_order'
+  variants: any[]
+}
+
+export interface CartLine {
+  sku: string; name: string; category: string; qty: number
+  list_price: number; your_price: number; line_total: number; is_recurring: boolean
+}
+
+export interface Cart {
+  lines: CartLine[]; subtotal: number; count: number; tier: string
+}
+
+export interface ShopMe extends AuthUser {
+  company: string; gst_number: string | null; phone: string | null; city: string | null
+  tier: 'Bronze' | 'Silver' | 'Gold'
+  lifetime_value: number
+  next_tier: string | null
+  remaining: number | null
+  progress_pct: number | null
+  locked: boolean
+}
+
+export interface ShopQuoteLine {
+  id: number; name: string; category: string; qty: number
+  unit_price: number; discount_pct: number; line_total: number
+}
+
+export interface ShopQuote {
+  ref: string; customer: string; status: string; awaiting_us: boolean
+  currency: string; subtotal: number; discount_total: number
+  tax_total: number; total: number; recurring_total: number
+  can_confirm: boolean; can_negotiate: boolean
+  comments: Array<{ line_id: number | null; author: string; body: string | null
+                    counter_discount_pct: number | null; created_at: string }>
+  lines: ShopQuoteLine[]
+}
+
+export interface RegisterBody {
+  name: string; email: string; password: string; company: string
+  gst_number?: string; phone?: string; address?: string
+  city?: string; postcode?: string
+}
+
+export const shopApi = {
+  register: (body: RegisterBody) =>
+    request<{ access_token: string; token_type: string; user: AuthUser & {
+      company: string; tier: string } }>(
+      '/auth/register',
+      { method: 'POST', body: JSON.stringify(body), auth: false },
+    ),
+
+  me: () => request<ShopMe>('/shop/me'),
+
+  catalog: (params: { category?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.category && params.category !== 'All') qs.set('category', params.category)
+    if (params.q) qs.set('q', params.q)
+    const tail = qs.toString()
+    return request<{ tier: string; categories: string[]; products: ShopProduct[] }>(
+      `/shop/catalog${tail ? `?${tail}` : ''}`)
+  },
+
+  product: (sku: string) => request<ShopProduct>(`/shop/catalog/${sku}`),
+
+  cart: () => request<Cart>('/shop/cart'),
+
+  setCartLine: (sku: string, qty: number) =>
+    request<Cart>('/shop/cart', { method: 'POST', body: JSON.stringify({ sku, qty }) }),
+
+  removeCartLine: (sku: string) =>
+    request<Cart>(`/shop/cart/${sku}`, { method: 'DELETE' }),
+
+  requestQuotation: (note?: string) =>
+    request<{ ref: string; state: string; rep: string; message: string }>(
+      '/shop/quote-requests',
+      { method: 'POST', body: JSON.stringify({ note: note ?? '' }) }),
+
+  quotes: () => request<Omit<ShopQuote, 'lines'>[]>('/shop/quotes'),
+
+  quote: (ref: string) => request<ShopQuote>(`/shop/quotes/${ref}`),
+
+  negotiate: (ref: string, body: { line_id?: number | null
+                                   counter_discount_pct?: number | null
+                                   comment?: string }) =>
+    request<any>(`/shop/quotes/${ref}/request`,
+      { method: 'POST', body: JSON.stringify(body) }),
+}
+
 /* ── Validation, mirroring core/security.py exactly ────────────────────────
    The server is the control; this exists so the form can respond as the user
    types. If the two ever disagree the server wins and the form is the bug. */

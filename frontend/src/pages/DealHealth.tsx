@@ -103,7 +103,7 @@ export default function DealHealth() {
                 <Activity size={16} />
               </span>
               <h1 className="text-2xl font-bold tracking-tight text-fg">Deal Health &amp; Pipeline Governance</h1>
-              <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide uppercase bg-emerald-50 text-emerald-700 ring-1 ring-emerald-600/20">
+              <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide uppercase bg-band-autoWash text-band-auto ring-1 ring-band-auto/20">
                 Live Suite
               </span>
             </div>
@@ -113,8 +113,8 @@ export default function DealHealth() {
           </div>
 
           <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface text-xs text-fg-2 ring-1 ring-black/[.08] shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-surface text-[11.5px] text-fg-2 ring-1 ring-black/[.08]">
+              <span className="w-2 h-2 rounded-full bg-band-auto animate-pulse"></span>
               <span>Sync: {lastSync || 'Connecting...'}</span>
             </div>
             <button
@@ -135,29 +135,29 @@ export default function DealHealth() {
         {/* 5-Card Metric Overview */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
           {/* Card 1: Pipeline Value */}
-          <div className="p-4 rounded-2xl bg-surface border border-line shadow-sm hover:shadow-md transition-shadow">
+          <div className="p-4 panel hover:bg-accent-wash/25 transition-shadow">
             <div className="flex items-center justify-between text-xs text-fg-3">
               <span className="font-medium">Open Pipeline Value</span>
-              <span className="w-5 h-5 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center font-bold">₹</span>
+              <span className="w-5 h-5 rounded-full bg-accent text-accent flex items-center justify-center font-bold">₹</span>
             </div>
             <div className="mt-2 text-2xl font-bold tracking-tight text-fg">
               {summary ? inr(summary.openPipelineValue) : '₹0'}
             </div>
             <div className="mt-1.5 flex items-center gap-1.5 text-xs">
-              <span className="text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.5 rounded">Active Exposure</span>
+              <span className="text-band-auto font-medium bg-band-autoWash px-1.5 py-0.5 rounded">Active Exposure</span>
               <span className="text-fg-4">· {summary?.totalDeals || 0} total deals</span>
             </div>
           </div>
 
           {/* Card 2: Healthy Deals */}
-          <div className="p-4 rounded-2xl bg-surface border border-line shadow-sm hover:shadow-md transition-shadow">
+          <div className="p-4 panel hover:bg-accent-wash/25 transition-shadow">
             <div className="flex items-center justify-between text-xs text-fg-3">
               <span className="font-medium">Healthy Pipeline</span>
-              <span className="w-5 h-5 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <span className="w-5 h-5 rounded-full bg-band-autoWash text-band-auto flex items-center justify-center">
                 <Check size={12} strokeWidth={3} />
               </span>
             </div>
-            <div className="mt-2 text-2xl font-bold tracking-tight text-emerald-700">
+            <div className="mt-2 text-2xl font-bold tracking-tight text-band-auto">
               {summary?.healthyDeals || 0}
             </div>
             <div className="mt-1.5 text-xs text-fg-3">
@@ -168,16 +168,16 @@ export default function DealHealth() {
           {/* Card 3: At-Risk Deals */}
           <div
             onClick={() => setActiveHealthFilter('AT_RISK')}
-            className="p-4 rounded-2xl bg-surface border border-rose-200 shadow-sm hover:shadow-md cursor-pointer group transition-all"
+            className="p-4 panel rail rail-finance hover:bg-accent-wash/30 cursor-pointer group transition-all"
           >
             <div className="flex items-center justify-between text-xs text-fg-3">
-              <span className="font-medium text-rose-700">At-Risk Deals</span>
-              <span className="w-5 h-5 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center font-bold">!</span>
+              <span className="font-medium text-band-finance">At-Risk Deals</span>
+              <span className="w-5 h-5 rounded-full bg-band-financeWash text-band-finance flex items-center justify-center font-bold">!</span>
             </div>
-            <div className="mt-2 text-2xl font-bold tracking-tight text-rose-600 group-hover:scale-105 transition-transform">
+            <div className="mt-2 text-2xl font-bold tracking-tight text-band-finance group-hover:scale-105 transition-transform">
               {summary?.atRiskDeals || 0}
             </div>
-            <div className="mt-1.5 text-xs text-rose-600/80 font-medium">
+            <div className="mt-1.5 text-xs text-band-finance/80 font-medium">
               High discount / risk exposure
             </div>
           </div>
@@ -185,31 +185,36 @@ export default function DealHealth() {
           {/* Card 4: Stalled Deals */}
           <div
             onClick={() => setActiveHealthFilter('STALLED')}
-            className="p-4 rounded-2xl bg-surface border border-amber-200 shadow-sm hover:shadow-md cursor-pointer group transition-all"
+            className="p-4 panel rail rail-manager hover:bg-accent-wash/30 cursor-pointer group transition-all"
           >
             <div className="flex items-center justify-between text-xs text-fg-3">
-              <span className="font-medium text-amber-700">Stalled Velocity</span>
-              <span className="w-5 h-5 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center font-bold">⏱</span>
+              <span className="font-medium text-band-manager">Stalled Velocity</span>
+              <span className="w-5 h-5 rounded-full bg-band-managerWash text-band-manager flex items-center justify-center font-bold">⏱</span>
             </div>
-            <div className="mt-2 text-2xl font-bold tracking-tight text-amber-600 group-hover:scale-105 transition-transform">
+            <div className="mt-2 text-2xl font-bold tracking-tight text-band-manager group-hover:scale-105 transition-transform">
               {summary?.stalledDeals || 0}
             </div>
-            <div className="mt-1.5 text-xs text-amber-600/80 font-medium">
+            <div className="mt-1.5 text-xs text-band-manager/80 font-medium">
               &gt;5 days activity silence
             </div>
           </div>
 
           {/* Card 5: Avg Discount Rate */}
-          <div className="p-4 rounded-2xl bg-surface border border-line shadow-sm hover:shadow-md transition-shadow">
+          <div className="p-4 panel hover:bg-accent-wash/25 transition-shadow">
             <div className="flex items-center justify-between text-xs text-fg-3">
               <span className="font-medium">Portfolio Avg Discount</span>
-              <span className="w-5 h-5 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center font-bold">%</span>
+              <span className="w-5 h-5 rounded-full bg-accent text-accent flex items-center justify-center font-bold">%</span>
             </div>
             <div className="mt-2 text-2xl font-bold tracking-tight text-fg">
               {summary ? `${summary.averageDiscount.toFixed(1)}%` : '0%'}
             </div>
             <div className="mt-1.5 text-xs text-fg-4">
-              Ceiling baseline: 15% Hardware
+              {/* Naming one category's ceiling as "the" baseline invited the
+                  same drift that had this file's siblings quoting a software
+                  ceiling the engine had already changed. The portfolio average
+                  spans every category and tier, so no single ceiling is its
+                  baseline. */}
+              Across all categories and tiers
             </div>
           </div>
         </div>
@@ -217,7 +222,7 @@ export default function DealHealth() {
         {/* Health Distribution & Stage Progress Funnel */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Health Distribution Segment Bar */}
-          <div className="lg:col-span-2 p-5 rounded-2xl bg-surface border border-line shadow-sm space-y-4">
+          <div className="lg:col-span-2 p-5 panel space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-sm font-semibold text-fg">Deal Health Distribution</h2>
@@ -227,25 +232,25 @@ export default function DealHealth() {
             </div>
 
             {/* Segmented Bar */}
-            <div className="h-6 w-full rounded-full bg-surface-2 p-0.5 ring-1 ring-black/[.06] flex overflow-hidden">
+            <div className="h-6 w-full rounded-md bg-surface-2 p-0.5 ring-1 ring-black/[.06] flex overflow-hidden">
               {summary && summary.totalDeals > 0 && (
                 <>
                   <div
                     onClick={() => setActiveHealthFilter('HEALTHY')}
                     style={{ width: `${(summary.healthyDeals / summary.totalDeals) * 100}%` }}
-                    className="h-full bg-emerald-500 hover:bg-emerald-600 transition-colors cursor-pointer"
+                    className="h-full bg-band-auto hover:bg-band-auto transition-colors cursor-pointer"
                     title={`HEALTHY: ${summary.healthyDeals} deals (${Math.round((summary.healthyDeals / summary.totalDeals) * 100)}%)`}
                   />
                   <div
                     onClick={() => setActiveHealthFilter('AT_RISK')}
                     style={{ width: `${(summary.atRiskDeals / summary.totalDeals) * 100}%` }}
-                    className="h-full bg-rose-500 hover:bg-rose-600 transition-colors cursor-pointer"
+                    className="h-full bg-band-finance hover:bg-band-finance transition-colors cursor-pointer"
                     title={`AT_RISK: ${summary.atRiskDeals} deals (${Math.round((summary.atRiskDeals / summary.totalDeals) * 100)}%)`}
                   />
                   <div
                     onClick={() => setActiveHealthFilter('STALLED')}
                     style={{ width: `${(summary.stalledDeals / summary.totalDeals) * 100}%` }}
-                    className="h-full bg-amber-500 hover:bg-amber-600 transition-colors cursor-pointer"
+                    className="h-full bg-band-manager hover:bg-band-manager transition-colors cursor-pointer"
                     title={`STALLED: ${summary.stalledDeals} deals (${Math.round((summary.stalledDeals / summary.totalDeals) * 100)}%)`}
                   />
                   <div
@@ -263,11 +268,11 @@ export default function DealHealth() {
               <button
                 onClick={() => setActiveHealthFilter(activeHealthFilter === 'HEALTHY' ? 'ALL' : 'HEALTHY')}
                 className={`p-2 rounded-xl flex items-center justify-between ring-1 transition-all ${
-                  activeHealthFilter === 'HEALTHY' ? 'bg-emerald-50 ring-emerald-500 text-emerald-900 font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
+                  activeHealthFilter === 'HEALTHY' ? 'bg-band-autoWash ring-band-auto text-band-auto font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-band-auto"></span>
                   <span>Healthy</span>
                 </div>
                 <span>{summary?.healthyDeals || 0}</span>
@@ -276,11 +281,11 @@ export default function DealHealth() {
               <button
                 onClick={() => setActiveHealthFilter(activeHealthFilter === 'AT_RISK' ? 'ALL' : 'AT_RISK')}
                 className={`p-2 rounded-xl flex items-center justify-between ring-1 transition-all ${
-                  activeHealthFilter === 'AT_RISK' ? 'bg-rose-50 ring-rose-500 text-rose-900 font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
+                  activeHealthFilter === 'AT_RISK' ? 'bg-band-financeWash ring-band-finance text-band-finance font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-band-finance"></span>
                   <span>At Risk</span>
                 </div>
                 <span>{summary?.atRiskDeals || 0}</span>
@@ -289,11 +294,11 @@ export default function DealHealth() {
               <button
                 onClick={() => setActiveHealthFilter(activeHealthFilter === 'STALLED' ? 'ALL' : 'STALLED')}
                 className={`p-2 rounded-xl flex items-center justify-between ring-1 transition-all ${
-                  activeHealthFilter === 'STALLED' ? 'bg-amber-50 ring-amber-500 text-amber-900 font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
+                  activeHealthFilter === 'STALLED' ? 'bg-band-managerWash ring-band-manager text-band-manager font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-band-manager"></span>
                   <span>Stalled</span>
                 </div>
                 <span>{summary?.stalledDeals || 0}</span>
@@ -315,7 +320,7 @@ export default function DealHealth() {
           </div>
 
           {/* Stage Progression Funnel */}
-          <div className="p-5 rounded-2xl bg-surface border border-line shadow-sm space-y-3">
+          <div className="p-5 panel space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-fg">Pipeline Stage Funnel</h2>
               <span className="text-xs text-fg-3">Workflow State</span>
@@ -344,13 +349,13 @@ export default function DealHealth() {
         {/* Critical Alerts Panels: Side-by-Side (At-Risk & Stalled) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Panel 1: At-Risk Deals */}
-          <div className="p-5 rounded-2xl bg-surface border border-line shadow-sm space-y-3.5">
+          <div className="p-5 panel space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+                <span className="w-2.5 h-2.5 rounded-full bg-band-finance"></span>
                 <h2 className="text-sm font-semibold text-fg">At-Risk Deals (Scoring &amp; Escalations)</h2>
               </div>
-              <span className="text-xs font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-semibold text-band-finance bg-band-financeWash px-2 py-0.5 rounded-full">
                 {data?.atRiskDeals.length || 0} Flagged
               </span>
             </div>
@@ -363,23 +368,23 @@ export default function DealHealth() {
                     const fullDeal = deals.find((d) => d.id === deal.dealId)
                     if (fullDeal) openDealModal(fullDeal)
                   }}
-                  className="p-3.5 rounded-xl border border-rose-100 bg-rose-50/40 hover:bg-rose-50/80 hover:border-rose-300 transition-all cursor-pointer space-y-2 group"
+                  className="p-3.5 rounded-xl border border-band-finance bg-band-finance/40 hover:bg-band-finance/80 hover:border-band-finance transition-all cursor-pointer space-y-2 group"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs font-bold text-fg group-hover:text-accent transition-colors">
                       {deal.dealId}
                     </span>
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-rose-100 text-rose-800">
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-band-financeWash text-band-finance">
                       Score: {deal.riskScore ?? '—'} ({deal.riskLevel || 'HIGH'})
                     </span>
                   </div>
                   <div className="text-sm font-semibold text-fg">{deal.customerName}</div>
                   <div className="flex items-center gap-3 text-xs text-fg-3">
                     <span>Rep: <strong className="text-fg-2">{deal.salesRep}</strong></span>
-                    <span>Discount: <strong className="text-rose-600 font-bold">{deal.discount}%</strong></span>
+                    <span>Discount: <strong className="text-band-finance font-bold">{deal.discount}%</strong></span>
                     <span>Approval: <strong className="text-fg-2">{deal.approvalStage || 'NONE'}</strong></span>
                   </div>
-                  <div className="text-xs text-rose-900/85 pl-2 border-l-2 border-rose-400 bg-white/60 p-1.5 rounded-r">
+                  <div className="text-xs text-band-finance/85 pl-2 border-l-2 border-band-finance bg-white/60 p-1.5 rounded-r">
                     {deal.riskExplanation || 'Discount exceeds representative historical baseline.'}
                   </div>
                 </div>
@@ -388,13 +393,13 @@ export default function DealHealth() {
           </div>
 
           {/* Panel 2: Stalled Deals */}
-          <div className="p-5 rounded-2xl bg-surface border border-line shadow-sm space-y-3.5">
+          <div className="p-5 panel space-y-3.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                <span className="w-2.5 h-2.5 rounded-full bg-band-manager"></span>
                 <h2 className="text-sm font-semibold text-fg">Stalled Deals (Velocity Bottlenecks)</h2>
               </div>
-              <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-semibold text-band-manager bg-band-managerWash px-2 py-0.5 rounded-full">
                 {data?.stalledDeals.length || 0} Inactive
               </span>
             </div>
@@ -407,13 +412,13 @@ export default function DealHealth() {
                     const fullDeal = deals.find((d) => d.id === deal.dealId)
                     if (fullDeal) openDealModal(fullDeal)
                   }}
-                  className="p-3.5 rounded-xl border border-amber-100 bg-amber-50/40 hover:bg-amber-50/80 hover:border-amber-300 transition-all cursor-pointer space-y-2 group"
+                  className="p-3.5 rounded-xl border border-band-manager bg-band-manager/40 hover:bg-band-manager/80 hover:border-band-manager transition-all cursor-pointer space-y-2 group"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs font-bold text-fg group-hover:text-accent transition-colors">
                       {deal.dealId}
                     </span>
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-amber-100 text-amber-800">
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-band-managerWash text-band-manager">
                       {deal.daysStalled} Days Inactive
                     </span>
                   </div>
@@ -422,7 +427,7 @@ export default function DealHealth() {
                     <span>Rep: <strong className="text-fg-2">{deal.salesRep}</strong></span>
                     <span>Value: <strong className="text-fg-2">{inr(deal.value)}</strong></span>
                   </div>
-                  <div className="text-xs text-amber-900/85 pl-2 border-l-2 border-amber-400 bg-white/60 p-1.5 rounded-r">
+                  <div className="text-xs text-band-manager/85 pl-2 border-l-2 border-band-manager bg-white/60 p-1.5 rounded-r">
                     Velocity alert: No buyer updates or stage transitions in the last {deal.daysStalled} days.
                   </div>
                 </div>
@@ -432,7 +437,7 @@ export default function DealHealth() {
         </div>
 
         {/* Sales Rep Discount Anomaly Benchmarking */}
-        <div className="p-5 rounded-2xl bg-surface border border-line shadow-sm space-y-4">
+        <div className="p-5 panel space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <h2 className="text-sm font-semibold text-fg">Sales Representative Discount Variance &amp; Anomaly Benchmarking</h2>
@@ -467,7 +472,7 @@ export default function DealHealth() {
                     </div>
                     <div>
                       <div className="text-[10px] uppercase tracking-wider text-fg-4">Peak</div>
-                      <div className={`text-xs font-bold ${rep.highestDiscount >= 20 ? 'text-rose-600' : 'text-fg'}`}>
+                      <div className={`text-xs font-bold ${rep.highestDiscount >= 20 ? 'text-band-finance' : 'text-fg'}`}>
                         {rep.highestDiscount}%
                       </div>
                     </div>
@@ -489,7 +494,7 @@ export default function DealHealth() {
                             style={{ height: `${heightPct}%` }}
                             title={`Deal #${idx + 1}: ${val}% discount${isAnomaly ? ' (ANOMALY)' : ''}`}
                             className={`flex-1 rounded-t-sm transition-all hover:opacity-75 ${
-                              isAnomaly ? 'bg-rose-500 shadow-sm' : 'bg-accent/70'
+                              isAnomaly ? 'bg-band-finance shadow-sm' : 'bg-accent/70'
                             }`}
                           />
                         )
@@ -503,7 +508,7 @@ export default function DealHealth() {
         </div>
 
         {/* Filterable Deal Pipeline Table */}
-        <div className="p-5 rounded-2xl bg-surface border border-line shadow-sm space-y-4">
+        <div className="p-5 panel space-y-4">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
               <h2 className="text-base font-bold text-fg">All Deals Pipeline Explorer</h2>
@@ -596,9 +601,9 @@ export default function DealHealth() {
                 ) : (
                   filteredDeals.map((deal) => {
                     const healthBadge = {
-                      HEALTHY: 'bg-emerald-50 text-emerald-800 ring-emerald-600/20',
-                      AT_RISK: 'bg-rose-50 text-rose-800 ring-rose-600/20',
-                      STALLED: 'bg-amber-50 text-amber-800 ring-amber-600/20',
+                      HEALTHY: 'bg-band-autoWash text-band-auto ring-band-auto/20',
+                      AT_RISK: 'bg-band-financeWash text-band-finance ring-band-finance/20',
+                      STALLED: 'bg-band-managerWash text-band-manager ring-band-manager/20',
                       CLOSED_LOST: 'bg-slate-100 text-slate-700 ring-slate-400/20',
                     }[deal.healthCategory] || 'bg-slate-50 text-slate-700'
 
@@ -621,7 +626,7 @@ export default function DealHealth() {
                           {inr(deal.value)}
                         </td>
                         <td className="px-3.5 py-2.5 text-center">
-                          <span className={`font-mono font-bold ${deal.discountPercent >= 20 ? 'text-rose-600' : 'text-fg-2'}`}>
+                          <span className={`font-mono font-bold ${deal.discountPercent >= 20 ? 'text-band-finance' : 'text-fg-2'}`}>
                             {deal.discountPercent}%
                           </span>
                         </td>
@@ -639,7 +644,7 @@ export default function DealHealth() {
                         <td className="px-3.5 py-2.5">
                           {deal.riskScore ? (
                             <span className={`inline-flex items-center gap-1 font-mono font-bold ${
-                              deal.riskLevel === 'HIGH' ? 'text-rose-600' : 'text-amber-600'
+                              deal.riskLevel === 'HIGH' ? 'text-band-finance' : 'text-band-manager'
                             }`}>
                               <span>●</span> {deal.riskScore} ({deal.riskLevel})
                             </span>
@@ -671,7 +676,7 @@ export default function DealHealth() {
       {/* Deal Detail Inspection Modal */}
       {isModalOpen && selectedDeal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl bg-surface border border-line shadow-2xl p-6 space-y-5">
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto panel shadow-2xl p-6 space-y-5">
             {/* Modal Header */}
             <div className="flex items-start justify-between border-b border-line pb-4">
               <div>
@@ -704,7 +709,7 @@ export default function DealHealth() {
               </div>
               <div>
                 <div className="text-[10px] uppercase text-fg-4">Discount</div>
-                <div className={`font-mono font-bold mt-0.5 ${selectedDeal.discountPercent >= 20 ? 'text-rose-600' : 'text-fg'}`}>
+                <div className={`font-mono font-bold mt-0.5 ${selectedDeal.discountPercent >= 20 ? 'text-band-finance' : 'text-fg'}`}>
                   {selectedDeal.discountPercent}%
                 </div>
               </div>
@@ -722,11 +727,11 @@ export default function DealHealth() {
 
             {/* Risk Explanation if present */}
             {selectedDeal.riskExplanation && (
-              <div className="p-3.5 rounded-xl border border-rose-200 bg-rose-50/70 text-xs text-rose-900 space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-rose-800">
-                  <AlertTriangle size={14} className="text-rose-700" />
+              <div className="p-3.5 rounded-xl border border-band-finance bg-band-finance/70 text-xs text-band-finance space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-band-finance">
+                  <AlertTriangle size={14} className="text-band-finance" />
                   <span>Governance Risk Explanation</span>
-                  <span className="text-[10px] bg-rose-200 px-1.5 py-0.2 rounded font-mono">
+                  <span className="text-[10px] bg-band-finance px-1.5 py-0.2 rounded font-mono">
                     Approval Stage: {selectedDeal.approvalStage}
                   </span>
                 </div>

@@ -97,7 +97,7 @@ export default function FulfilmentDetail() {
                   className="font-mono text-[11px] text-fg-3 hover:text-accent">
               ← Fulfilment &amp; Stock
             </Link>
-            <h1 className="font-display text-[22px] font-bold text-fg mt-1">
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight mt-1">
               Fulfilment Detail · {ref}
             </h1>
           </div>
@@ -153,14 +153,14 @@ export default function FulfilmentDetail() {
         </p>
 
         {/* Per-depot breakdown */}
-        <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+        <section className="panel">
           <div className="px-4 py-3 border-b border-line flex items-center gap-3">
             <h2 className="font-display text-[14px] font-semibold text-fg">Suggested split</h2>
             <span className="font-mono text-[10.5px] text-fg-3">
               optimal over {split.subsets_evaluated} warehouse combination(s)
             </span>
           </div>
-          <div className="overflow-x-auto">
+          <div className="scroll-x">
             <table className="w-full text-[13px] min-w-[620px]">
               <thead>
                 <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3

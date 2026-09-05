@@ -128,6 +128,34 @@ CREATE TABLE IF NOT EXISTS portal_comment (
   counter_discount_pct REAL, created_at TEXT);
 
 -- THE AUDIT SPINE. Append-only: never UPDATE, never DELETE (PS A3).
+CREATE TABLE IF NOT EXISTS customer_account (
+  user_id      TEXT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
+  company      TEXT NOT NULL,
+  gst_number   TEXT,
+  phone        TEXT,
+  address      TEXT,
+  city         TEXT,
+  postcode     TEXT,
+  -- Tier is DERIVED for self-registered accounts and FIXED for seeded
+  -- enterprise ones. `tier_locked` is what tells them apart: an account with a
+  -- negotiated contract must not be demoted by an algorithm, and the seeded
+  -- book's tiers do not track spend at all (Acme is Gold on the lowest lifetime
+  -- value in the book), so auto-tiering them would silently rewrite the
+  -- calibrated demo scenarios.
+  tier         TEXT NOT NULL DEFAULT 'Bronze'
+               CHECK (tier IN ('Bronze','Silver','Gold')),
+  tier_locked  INTEGER NOT NULL DEFAULT 0,
+  lifetime_value REAL NOT NULL DEFAULT 0,
+  assigned_rep TEXT,
+  created_at   TEXT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS cart_item (
+  user_id  TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  sku      TEXT NOT NULL,
+  qty      INTEGER NOT NULL CHECK (qty > 0),
+  added_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, sku));
+
 CREATE TABLE IF NOT EXISTS deal_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   order_ref TEXT, actor TEXT, actor_role TEXT, event_type TEXT,
@@ -276,6 +304,18 @@ def restore_golden() -> bool:
             connect().commit()
         finally:
             source.close()
+
+    # A snapshot carries the schema it was taken with, and backup() replaces the
+    # database wholesale -- so restoring a golden file captured before a schema
+    # change silently DROPS every table added since. That surfaces later as
+    # "no such table", far from the reset that caused it. Re-applying the schema
+    # and migrations here costs a few milliseconds and makes a stale snapshot a
+    # non-event: existing tables are untouched (CREATE TABLE IF NOT EXISTS),
+    # and anything the snapshot predates is recreated empty.
+    conn = connect()
+    conn.executescript(SCHEMA)
+    migrate(conn)
+    conn.commit()
     return True
 
 

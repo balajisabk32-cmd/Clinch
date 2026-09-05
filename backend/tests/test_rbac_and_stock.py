@@ -94,8 +94,28 @@ def test_admin_holds_every_permission():
 
 
 def test_customer_role_has_no_internal_reach():
-    assert permissions_for("customer") == {"portal.view"}
-    assert tabs_for("customer") == []
+    """The customer set and the internal sets must be disjoint.
+
+    A customer now holds shop.* permissions for their own basket and quotations,
+    so the old equality check (== {"portal.view"}) no longer describes the rule.
+    The rule was never "the customer has exactly one permission" — it is that no
+    permission is shared with an internal role, so there is no route both
+    populations can reach. Asserting disjointness says that directly and keeps
+    holding as either side grows.
+    """
+    customer = permissions_for("customer")
+    assert customer, "a customer with no permissions cannot use their own account"
+    assert tabs_for("customer") == [], "customers get no internal workspace tabs"
+
+    for role in ("rep", "manager", "finance", "admin"):
+        shared = customer & permissions_for(role)
+        assert not shared, f"{role} shares {shared} with customer"
+
+    # And nothing customer-facing leaked into the internal grant-everything set.
+    from api.auth import ALL_PERMISSIONS
+    assert not (customer & ALL_PERMISSIONS), (
+        f"customer permissions {customer & ALL_PERMISSIONS} are in ALL_PERMISSIONS, "
+        "which would hand every one of them to admin")
 
 
 def test_forged_token_is_rejected_outright():

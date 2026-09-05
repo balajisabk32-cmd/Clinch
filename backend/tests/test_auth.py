@@ -238,8 +238,30 @@ def test_deactivation_takes_effect_on_the_next_request():
 #  Admin provisioning  (there is no public signup)
 # --------------------------------------------------------------------------- #
 
-def test_there_is_no_public_registration_endpoint():
-    for path in ("/auth/register", "/auth/signup", "/register", "/signup"):
+def test_registration_cannot_mint_an_internal_role():
+    """Customers may self-register. Internal roles may not — ever.
+
+    This test used to assert that no registration endpoint existed at all. The
+    storefront needs one, so the invariant is restated rather than dropped:
+    the endpoint exists, and no request body can make it produce anything but a
+    customer. That is the property that actually matters; "no endpoint" was only
+    ever a way of guaranteeing it.
+    """
+    # Unique per run: registration is a real write, and a fixed address makes
+    # the second execution of this suite hit 409 instead of exercising the rule.
+    import uuid as _uuid
+    stamp = _uuid.uuid4().hex[:8]
+    for role in ("admin", "manager", "finance", "rep"):
+        r = client.post("/auth/register", json={
+            "name": "Mallory", "email": f"mallory.{role}.{stamp}@evil.example",
+            "password": STRONG, "company": "Evil Corp", "role": role,
+        })
+        assert r.status_code == 201, r.text
+        assert r.json()["user"]["role"] == "customer", (
+            f"a body asking for {role!r} produced {r.json()['user']['role']!r}")
+
+    # And the older aliases stay closed, so no second door appears by accident.
+    for path in ("/auth/signup", "/register", "/signup"):
         assert client.post(path, json={}).status_code == 404, path
 
 
