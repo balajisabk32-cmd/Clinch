@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useClinchStore } from '../context/ClinchStoreContext';
-import { FileDown, Printer, Sliders, CheckCircle2 } from 'lucide-react';
+import { FileDown, Printer } from 'lucide-react';
 
 const reportRecords = [
   { deal: 'Global Logistics Suite Expansion', rep: 'Marcus Sterling', team: 'Enterprise North', cat: 'SaaS Software', value: 210000, discount: 14.5, status: 'Approved', closeDate: '2026-08-28' },
@@ -34,7 +34,7 @@ export function Reporting() {
       <div className="module-header">
         <div className="module-title-group">
           <h1>Reporting & Dashboard Configuration</h1>
-          <p>Slice revenue performance across dimensions, configure executive widget visibility, and generate auditable PDF / Excel exports.</p>
+          <p>Slice revenue performance across dimensions and generate auditable PDF / Excel exports.</p>
         </div>
         <div className="module-actions">
           <button className="btn btn-secondary" onClick={() => showToast('Report exported as CSV / Excel spreadsheet', 'success')}>
@@ -155,48 +155,6 @@ export function Reporting() {
         </div>
       </div>
 
-      {/* Executive Widget Configuration */}
-      <div className="card">
-        <div className="card-header">
-          <h3 className="card-title">Executive Revenue Widget Visibility & Controls</h3>
-          <p className="card-subtitle">Enable or disable real-time cockpit modules and rep quotation guidance widgets.</p>
-        </div>
-        <div className="card-body">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--bg-card-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-              <div>
-                <strong style={{ fontSize: '0.88rem' }}>Live Margin Calculator</strong>
-                <div className="text-xs text-muted">Show real-time gross margin % on rep quotes</div>
-              </div>
-              <input type="checkbox" className="switch-input" defaultChecked />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--bg-card-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-              <div>
-                <strong style={{ fontSize: '0.88rem' }}>Automated Approval Routing Nudges</strong>
-                <div className="text-xs text-muted">Display automated approval threshold warnings</div>
-              </div>
-              <input type="checkbox" className="switch-input" defaultChecked />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--bg-card-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-              <div>
-                <strong style={{ fontSize: '0.88rem' }}>Warehouse Stock Availability Map</strong>
-                <div className="text-xs text-muted">Show real-time regional hardware counts</div>
-              </div>
-              <input type="checkbox" className="switch-input" defaultChecked />
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.75rem 1rem', background: 'var(--bg-card-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-color)' }}>
-              <div>
-                <strong style={{ fontSize: '0.88rem' }}>Peer Discount Benchmarks</strong>
-                <div className="text-xs text-muted">Show team average discount stats</div>
-              </div>
-              <input type="checkbox" className="switch-input" />
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
