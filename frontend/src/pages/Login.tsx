@@ -32,14 +32,12 @@ export default function Login() {
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
       if (user?.role === 'customer') {
-        if (localStorage.getItem('df360_token')) {
-          navigate('/shop', { replace: true })
-        }
+        navigate('/shop', { replace: true })
       } else {
-        navigate('/app/dashboard', { replace: true })
+        navigate(from || '/app/dashboard', { replace: true })
       }
     }
-  }, [isLoading, isAuthenticated, user, navigate])
+  }, [isLoading, isAuthenticated, user, navigate, from])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -98,7 +96,7 @@ export default function Login() {
             </p>
           </div>
 
-          {expired && (
+          {expired && !formError && (
             <div className="rounded-xl bg-band-managerWash ring-1 ring-band-manager/25
                             px-3.5 py-2.5 text-[12.5px] text-band-manager">
               Your session expired. Please sign in again.
@@ -203,6 +201,7 @@ export default function Login() {
                   onClick={async () => {
                     setEmail(acc.email)
                     setPassword(acc.pass)
+                    setEmailError(null)
                     setFormError(null)
                     setBusy(true)
                     try {

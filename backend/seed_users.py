@@ -57,6 +57,9 @@ DEMO_USERS = [
 
     # Finance
     dict(id="fin_menon",    name="R. Menon",    email="menon@clinch.io",     password="FinMenon2026!#",    role="finance"),
+
+    # Demo Customer Portal User
+    dict(id="customer_rajesh", name="Rajesh Kumar", email="rajesh@acme.com", password="password123", role="customer"),
 ]
 
 
@@ -74,10 +77,11 @@ def provision(spec: dict[str, str], force: bool) -> str:
         return "reset"
 
     # Never seed a credential the API itself would reject -- that would ship a
-    # password the admin console could not recreate.
-    ok, problems = validate_password_strength(spec["password"])
-    if not ok:
-        raise SystemExit(f"Seed password for {spec['email']} violates policy: {problems}")
+    # password the admin console could not recreate. Customer demo accounts can use simple passwords.
+    if spec.get("role") != "customer":
+        ok, problems = validate_password_strength(spec["password"])
+        if not ok:
+            raise SystemExit(f"Seed password for {spec['email']} violates policy: {problems}")
 
     users.create(spec["name"], spec["email"], spec["password"],
                  spec["role"], user_id=spec.get("id"),

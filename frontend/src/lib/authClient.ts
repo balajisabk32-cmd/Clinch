@@ -103,9 +103,19 @@ export async function request<T>(
   clearTimeout(timer)
 
   if (res.status === 401) {
+    if (path === '/auth/login') {
+      let detail: any = null
+      try { detail = (await res.json()).detail } catch { /* ignore */ }
+      const message =
+        (typeof detail === 'object' && detail?.message) ||
+        (typeof detail === 'string' && detail) ||
+        'Email or password is incorrect.'
+      throw new ApiError(401, detail, message)
+    }
+
     // If a non-auth request received 401, verify with /auth/me before declaring session expired.
     // This prevents transient blips from evicting active users during quick UI mutations.
-    if (path !== '/auth/me' && path !== '/auth/login' && token) {
+    if (path !== '/auth/me' && token) {
       try {
         const verifyRes = await fetch(`${BASE}/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
