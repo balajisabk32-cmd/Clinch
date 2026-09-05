@@ -270,26 +270,194 @@ def update_pricelists(body: dict[str, Any] = Body(...),
     return state.PRICE_LISTS
 
 
+def _sync_customer_portal_quotes():
+    """Sync quotations submitted by customers in the Customer Storefront into Clinch."""
+    import sqlite3
+    db_paths = [
+        r"c:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"C:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"c:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+        r"C:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+    ]
+    db_path = next((p for p in db_paths if Path(p).exists()), None)
+    if not db_path:
+        return
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT q.id, q.quote_number, q.status, q.total_amount, q.discount_applied,
+                   q.discount_request_status, q.requested_discount,
+                   q.assigned_rep_id, q.source,
+                   q.created_at, c.id as cust_id, c.company, c.name as customer_name, c.tier,
+                   c.assigned_rep_id as cust_assigned_rep_id
+            FROM quotations q
+            LEFT JOIN customers c ON q.customer_id = c.id
+            ORDER BY q.id DESC
+        """)
+        quotes = c.fetchall()
+
+        for q in quotes:
+            ref = q["quote_number"]
+            cust_name = q["company"] or q["customer_name"] or "Acme Corp"
+            tier = (q["tier"] or "Silver").capitalize()
+            if cust_name not in fx.CUSTOMERS:
+                fx.CUSTOMERS[cust_name] = dict(tier=tier, email="rajesh@acme.com")
+
+            c.execute("""
+                SELECT qi.*, p.name as p_name, p.category, p.base_price
+                FROM quotation_items qi
+                LEFT JOIN products p ON qi.product_id = p.id
+                WHERE qi.quotation_id = ?
+            """, (q["id"],))
+            items = c.fetchall()
+
+            effective_order_discount = float(q["requested_discount"] or q["discount_applied"] or 0.0)
+
+            lines = []
+            for it in items:
+                name = it["product_name"] or it["p_name"] or "Enterprise Solution"
+                sku = "".join(w[0] for w in name.split()) + f"-{it['product_id'] or 1}"
+                sku = sku.upper()
+                price = float(it["unit_price"] or 100.0)
+                cost = round(price * 0.65, 2)
+                qty = int(it["quantity"] or 1)
+                disc = float(it["discount_pct"] if it["discount_pct"] is not None else effective_order_discount)
+
+                if sku not in fx.BY_SKU:
+                    p_entry = dict(
+                        sku=sku, name=name, category=it["category"] or "Hardware",
+                        list_price=price, cost=cost, stock_total=50, is_promoted=False
+                    )
+                    fx.PRODUCTS.append(p_entry)
+                    fx.BY_SKU[sku] = p_entry
+
+                lines.append(dict(sku=sku, qty=qty, discount_pct=disc))
+
+            if not lines:
+                lines.append(dict(sku="LP14", qty=1, discount_pct=effective_order_discount))
+
+            # Quote-level assigned_rep_id takes precedence; if not set, use customer's permanent assigned_rep_id
+            rep_id = q["assigned_rep_id"] or q["cust_assigned_rep_id"]
+            if not rep_id or str(rep_id).strip() == "":
+                rep_id = "UNASSIGNED"
+            source = q["source"] or "Customer Request"
+
+            state.QUOTES[ref] = dict(
+                customer=cust_name,
+                tier=tier,
+                rep=rep_id,
+                order_discount_pct=effective_order_discount,
+                lines=lines,
+                source=source,
+                assigned_rep_id=rep_id,
+                customer_id=q["cust_id"] if "cust_id" in q.keys() else None,
+            )
+
+            # Automated deal governance routing:
+            # - High risk (band == 'FINANCE', score > 60, high discount) routes directly to Finance!
+            # - Low risk (band == 'AUTO', within standard rep allowance) is automatically approved!
+            # - Medium risk (band == 'MANAGER') routes to Sales Manager
+            is_pending_review = (
+                q["status"] in ("pending_review", "pending_approval") or
+                q["discount_request_status"] == "pending_approval"
+            )
+            if is_pending_review:
+                try:
+                    quote_obj, r = svc.score_for(ref)
+                    if r.band == "FINANCE":
+                        clinch_state = "PENDING_FINANCE"
+                    elif r.band == "AUTO":
+                        clinch_state = "APPROVED"
+                        try:
+                            c.execute(
+                                "UPDATE quotations SET status = 'sent', discount_request_status = 'approved', "
+                                "rep_notes = 'Auto-approved by Clinch Deal Engine (within standard policy allowance).', "
+                                "updated_at = datetime('now') WHERE id = ?", (q["id"],)
+                            )
+                            conn.commit()
+                        except Exception:
+                            pass
+                    else:
+                        clinch_state = "PENDING_MANAGER"
+                except Exception:
+                    clinch_state = "PENDING_MANAGER"
+            else:
+                state_map = {
+                    "under_negotiation": "NEGOTIATION",
+                    "sent": "APPROVED",
+                    "confirmed": "CONFIRMED",
+                    "fulfillment": "CONFIRMED",
+                }
+                clinch_state = state_map.get(q["status"], "PENDING_MANAGER")
+
+            state.QUOTE_STATE[ref] = clinch_state
+        conn.close()
+    except Exception as exc:
+        pass
+
+
+@sales.post("/quotes/from-customer")
+def create_quote_from_customer(body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    _sync_customer_portal_quotes()
+    ref = body.get("quote_number")
+    if ref and ref in state.QUOTES:
+        return quote_detail(ref)
+    return {"ok": True, "ref": ref}
+
+
 @sales.get("/quotes")
-def list_quotes(state_filter: str | None = Query(None, alias="state")) -> list[dict[str, Any]]:
+def list_quotes(state_filter: str | None = Query(None, alias="state"), rep_filter: str | None = Query(None, alias="rep")) -> list[dict[str, Any]]:
+    _sync_customer_portal_quotes()
     out = []
     for row in svc.open_pipeline():
         q, r, t = row["quote"], row["result"], row["totals"]
         if state_filter and row["state"] != state_filter:
             continue
+        if rep_filter and q.rep_id != rep_filter:
+            continue
+        quote_data = state.QUOTES.get(q.ref, {})
+        source = quote_data.get("source", "Customer Request" if str(q.ref).startswith("QT-") else "Rep Created")
+        assigned_rep_id = quote_data.get("assigned_rep_id", q.rep_id)
+        is_cust = str(q.ref).startswith("QT-") or source == "Customer Request"
+        rep_display = fx.REP_NAME.get(q.rep_id, q.rep_id if q.rep_id != "UNASSIGNED" else "Unassigned")
         out.append(dict(
             ref=q.ref, customer=q.customer, tier=q.tier,
-            rep=fx.REP_NAME.get(q.rep_id, q.rep_id), state=row["state"],
+            rep=rep_display,
+            rep_id=q.rep_id,
+            assigned_rep_id=assigned_rep_id,
+            source=source,
+            state=row["state"],
             total=t["total"], risk_score=r.score, risk_band=r.band,
             last_activity_at=state.last_activity(q.ref),
             days_inactive=row["days_idle"],
             is_stalled=row["days_idle"] >= state.get_policy().stall_days,
+            is_customer=is_cust,
+            is_unassigned=(q.rep_id == "UNASSIGNED"),
         ))
+
+    # Sort so that Customer Portal quote requests appear prominently at the very top (newest first)
+    def _sort_key(item):
+        ref_str = str(item.get("ref", ""))
+        is_qt = ref_str.startswith("QT-")
+        # 0 for customer quotes, 1 for internal seed quotes
+        priority = 0 if is_qt else 1
+        # Inside customer quotes, sort descending by number/year
+        suffix = ref_str.split("-")[-1]
+        num_val = int(suffix) if suffix.isdigit() else 0
+        return (priority, -num_val if is_qt else ref_str)
+
+    out.sort(key=_sort_key)
     return out
 
 
 @sales.get("/quotes/{ref}")
 def quote_detail(ref: str) -> dict[str, Any]:
+    if ref not in state.QUOTES:
+        _sync_customer_portal_quotes()
     try:
         quote, r = svc.score_for(ref)
     except KeyError:
@@ -441,31 +609,52 @@ def submit(ref: str, actor: str = Query("A. Rao"), _actor: dict[str, Any] = Depe
 
 @sales.get("/approvals")
 def approvals(pending_only: bool = Query(False)) -> list[dict[str, Any]]:
+    _sync_customer_portal_quotes()
     rows = []
     for row in svc.open_pipeline():
         q, r = row["quote"], row["result"]
         st = row["state"]
         if pending_only and not st.startswith("PENDING"):
             continue
+        quote_data = state.QUOTES.get(q.ref, {})
+        source = quote_data.get("source", "Customer Request" if str(q.ref).startswith("QT-") else "Rep Created")
+        assigned_rep_id = quote_data.get("assigned_rep_id", q.rep_id)
+        manager_id = fx.MANAGER_FOR_REP.get(assigned_rep_id) or "rep_shah"
+        manager_name = fx.REP_NAME.get(manager_id, "M. Shah")
+        rep_display = fx.REP_NAME.get(assigned_rep_id, assigned_rep_id if assigned_rep_id != "UNASSIGNED" else "Unassigned")
         rows.append(dict(
             ref=q.ref, customer=q.customer, tier=q.tier, state=st,
             risk_score=r.score, risk_band=r.band,
+            rep=rep_display,
+            rep_id=assigned_rep_id,
+            source=source,
+            is_unassigned=(assigned_rep_id == "UNASSIGNED"),
+            manager_id=manager_id,
+            manager_name=manager_name,
             stage="Finance" if st == "PENDING_FINANCE" else
                   "Sales Manager" if st == "PENDING_MANAGER" else "—",
             assigned_to="R. Menon" if st == "PENDING_FINANCE" else
-                        "M. Shah" if st == "PENDING_MANAGER" else "—",
+                        manager_name if st == "PENDING_MANAGER" else "—",
         ))
     return rows
 
 
 @sales.get("/approvals/{ref}")
 def approval_detail(ref: str) -> dict[str, Any]:
+    if ref not in state.QUOTES:
+        _sync_customer_portal_quotes()
     try:
         quote, r = svc.score_for(ref)
     except KeyError:
         raise HTTPException(404, f"No quotation {ref}")
     current = state.state_of(ref)
     needs_finance = r.band == "FINANCE"
+
+    quote_data = state.QUOTES.get(ref, {})
+    assigned_rep_id = quote_data.get("assigned_rep_id", quote.rep_id)
+    source = quote_data.get("source", "Customer Request" if str(ref).startswith("QT-") else "Rep Created")
+    manager_id = fx.MANAGER_FOR_REP.get(assigned_rep_id) or "rep_shah"
+    manager_name = fx.REP_NAME.get(manager_id, "M. Shah")
 
     def step_status(role: str) -> str:
         if role == "Sales Manager":
@@ -482,19 +671,191 @@ def approval_detail(ref: str) -> dict[str, Any]:
         return "pending" if current == "PENDING_FINANCE" else "skipped"
 
     steps = [dict(role="Sales Manager", status=step_status("Sales Manager"),
-                  actor="M. Shah" if step_status("Sales Manager") == "approved" else None)]
+                  actor=manager_name if step_status("Sales Manager") == "approved" else None)]
     if needs_finance:
         steps.append(dict(role="Finance", status=step_status("Finance"),
                           actor="R. Menon" if step_status("Finance") == "approved" else None))
 
     return dict(
         ref=ref, customer=quote.customer, tier=quote.tier, state=current,
+        rep=fx.REP_NAME.get(assigned_rep_id, assigned_rep_id if assigned_rep_id != "UNASSIGNED" else "Unassigned"),
+        rep_id=assigned_rep_id,
+        source=source,
+        is_unassigned=(assigned_rep_id == "UNASSIGNED"),
+        manager_id=manager_id,
+        manager_name=manager_name,
         risk_score=r.score, risk_band=r.band, steps=steps,
         contributions=r.contributions, lines=r.lines, notes=r.notes,
         narrative=svc.narrate(quote, r, fx.days_idle(ref)),
         audit=state.audit_for(ref),
         allowed_transitions=LEGAL_TRANSITIONS.get(current, []),
     )
+
+
+@sales.post("/quotes/{ref}/reassign")
+def reassign_quote(ref: str, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Reassign quote to a new Sales Rep with audit tracking and optional permanent customer ownership update."""
+    new_rep_id = body.get("new_rep_id")
+    if not new_rep_id:
+        raise HTTPException(400, "new_rep_id is required")
+
+    actor = body.get("actor", "M. Shah")
+    update_permanent = bool(body.get("update_customer_assigned_rep", False))
+
+    if ref not in state.QUOTES:
+        _sync_customer_portal_quotes()
+    if ref not in state.QUOTES:
+        raise HTTPException(404, f"Quotation {ref} not found")
+
+    old_rep_id = state.QUOTES[ref].get("rep", "UNASSIGNED")
+    state.QUOTES[ref]["rep"] = new_rep_id
+    state.QUOTES[ref]["assigned_rep_id"] = new_rep_id
+
+    old_rep_name = fx.REP_NAME.get(old_rep_id, old_rep_id)
+    new_rep_name = fx.REP_NAME.get(new_rep_id, new_rep_id)
+
+    state.record(
+        ref, actor, "manager", "reassigned",
+        reason=f"Reassigned from {old_rep_name} to {new_rep_name}" + (" (Permanent Account Owner updated)" if update_permanent else ""),
+        old_rep=old_rep_id, new_rep=new_rep_id, permanent_update=update_permanent
+    )
+
+    import sqlite3
+    db_paths = [
+        r"c:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"C:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"c:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+        r"C:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+    ]
+    db_path = next((p for p in db_paths if Path(p).exists()), None)
+    customer_id = None
+    if db_path:
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            c.execute("SELECT id, customer_id, assigned_rep_id FROM quotations WHERE quote_number = ?", (ref,))
+            q_row = c.fetchone()
+            if q_row:
+                customer_id = q_row["customer_id"]
+                c.execute("UPDATE quotations SET assigned_rep_id = ?, updated_at = datetime('now') WHERE quote_number = ?", (new_rep_id, ref))
+
+            c.execute("""
+                INSERT INTO quote_reassignments 
+                (quote_ref, customer_id, old_rep_id, new_rep_id, reassigned_by, permanent_customer_update)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (ref, customer_id, old_rep_id, new_rep_id, actor, 1 if update_permanent else 0))
+
+            if update_permanent and customer_id:
+                c.execute("UPDATE customers SET assigned_rep_id = ? WHERE id = ?", (new_rep_id, customer_id))
+            elif update_permanent and not customer_id:
+                cust_name = state.QUOTES[ref].get("customer")
+                if cust_name:
+                    c.execute("UPDATE customers SET assigned_rep_id = ? WHERE company = ? OR name = ?", (new_rep_id, cust_name, cust_name))
+
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print("Error persisting reassignment to SQLite:", e)
+
+    return {
+        "ok": True,
+        "ref": ref,
+        "old_rep_id": old_rep_id,
+        "new_rep_id": new_rep_id,
+        "new_rep_name": new_rep_name,
+        "permanent_customer_update": update_permanent,
+    }
+
+
+@sales.get("/users/reps")
+def get_sales_reps() -> list[dict[str, Any]]:
+    """Return all sales reps and their designated reporting manager."""
+    return [
+        dict(
+            id=u["id"],
+            name=u["name"],
+            email=u["email"],
+            manager_id=u.get("manager_id"),
+            manager_name=fx.REP_NAME.get(u.get("manager_id"), "M. Shah") if u.get("manager_id") else None,
+        )
+        for u in fx.USERS if u.get("role") == "rep"
+    ]
+
+
+@sales.get("/users/managers")
+def get_sales_managers() -> list[dict[str, Any]]:
+    """Return all sales managers."""
+    return [
+        dict(id=u["id"], name=u["name"], email=u["email"])
+        for u in fx.USERS if u.get("role") == "manager"
+    ]
+
+
+@sales.get("/admin/customers")
+def get_admin_customers() -> list[dict[str, Any]]:
+    """Return all customer accounts with assigned sales rep."""
+    import sqlite3
+    db_paths = [
+        r"c:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"C:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"c:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+    ]
+    db_path = next((p for p in db_paths if Path(p).exists()), None)
+    if not db_path:
+        return []
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, name, email, company, tier, tier_spend, assigned_rep_id, created_at
+            FROM customers ORDER BY id ASC
+        """)
+        rows = c.fetchall()
+        out = []
+        for r in rows:
+            rep_id = r["assigned_rep_id"]
+            out.append(dict(
+                id=r["id"],
+                name=r["name"],
+                email=r["email"],
+                company=r["company"],
+                tier=r["tier"],
+                tier_spend=float(r["tier_spend"] or 0),
+                assigned_rep_id=rep_id,
+                assigned_rep_name=fx.REP_NAME.get(rep_id, "Unassigned") if rep_id else "Unassigned",
+                created_at=r["created_at"],
+            ))
+        conn.close()
+        return out
+    except Exception:
+        return []
+
+
+@sales.patch("/customers/{cust_id}/assigned-rep")
+def update_customer_rep(cust_id: int, body: dict[str, Any] = Body(...)) -> dict[str, Any]:
+    """Admin updates customer's permanent assigned sales rep."""
+    rep_id = body.get("assigned_rep_id")
+    import sqlite3
+    db_paths = [
+        r"c:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"C:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+        r"c:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+    ]
+    db_path = next((p for p in db_paths if Path(p).exists()), None)
+    if not db_path:
+        raise HTTPException(500, "Database not found")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("UPDATE customers SET assigned_rep_id = ? WHERE id = ?", (rep_id, cust_id))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "customer_id": cust_id, "assigned_rep_id": rep_id}
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @sales.post("/approvals/{ref}/action")
@@ -538,6 +899,43 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
     state.set_state(ref, target)
     role = "finance" if current == "PENDING_FINANCE" else "manager"
     state.record(ref, actor, role, action + "d", reason=body.get("reason"))
+
+    # Sync back to dealflow360.sqlite
+    try:
+        import sqlite3
+        from pathlib import Path
+        db_paths = [
+            r"c:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+            r"C:\Users\SANTHOSHMOHAN\Desktop\customer\server\db\dealflow360.sqlite",
+            r"c:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+            r"C:\Users\SANTHOSHMOHAN\Desktop\ODOO_FINAL\server\db\dealflow360.sqlite",
+        ]
+        db_p = next((p for p in db_paths if Path(p).exists()), None)
+        if db_p:
+            c_conn = sqlite3.connect(db_p)
+            c_cur = c_conn.cursor()
+            if target == "APPROVED":
+                c_cur.execute(
+                    "UPDATE quotations SET status = 'sent', discount_request_status = 'approved', "
+                    "rep_notes = 'Quotation approved by Clinch Deal Governance & Finance. Ready for customer order confirmation.', "
+                    "updated_at = datetime('now') WHERE quote_number = ?", (ref,)
+                )
+            elif target == "PENDING_FINANCE":
+                c_cur.execute(
+                    "UPDATE quotations SET rep_notes = 'Approved by Sales Manager; escalated to Finance Controller for high-risk sign-off.', "
+                    "updated_at = datetime('now') WHERE quote_number = ?", (ref,)
+                )
+            elif target == "REJECTED":
+                c_cur.execute(
+                    "UPDATE quotations SET status = 'under_negotiation', discount_request_status = 'rejected', "
+                    "rep_notes = 'Discount request declined by deal governance.', "
+                    "updated_at = datetime('now') WHERE quote_number = ?", (ref,)
+                )
+            c_conn.commit()
+            c_conn.close()
+    except Exception:
+        pass
+
     result = {"ref": ref, "state": target,
               "allowed_transitions": LEGAL_TRANSITIONS[target]}
     return state.remember(body.get("idempotency_key"), result)

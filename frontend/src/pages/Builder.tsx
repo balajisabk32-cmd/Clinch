@@ -236,6 +236,17 @@ export default function Builder() {
           </div>
         )}
 
+        {/* Navigation Breadcrumb */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/app/quotations')}
+            className="inline-flex items-center gap-1.5 text-[12.5px] font-medium text-fg-3 hover:text-accent transition-colors"
+          >
+            <span>←</span>
+            <span>Back to All Quotations</span>
+          </button>
+        </div>
+
         {/* ── Quote header ──────────────────────────────────────────── */}
         <header className="flex flex-wrap items-center gap-x-5 gap-y-3">
           <div>

@@ -10,6 +10,7 @@ import {
   DollarSign,
   UserCheck,
   Search,
+  ArrowRightLeft,
 } from 'lucide-react'
 import { inr } from '../lib/api'
 import { Band } from '../components/ui'
@@ -21,6 +22,7 @@ interface ApprovalItem {
   customer: string
   tier: string
   rep?: string
+  rep_id?: string
   state: string
   total?: number
   risk_score: number
@@ -29,6 +31,10 @@ interface ApprovalItem {
   assigned_to?: string
   days_inactive?: number
   breach_detail?: string
+  source?: string
+  is_unassigned?: boolean
+  manager_id?: string
+  manager_name?: string
 }
 
 export default function Approvals() {
@@ -36,17 +42,24 @@ export default function Approvals() {
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'ALL' | 'MANAGER' | 'FINANCE' | 'RESOLVED'>('ALL')
+  const [filter, setFilter] = useState<'ALL' | 'MANAGER' | 'FINANCE' | 'UNASSIGNED' | 'RESOLVED'>('ALL')
   const [search, setSearch] = useState('')
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [busyRef, setBusyRef] = useState<string | null>(null)
 
+  // Reassignment modal state
+  const [reassignTarget, setReassignTarget] = useState<ApprovalItem | null>(null)
+  const [selectedNewRep, setSelectedNewRep] = useState<string>('rep_rao')
+  const [permanentUpdate, setPermanentUpdate] = useState<boolean>(true)
+  const [reassigning, setReassigning] = useState<boolean>(false)
+  const [repsList, setRepsList] = useState<any[]>([])
+
   const user = (() => {
     try {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
-      return stored ? JSON.parse(stored) : { name: 'Bob Manager', role: 'MANAGER' }
+      return stored ? JSON.parse(stored) : { name: 'M. Shah', role: 'MANAGER' }
     } catch {
-      return { name: 'Bob Manager', role: 'MANAGER' }
+      return { name: 'M. Shah', role: 'MANAGER' }
     }
   })()
 
@@ -64,20 +77,32 @@ export default function Approvals() {
       const quotesData: any[] = quotesRes.ok ? await quotesRes.json() : []
       const quotesMap = new Map(quotesData.map(q => [q.ref, q]))
 
+      // 3. Fetch sales reps list for reassignment dropdown
+      try {
+        const repsRes = await fetch('/api/users/reps')
+        if (repsRes.ok) setRepsList(await repsRes.json())
+      } catch {}
+
       const enriched: ApprovalItem[] = approvalsData.map(a => {
         const q = quotesMap.get(a.ref)
+        const isUnassigned = a.is_unassigned || q?.is_unassigned || a.rep === 'Unassigned' || q?.rep === 'Unassigned'
         return {
           ref: a.ref,
           customer: a.customer,
           tier: a.tier || q?.tier || 'Standard',
-          rep: q?.rep || 'A. Rao',
+          rep: a.rep || q?.rep || 'A. Rao',
+          rep_id: a.rep_id || q?.rep_id || 'rep_rao',
           state: a.state,
           total: q?.total || 14500,
           risk_score: a.risk_score ?? q?.risk_score ?? 20,
           risk_band: a.risk_band || q?.risk_band || 'MANAGER',
           stage: a.stage,
           assigned_to: a.assigned_to,
+          manager_id: a.manager_id,
+          manager_name: a.manager_name || 'M. Shah',
           days_inactive: q?.days_inactive || 1,
+          source: a.source || q?.source || 'Customer Request',
+          is_unassigned: isUnassigned,
           breach_detail: a.risk_band === 'FINANCE'
             ? 'Order discount exceeds 25% allowance; margin below 20%'
             : 'Discount exceeds Rep ceiling (15% hardware / 20% software)',
@@ -203,11 +228,52 @@ export default function Approvals() {
     }))
   }
 
+  const handleReassign = async () => {
+    if (!reassignTarget) return
+    setReassigning(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/quotes/${reassignTarget.ref}/reassign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_rep_id: selectedNewRep,
+          actor: user.name || 'M. Shah',
+          update_customer_assigned_rep: permanentUpdate,
+        }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        const repObj = repsList.find((r: any) => r.id === selectedNewRep)
+        const repName = repObj ? repObj.name : selectedNewRep
+        setItems(prev => prev.map(item => item.ref === reassignTarget.ref ? {
+          ...item,
+          rep: repName,
+          rep_id: selectedNewRep,
+          is_unassigned: false,
+        } : item))
+        setActionSuccess(`Quotation ${reassignTarget.ref} reassigned to ${repName}${permanentUpdate ? ' (Customer account ownership updated)' : ''}.`)
+        setReassignTarget(null)
+        setTimeout(() => setActionSuccess(null), 4500)
+      } else {
+        throw new Error(data.error || 'Failed to reassign')
+      }
+    } catch (err: any) {
+      setError(`Failed to reassign quote (${err?.message || 'unknown'}).`)
+    } finally {
+      setReassigning(false)
+    }
+  }
+
   // Filter items
   const pendingItems = items.filter(i => i.state.startsWith('PENDING'))
+  const unassignedCount = items.filter(i => (i.is_unassigned || i.rep === 'Unassigned') && i.state.startsWith('PENDING')).length
+
   const filtered = items.filter(i => {
-    if (filter === 'MANAGER') return i.state === 'PENDING_MANAGER'
+    const isUnassigned = i.is_unassigned || i.rep === 'Unassigned'
+    if (filter === 'MANAGER') return i.state === 'PENDING_MANAGER' && !isUnassigned
     if (filter === 'FINANCE') return i.state === 'PENDING_FINANCE'
+    if (filter === 'UNASSIGNED') return isUnassigned && i.state.startsWith('PENDING')
     if (filter === 'RESOLVED') return !i.state.startsWith('PENDING')
     return i.state.startsWith('PENDING')
   }).filter(i => {
@@ -219,7 +285,7 @@ export default function Approvals() {
   })
 
   const totalPendingValue = pendingItems.reduce((acc, i) => acc + (i.total || 0), 0)
-  const managerQueueCount = items.filter(i => i.state === 'PENDING_MANAGER').length
+  const managerQueueCount = items.filter(i => i.state === 'PENDING_MANAGER' && !i.is_unassigned && i.rep !== 'Unassigned').length
   const financeQueueCount = items.filter(i => i.state === 'PENDING_FINANCE').length
 
   return (
@@ -246,7 +312,7 @@ export default function Approvals() {
               </span>
             </div>
             <p className="text-[13px] text-fg-3 mt-1">
-              Sales management oversight on discount breaches, margin protection, and executive escalations.
+              Sales management oversight on discount breaches, customer-to-rep routing, margin protection, and executive escalations.
             </p>
           </div>
 
@@ -318,7 +384,7 @@ export default function Approvals() {
 
         {/* Filters and Search Strip */}
         <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-2.5 rounded-2xl border border-black/[.06] shadow-lift">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => setFilter('ALL')}
               className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
@@ -343,6 +409,19 @@ export default function Approvals() {
             >
               Finance ({financeQueueCount})
             </button>
+            {unassignedCount > 0 && (
+              <button
+                onClick={() => setFilter('UNASSIGNED')}
+                className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all flex items-center gap-1.5 ${
+                  filter === 'UNASSIGNED' ? 'bg-rose-700 text-white shadow-sm' : 'text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200'
+                }`}
+              >
+                <span>⚠️ Unassigned Requests</span>
+                <span className="rounded-full bg-rose-500/20 px-1.5 py-0.2 text-[10px] font-mono font-bold">
+                  {unassignedCount}
+                </span>
+              </button>
+            )}
             <button
               onClick={() => setFilter('RESOLVED')}
               className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all ${
@@ -419,8 +498,25 @@ export default function Approvals() {
                         </td>
 
                         {/* Sales Rep */}
-                        <td className="px-3 py-3 font-medium text-fg-2">
-                          {item.rep}
+                        <td className="px-3 py-3">
+                          {item.is_unassigned || item.rep === 'Unassigned' ? (
+                            <div>
+                              <span className="inline-flex items-center gap-1 text-rose-700 font-semibold bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md text-[11px]">
+                                ⚠️ Unassigned
+                              </span>
+                              <div className="text-[10px] text-fg-4 mt-0.5">Needs rep assignment</div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="font-medium text-fg">{item.rep}</div>
+                              {item.source === 'Customer Request' && (
+                                <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-600/20 px-1.5 py-0.2 text-[9px] font-bold mt-0.5">
+                                  Customer Request
+                                </span>
+                              )}
+                              <div className="text-[10px] text-fg-3">Manager: {item.manager_name || 'M. Shah'}</div>
+                            </div>
+                          )}
                         </td>
 
                         {/* Order Amount */}
@@ -444,6 +540,21 @@ export default function Approvals() {
                         <td className="px-4 py-3 text-right">
                           {isPending ? (
                             <div className="inline-flex items-center gap-1.5">
+                              {/* Reassign Button */}
+                              <button
+                                onClick={() => {
+                                  setReassignTarget(item)
+                                  setSelectedNewRep(item.rep_id || (repsList[0]?.id || 'rep_rao'))
+                                  setPermanentUpdate(true)
+                                }}
+                                disabled={isBusy}
+                                title="Reassign to another Sales Rep"
+                                className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                              >
+                                <ArrowRightLeft size={12} />
+                                <span>Reassign</span>
+                              </button>
+
                               {/* Approve Button */}
                               <button
                                 onClick={() => handleAction(item.ref, 'approve')}
@@ -503,6 +614,94 @@ export default function Approvals() {
             </div>
           )}
         </div>
+
+        {/* Reassignment Modal */}
+        {reassignTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in backdrop-blur-sm">
+            <div className="w-full max-w-md rounded-2xl bg-surface border border-line p-6 shadow-2xl">
+              <div className="flex items-center justify-between mb-4 border-b border-line pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                    <ArrowRightLeft size={16} />
+                  </div>
+                  <div>
+                    <h3 className="font-display font-bold text-[16px] text-fg">Reassign Quotation</h3>
+                    <p className="font-mono text-[11px] text-fg-3">{reassignTarget.ref} · {reassignTarget.customer}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setReassignTarget(null)}
+                  className="rounded-full p-1 text-fg-3 hover:text-fg hover:bg-surface-2"
+                >
+                  <XCircle size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[12px] font-semibold text-fg-2 mb-1">
+                    Current Account Owner
+                  </label>
+                  <div className="px-3 py-2 rounded-xl bg-surface-2 border border-line font-medium text-[13px] text-fg">
+                    {reassignTarget.rep || 'Unassigned'}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[12px] font-semibold text-fg-2 mb-1">
+                    Select New Sales Rep
+                  </label>
+                  <select
+                    value={selectedNewRep}
+                    onChange={e => setSelectedNewRep(e.target.value)}
+                    className="w-full rounded-xl bg-surface border border-line px-3 py-2 text-[13px] text-fg outline-none focus:ring-2 focus:ring-accent/30"
+                  >
+                    {repsList.map((r: any) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} ({r.email}) — Reports to: {r.manager_name || 'M. Shah'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="rounded-xl bg-accent/5 border border-accent/20 p-3">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={permanentUpdate}
+                      onChange={e => setPermanentUpdate(e.target.checked)}
+                      className="mt-0.5 rounded border-line text-accent focus:ring-accent"
+                    />
+                    <div className="text-[12px] leading-snug">
+                      <span className="font-semibold text-fg">Permanently update Customer Account Owner</span>
+                      <p className="text-fg-3 mt-0.5 text-[11px]">
+                        Future quotation requests submitted by {reassignTarget.customer} will automatically land in the selected rep's pipeline.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
+                  <button
+                    type="button"
+                    onClick={() => setReassignTarget(null)}
+                    className="rounded-full px-4 py-1.5 text-[12.5px] font-medium text-fg-2 hover:bg-surface-2"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={reassigning}
+                    onClick={handleReassign}
+                    className="rounded-full bg-fg text-white px-5 py-1.5 text-[12.5px] font-semibold hover:shadow-lift active:scale-[.98] disabled:opacity-50"
+                  >
+                    {reassigning ? 'Reassigning...' : 'Confirm Reassignment'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </Workspace>
   )

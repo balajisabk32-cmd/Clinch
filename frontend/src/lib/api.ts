@@ -172,6 +172,19 @@ export const api = {
       method: 'PATCH', body: JSON.stringify({ order_discount_pct }),
     }),
   submit: (ref: string) => req<any>(`/quotes/${ref}/submit`, { method: 'POST' }),
+  reassignQuote: (ref: string, new_rep_id: string, update_customer_assigned_rep = false, actor = 'M. Shah') =>
+    req<any>(`/quotes/${ref}/reassign`, {
+      method: 'POST',
+      body: JSON.stringify({ new_rep_id, update_customer_assigned_rep, actor }),
+    }),
+  getReps: () => req<any[]>('/users/reps'),
+  getManagers: () => req<any[]>('/users/managers'),
+  getAdminCustomers: () => req<any[]>('/admin/customers'),
+  updateCustomerRep: (customerId: number, assigned_rep_id: string) =>
+    req<any>(`/customers/${customerId}/assigned-rep`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assigned_rep_id }),
+    }),
   policy: () => req<any>('/policy'),
   applyPolicy: (body: Record<string, unknown>) =>
     req<any>('/policy', { method: 'PUT', body: JSON.stringify(body) }),

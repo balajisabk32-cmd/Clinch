@@ -63,6 +63,14 @@ export function Nav() {
           </nav>
 
           <Link
+            to="/shop"
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-black/[.08] px-3 py-1.5 font-display text-[13px] font-medium text-fg-2 hover:text-fg hover:bg-surface-2 active:scale-[.98]"
+            style={{ transition: `all 400ms ${EASE_CSS}` }}
+          >
+            🛒 Customer Portal
+          </Link>
+
+          <Link
             to="/login"
             className="group ml-1 inline-flex items-center gap-2 rounded-full bg-fg pl-4 pr-1.5 py-1.5
                        font-display text-[13px] font-semibold text-white active:scale-[.98]"
@@ -96,6 +104,13 @@ export function Nav() {
         style={{ transition: `opacity 600ms ${EASE_CSS}`, opacity: open ? 1 : 0 }}
         aria-hidden={!open}
       >
+        <Link
+          to="/shop"
+          onClick={() => setOpen(false)}
+          className="font-display text-2xl font-semibold text-accent py-2"
+        >
+          🛒 Customer Portal
+        </Link>
         {LINKS.map((l, i) => (
           <a
             key={l.href} href={l.href}

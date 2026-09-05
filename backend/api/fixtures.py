@@ -140,13 +140,17 @@ CUSTOMERS = {
 }
 
 USERS = [
-    dict(id="rep_rao",   name="A. Rao",   email="rao@dealflow.example",   role="rep"),
-    dict(id="rep_iyer",  name="K. Iyer",  email="iyer@dealflow.example",  role="rep"),
-    dict(id="rep_shah",  name="M. Shah",  email="shah@dealflow.example",  role="manager"),
-    dict(id="rep_nair",  name="S. Nair",  email="nair@dealflow.example",  role="rep"),
-    dict(id="fin_menon", name="R. Menon",  email="menon@dealflow.example", role="finance"),
-    dict(id="admin",     name="Admin",    email="admin@dealflow.example", role="admin"),
+    dict(id="rep_rao",   name="A. Rao",   email="rao@dealflow.example",   role="rep",     manager_id="rep_shah"),
+    dict(id="rep_iyer",  name="K. Iyer",  email="iyer@dealflow.example",  role="rep",     manager_id="rep_shah"),
+    dict(id="rep_shah",  name="M. Shah",  email="shah@dealflow.example",  role="manager", manager_id=None),
+    dict(id="rep_nair",  name="S. Nair",  email="nair@dealflow.example",  role="rep",     manager_id="rep_shah"),
+    dict(id="fin_menon", name="R. Menon",  email="menon@dealflow.example", role="finance", manager_id=None),
+    dict(id="admin",     name="Admin",    email="admin@dealflow.example", role="admin",   manager_id=None),
 ]
+
+MANAGER_FOR_REP: dict[str, str | None] = {
+    u["id"]: u.get("manager_id") for u in USERS if u.get("role") == "rep"
+}
 
 # Trailing effective-discount history per rep (CLINCH.md §9).
 #

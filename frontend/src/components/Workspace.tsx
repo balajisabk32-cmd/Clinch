@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { EASE_CSS } from '../lib/motion'
 
 /**
@@ -12,7 +13,7 @@ import { EASE_CSS } from '../lib/motion'
  */
 interface UserSession {
   name: string
-  role: 'CUSTOMER' | 'MANAGER' | 'REP' | 'ADMIN'
+  role: 'CUSTOMER' | 'MANAGER' | 'REP' | 'ADMIN' | 'FINANCE'
   email?: string
   tier?: string
 }
@@ -29,6 +30,13 @@ function getTabsForRole(role: string) {
       return [
         { to: '/app/approvals', label: 'Approvals Queue' },
         { to: '/app/pipeline', label: 'Pipeline' },
+        { to: '/app/quotations', label: 'Quotations' },
+        { to: '/app/health', label: 'Deal Health' },
+        { to: '/app/fulfilment', label: 'Fulfilment' },
+      ]
+    case 'FINANCE':
+      return [
+        { to: '/app/approvals', label: 'Approvals Queue' },
         { to: '/app/quotations', label: 'Quotations' },
         { to: '/app/health', label: 'Deal Health' },
         { to: '/app/fulfilment', label: 'Fulfilment' },
@@ -55,7 +63,16 @@ export function Workspace({
   children, onReload,
 }: { children: ReactNode; onReload?: () => void }) {
   const navigate = useNavigate()
+  const { user: authUser, logout } = useAuth()
+
   const user: UserSession = (() => {
+    if (authUser) {
+      return {
+        name: authUser.name,
+        role: authUser.role.toUpperCase() as any,
+        email: authUser.email,
+      }
+    }
     try {
       const stored = typeof window !== 'undefined' ? localStorage.getItem('dealflow_user') : null
       return stored ? JSON.parse(stored) : { name: 'Alice Sales', role: 'REP' }
@@ -71,10 +88,17 @@ export function Workspace({
   // render internal screens and still call internal endpoints, so a customer
   // session is redirected out of this shell entirely.
   useEffect(() => {
-    if (user.role === 'CUSTOMER') navigate('/portal', { replace: true })
+    if (user.role === 'CUSTOMER') navigate('/shop', { replace: true })
   }, [user.role, navigate])
 
   if (user.role === 'CUSTOMER') return null
+
+  const handleSignOut = () => {
+    localStorage.removeItem('dealflow_user')
+    localStorage.removeItem('df360_token')
+    sessionStorage.clear()
+    logout('manual')
+  }
 
   return (
     <div className="min-h-[100dvh] bg-bg">
@@ -89,6 +113,7 @@ export function Workspace({
               <NavLink
                 key={t.to}
                 to={t.to}
+                end={t.to === '/app/quotations'}
                 className={({ isActive }) =>
                   `whitespace-nowrap rounded-full px-3.5 py-1.5 text-[13px] font-medium ${
                     isActive ? 'bg-fg text-white shadow-sm' : 'text-fg-2 hover:text-fg hover:bg-surface-2'
@@ -101,19 +126,28 @@ export function Workspace({
           </nav>
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
-            {/* Active Persona Pill linking to /login */}
+            {/* Quick Switch to Customer Storefront */}
             <Link
-              to="/login"
+              to="/shop"
+              title="Open Customer Storefront"
+              className="hidden sm:inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] text-[#46586b] hover:text-[#0d1b2a] hover:bg-surface-2 ring-1 ring-black/[.06]"
+            >
+              <span>🛒 Storefront</span>
+            </Link>
+
+            {/* Active Persona Pill linking to /login */}
+            <button
+              onClick={handleSignOut}
               title="Active user session. Click to switch persona"
               className="rounded-full px-3 py-1 text-[12px] text-fg bg-surface-2 ring-1 ring-black/[.08]
-                         hover:ring-accent/40 flex items-center gap-1.5 font-medium"
+                         hover:ring-accent/40 flex items-center gap-1.5 font-medium cursor-pointer"
               style={{ transition: `all 320ms ${EASE_CSS}` }}
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm"></span>
               <span>{user.name}</span>
               <span className="text-accent text-[11px] font-semibold tracking-wide">({user.role})</span>
               <span className="text-fg-4 text-[10px] uppercase font-mono tracking-wider ml-0.5">Switch</span>
-            </Link>
+            </button>
 
             {/* Role-specific header controls */}
             {user.role === 'REP' && (
@@ -159,11 +193,12 @@ export function Workspace({
             )}
 
             <button
-              onClick={() => navigate('/')}
-              className="rounded-full px-3 py-1.5 text-[12.5px] text-fg-3 hover:text-band-finance"
+              onClick={handleSignOut}
+              title="Sign out of current account"
+              className="rounded-full px-3 py-1.5 text-[12.5px] font-medium text-fg-3 hover:text-band-finance hover:bg-rose-50/50"
               style={{ transition: `all 320ms ${EASE_CSS}` }}
             >
-              Exit
+              Sign Out
             </button>
           </div>
         </div>
