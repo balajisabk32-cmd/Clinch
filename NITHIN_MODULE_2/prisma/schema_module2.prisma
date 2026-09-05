@@ -1,0 +1,64 @@
+// =============================================================================
+// MODULE 2: PRODUCT CATALOG, VARIANTS & TIER PRICE LISTS DATA MODELS
+// =============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum CustomerTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+model Product {
+  id          String           @id @default(uuid())
+  name        String
+  category    String
+  basePrice   Decimal          @db.Decimal(10, 2)
+  unit        String           @default("piece")
+  taxPercent  Decimal          @default(18.0) @db.Decimal(5, 2)
+  description String?
+  isActive    Boolean          @default(true)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  variants    ProductVariant[]
+  priceLists  PriceList[]
+
+  @@map("products")
+}
+
+model ProductVariant {
+  id             String   @id @default(uuid())
+  productId      String
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeName  String
+  attributeValue String
+  extraPrice     Decimal  @default(0.0) @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+model PriceList {
+  id        String       @id @default(uuid())
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  tier      CustomerTier // BRONZE, SILVER, GOLD
+  price     Decimal      @db.Decimal(10, 2)
+  currency  String       @default("USD")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([productId, tier])
+  @@index([productId])
+  @@map("price_lists")
+}

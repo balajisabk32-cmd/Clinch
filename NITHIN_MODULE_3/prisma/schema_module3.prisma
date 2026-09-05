@@ -1,0 +1,50 @@
+// =============================================================================
+// MODULE 3: DISCOUNT TIERS & APPROVAL CHAINS DATA MODELS
+// =============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum CustomerTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+model TierDiscountLimit {
+  id                 String       @id @default(uuid())
+  tier               CustomerTier @unique
+  maxDiscountPercent Decimal      @db.Decimal(5, 2)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@map("tier_discount_limits")
+}
+
+model CategoryDiscountLimit {
+  id                 String   @id @default(uuid())
+  category           String   @unique
+  maxDiscountPercent Decimal  @db.Decimal(5, 2)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("category_discount_limits")
+}
+
+model ApprovalChainRule {
+  id                      String   @id @default(uuid())
+  minDiscountPercent      Decimal  @db.Decimal(5, 2)
+  maxDiscountPercent      Decimal  @db.Decimal(5, 2)
+  requiresManagerApproval Boolean  @default(false)
+  requiresFinanceApproval Boolean  @default(false)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@map("approval_chain_rules")
+}

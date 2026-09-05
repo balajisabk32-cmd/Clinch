@@ -1,0 +1,63 @@
+// =============================================================================
+// MODULE 1: AUTHENTICATION & RBAC + CUSTOMER PORTAL DATA MODELS
+// =============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  REP
+  MANAGER
+  FINANCE
+  ADMIN
+}
+
+enum CustomerTier {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         UserRole  @default(REP)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model Customer {
+  id          String         @id @default(uuid())
+  email       String         @unique
+  name        String
+  companyName String
+  tier        CustomerTier   @default(BRONZE)
+  magicLinks  MagicLinkToken[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@map("customers")
+}
+
+model MagicLinkToken {
+  id         String    @id @default(uuid())
+  tokenHash  String    @unique
+  customerId String
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([customerId])
+  @@map("magic_link_tokens")
+}
