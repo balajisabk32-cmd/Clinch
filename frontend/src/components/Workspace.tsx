@@ -114,12 +114,7 @@ export function Workspace({
               <span className="text-accent text-[11px] font-semibold tracking-wide capitalize">({user?.role})</span>
             </Link>
 
-            {/* Role-specific badge indicator */}
-            {user?.role === 'rep' && (
-              <div className="hidden lg:inline-flex items-center rounded-full bg-emerald-500/10 text-emerald-700 ring-1 ring-emerald-500/20 px-3 py-1 text-[11px] font-mono font-medium">
-                Max 15% HW / 20% SW
-              </div>
-            )}
+
 
             {onReload && (
               <button

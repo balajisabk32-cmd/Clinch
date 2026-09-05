@@ -309,10 +309,24 @@ export default function Builder() {
                   setBusy(true)
                   try {
                     const res = await api.submit(quote.ref)
-                    navigate(res.state === 'APPROVED' ? '/app/fulfilment' : '/app/approvals')
+                    const isApproved = res.state === 'APPROVED'
+                    const msg = isApproved
+                      ? `Quotation ${quote.ref} auto-approved! Redirecting to quotations…`
+                      : `Quotation ${quote.ref} submitted for Manager approval! Redirecting to quotations…`
+                    setFlash(msg)
+                    setTimeout(() => {
+                      navigate('/app/quotations', {
+                        state: {
+                          flash: isApproved
+                            ? `Quotation ${quote.ref} auto-approved and released for confirmation.`
+                            : `Quotation ${quote.ref} submitted successfully — now pending manager review.`,
+                        },
+                      })
+                    }, 800)
                   } catch (e: any) {
                     setError(`Could not submit (${e?.message ?? 'unknown error'}).`)
-                  } finally { setBusy(false) }
+                    setBusy(false)
+                  }
                 }}
                 disabled={!editable || busy || (quote.lines ?? []).length === 0}
                 title={
@@ -364,11 +378,37 @@ export default function Builder() {
                   Rep Delegated Authority Limits
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[11px] font-mono text-fg-3">
-                <span className="px-2 py-0.5 rounded bg-surface-2">HW: Max 15%</span>
-                <span className="px-2 py-0.5 rounded bg-surface-2">SW: Max 20%</span>
-                <span className="px-2 py-0.5 rounded bg-surface-2">Services: Max 10%</span>
-                <span className="px-2 py-0.5 rounded bg-surface-2">Subs: Max 15%</span>
+              {/* The ceilings that bind THIS quotation, from /policy.
+                  These were four hardcoded chips reading 15/20/10/15. Two were
+                  simply wrong against the engine (software caps at 15, subs at
+                  12), and all four ignored the tier — which is very often the
+                  binding one: on a Bronze account every category caps at 5%
+                  regardless of what the category allows. A rep reading the old
+                  strip on a Bronze deal was told 15% and escalated at 5%. */}
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono text-fg-3">
+                {policy ? CATEGORIES.map(c => {
+                  const cap = ceilingFor(policy, quote.tier, c)
+                  const bound = cap !== null
+                    && (policy.tier_ceiling?.[quote.tier] ?? 100)
+                       <= (policy.category_ceiling?.[c] ?? 100)
+                  return (
+                    <span key={c}
+                          className={`px-2 py-0.5 rounded ${
+                            bound ? 'bg-band-managerWash text-band-manager' : 'bg-surface-2'}`}
+                          title={bound
+                            ? `${quote.tier} tier caps this below the ${c} ceiling`
+                            : `${c} category ceiling`}>
+                      {c.slice(0, 4)}: max {cap}%
+                    </span>
+                  )
+                }) : (
+                  <span className="px-2 py-0.5 rounded bg-surface-2">loading ceilings…</span>
+                )}
+                {policy && (
+                  <span className="text-fg-4">
+                    · {quote.tier} tier caps at {policy.tier_ceiling?.[quote.tier]}%
+                  </span>
+                )}
               </div>
             </div>
 

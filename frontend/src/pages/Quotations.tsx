@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { LayoutGrid, Rows3, Search } from 'lucide-react'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { CheckCircle2, LayoutGrid, Rows3, Search } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../lib/api'
 import { Band } from '../components/ui'
@@ -49,6 +49,8 @@ const railFor = (r: Row) =>
 
 export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipeline' }) {
   const navigate = useNavigate()
+  const location = useLocation() as { state?: { flash?: string } }
+  const [flash, setFlash] = useState<string | null>(location.state?.flash ?? null)
   const { user } = useAuth()
   const isRep = user?.role === 'rep'
   const [rows, setRows] = useState<Row[]>([])
@@ -128,6 +130,22 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
     <Workspace onReload={load}>
       <div className="flex flex-col gap-3">
         {error && <ErrorBar message={error} onRetry={load} />}
+
+        {flash && (
+          <div className="flex items-center justify-between rounded-xl bg-band-autoWash border border-band-auto/25 px-4 py-3 text-[13px] text-band-auto font-medium animate-fadeIn">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 size={16} className="text-band-auto shrink-0" />
+              <span>{flash}</span>
+            </div>
+            <button
+              onClick={() => setFlash(null)}
+              className="text-band-auto/70 hover:text-band-auto text-xs font-mono px-2 py-0.5"
+              aria-label="Dismiss message"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">
