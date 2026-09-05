@@ -345,12 +345,19 @@ def _guard_editable(ref: str) -> None:
 
 @sales.post("/quotes")
 def create_quote(body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depends(require("quote.edit"))) -> dict[str, Any]:
+    if _actor.get("role") != "rep":
+        raise HTTPException(status_code=403, detail={
+            "error": "forbidden",
+            "role": _actor.get("role"),
+            "message": "Only sales representatives are permitted to create quotations.",
+        })
     customer = body.get("customer")
     if customer not in fx.CUSTOMERS:
         raise HTTPException(422, f"Unknown customer {customer!r}")
-    ref = state.create_quote(customer, body.get("rep", "rep_rao"))
-    state.record(ref, fx.REP_NAME.get(body.get("rep", "rep_rao"), "A. Rao"),
-                 "rep", "created", reason=f"new quotation for {customer}")
+    rep_id = _actor.get("id", body.get("rep", "rep_rao"))
+    rep_name = _actor.get("name", fx.REP_NAME.get(rep_id, "A. Rao"))
+    ref = state.create_quote(customer, rep_id)
+    state.record(ref, rep_name, "rep", "created", reason=f"new quotation for {customer}")
     return quote_detail(ref)
 
 

@@ -97,14 +97,16 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => navigate('/app/quotations')}
-              className="rounded-full bg-fg text-white px-4 py-2 font-display text-[12.5px]
-                         font-semibold hover:shadow-lift-lg active:scale-[.98]"
-              style={{ transition: `all 320ms ${EASE_CSS}` }}
-            >
-              + New Quotation
-            </button>
+            {user?.role === 'rep' && (
+              <button
+                onClick={() => navigate('/app/quotations')}
+                className="rounded-full bg-fg text-white px-4 py-2 font-display text-[12.5px]
+                           font-semibold hover:shadow-lift-lg active:scale-[.98]"
+                style={{ transition: `all 320ms ${EASE_CSS}` }}
+              >
+                + New Quotation
+              </button>
+            )}
             {canApprove ? (
               <button
                 onClick={() => navigate('/app/approvals')}

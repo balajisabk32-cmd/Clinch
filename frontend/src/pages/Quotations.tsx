@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { api, inr } from '../lib/api'
 import { Band } from '../components/ui'
 import { ErrorBar, Workspace } from '../components/Workspace'
@@ -26,6 +27,8 @@ const CUSTOMERS = ['Acme Corp', 'Beta Industries', 'Nova Retail', 'Zenith Co',
 
 export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipeline' }) {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isRep = user?.role === 'rep'
   const [rows, setRows] = useState<Row[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -114,24 +117,28 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
                 >
                   {mode === 'list' ? 'Switch to Pipeline View' : 'Switch to Table View'}
                 </button>
-                <select
-                  value={newFor}
-                  onChange={e => setNewFor(e.target.value)}
-                  className="rounded-full bg-surface px-3 py-1.5 text-[12.5px] text-fg
-                             ring-1 ring-black/[.07] outline-none focus:ring-accent/40"
-                  aria-label="Customer for new quotation"
-                >
-                  {CUSTOMERS.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <button
-                  onClick={create}
-                  disabled={busy}
-                  className="rounded-full bg-fg text-white px-4 py-1.5 font-display text-[12.5px]
-                             font-semibold hover:shadow-lift-lg active:scale-[.98] disabled:opacity-40"
-                  style={{ transition: `all 320ms ${EASE_CSS}` }}
-                >
-                  + New Quotation
-                </button>
+                {isRep && (
+                  <>
+                    <select
+                      value={newFor}
+                      onChange={e => setNewFor(e.target.value)}
+                      className="rounded-full bg-surface px-3 py-1.5 text-[12.5px] text-fg
+                                 ring-1 ring-black/[.07] outline-none focus:ring-accent/40"
+                      aria-label="Customer for new quotation"
+                    >
+                      {CUSTOMERS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <button
+                      onClick={create}
+                      disabled={busy}
+                      className="rounded-full bg-fg text-white px-4 py-1.5 font-display text-[12.5px]
+                                 font-semibold hover:shadow-lift-lg active:scale-[.98] disabled:opacity-40"
+                      style={{ transition: `all 320ms ${EASE_CSS}` }}
+                    >
+                      + New Quotation
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -139,7 +146,7 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
 
         {displayRows.length === 0 && !error && (
           <p className="py-16 text-center text-[13px] text-fg-3">
-            No open quotations. Create one to get started.
+            {isRep ? 'No open quotations. Create one to get started.' : 'No open quotations.'}
           </p>
         )}
 
