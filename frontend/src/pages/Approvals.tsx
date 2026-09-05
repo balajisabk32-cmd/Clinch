@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError, request } from '../lib/authClient'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
@@ -40,6 +40,8 @@ export default function Approvals() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [filter, setFilter] = useState<'ALL' | 'MANAGER' | 'FINANCE' | 'RESOLVED'>('ALL')
+  const [managerFilter, setManagerFilter] = useState<string>('ALL')
+  const [repFilter, setRepFilter] = useState<string>('ALL')
   const [search, setSearch] = useState('')
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [busyRef, setBusyRef] = useState<string | null>(null)
@@ -143,6 +145,26 @@ export default function Approvals() {
     }))
   }
 
+  // Dynamic Manager and Rep options extracted from current items
+  const managerOptions = useMemo(() => {
+    const set = new Set<string>()
+    items.forEach(i => {
+      if (i.assigned_to && i.assigned_to !== '—') set.add(i.assigned_to)
+    })
+    if (user?.name && ['manager', 'admin'].includes(user.role)) {
+      set.add(user.name)
+    }
+    return Array.from(set).sort()
+  }, [items, user])
+
+  const repOptions = useMemo(() => {
+    const set = new Set<string>()
+    items.forEach(i => {
+      if (i.rep && i.rep !== '—') set.add(i.rep)
+    })
+    return Array.from(set).sort()
+  }, [items])
+
   // Filter items
   const pendingItems = items.filter(i => i.state.startsWith('PENDING'))
   const filtered = items.filter(i => {
@@ -151,11 +173,22 @@ export default function Approvals() {
     if (filter === 'RESOLVED') return !i.state.startsWith('PENDING')
     return i.state.startsWith('PENDING')
   }).filter(i => {
+    if (managerFilter === 'ALL') return true
+    if (managerFilter === 'MINE') {
+      return (user?.name && i.assigned_to === user.name) ||
+             (user?.role === 'manager' && i.state === 'PENDING_MANAGER')
+    }
+    return i.assigned_to === managerFilter
+  }).filter(i => {
+    if (repFilter === 'ALL') return true
+    return i.rep === repFilter
+  }).filter(i => {
     if (!search) return true
     const term = search.toLowerCase()
     return i.ref.toLowerCase().includes(term) ||
            i.customer.toLowerCase().includes(term) ||
-           (i.rep && i.rep.toLowerCase().includes(term))
+           (i.rep && i.rep.toLowerCase().includes(term)) ||
+           (i.assigned_to && i.assigned_to.toLowerCase().includes(term))
   })
 
   const totalPendingValue = pendingItems.reduce((acc, i) => acc + (i.total || 0), 0)
@@ -260,8 +293,9 @@ export default function Approvals() {
         </div>
 
         {/* Filters and Search Strip */}
-        <div className="panel flex flex-wrap items-center justify-between gap-3 px-2.5 py-2">
-          <div className="flex items-center gap-1.5">
+        <div className="panel flex flex-wrap items-center justify-between gap-3 p-3">
+          {/* Stage Quick Filter Tabs */}
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => setFilter('ALL')}
               className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors duration-150 ${
@@ -296,15 +330,59 @@ export default function Approvals() {
             </button>
           </div>
 
-          <div className="relative w-64">
-            <Search size={14} className="absolute left-3 top-2.5 text-fg-4" />
-            <input
-              type="text"
-              placeholder="Search quote, client, rep..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full rounded-full bg-surface-2 pl-8 pr-3 py-1.5 text-[12.5px] text-fg placeholder:text-fg-4 ring-1 ring-black/[.06] outline-none focus:ring-accent/40"
-            />
+          {/* Manager & Rep Dropdowns + Search */}
+          <div className="flex flex-wrap items-center gap-2.5 ml-auto">
+            {/* Filter by Manager */}
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="manager-filter" className="text-[11.5px] text-fg-3 font-medium flex items-center gap-1">
+                <UserCheck size={13} className="text-accent" />
+                <span>Manager:</span>
+              </label>
+              <select
+                id="manager-filter"
+                value={managerFilter}
+                onChange={e => setManagerFilter(e.target.value)}
+                className="rounded-lg bg-surface px-2.5 py-1 text-[12px] text-fg ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
+              >
+                <option value="ALL">All Managers</option>
+                {user?.role === 'manager' && (
+                  <option value="MINE">Assigned to Me ({user.name})</option>
+                )}
+                {managerOptions.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Filter by Rep */}
+            <div className="flex items-center gap-1.5">
+              <label htmlFor="rep-filter" className="text-[11.5px] text-fg-3 font-medium">
+                Rep:
+              </label>
+              <select
+                id="rep-filter"
+                value={repFilter}
+                onChange={e => setRepFilter(e.target.value)}
+                className="rounded-lg bg-surface px-2.5 py-1 text-[12px] text-fg ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
+              >
+                <option value="ALL">All Reps</option>
+                {repOptions.map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Search Input */}
+            <div className="relative w-48 sm:w-56">
+              <Search size={14} className="absolute left-3 top-2 text-fg-4" />
+              <input
+                type="text"
+                placeholder="Filter quote, client, rep..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full rounded-full bg-surface-2 pl-8 pr-3 py-1 text-[12px] text-fg placeholder:text-fg-4 ring-1 ring-black/[.06] outline-none focus:ring-accent/40"
+              />
+            </div>
           </div>
         </div>
 
@@ -328,6 +406,7 @@ export default function Approvals() {
                     <th className="text-left font-medium px-3 py-3">Rep</th>
                     <th className="text-right font-medium px-3 py-3">Amount</th>
                     <th className="text-left font-medium px-3 py-3">Risk Band</th>
+                    <th className="text-left font-medium px-3 py-3">Assigned Approver</th>
                     <th className="text-left font-medium px-3 py-3">Stage</th>
                     <th className="text-right font-medium px-4 py-3">Manager Actions</th>
                   </tr>
@@ -374,6 +453,14 @@ export default function Approvals() {
                         {/* Risk Band */}
                         <td className="px-3 py-3">
                           <Band band={item.risk_band} />
+                        </td>
+
+                        {/* Assigned Approver */}
+                        <td className="px-3 py-3 font-medium text-fg-2">
+                          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-2 text-[11.5px] text-fg-2 font-mono">
+                            <span className="w-1.5 h-1.5 rounded-full bg-accent" />
+                            {item.assigned_to || (item.state === 'PENDING_FINANCE' ? 'R. Menon' : 'M. Shah')}
+                          </span>
                         </td>
 
                         {/* Stage */}
