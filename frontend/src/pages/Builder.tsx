@@ -70,6 +70,8 @@ export default function Builder() {
   const [error, setError] = useState<string | null>(null)
   const [policy, setPolicy] = useState<PolicyShape | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
+  const [revisionModalOpen, setRevisionModalOpen] = useState(false)
+  const [revisionNote, setRevisionNote] = useState('')
 
   /**
    * Every mutation returns the fully recomputed quotation, so one call keeps the
@@ -202,9 +204,6 @@ export default function Builder() {
       setBusy(false)
     }
   }
-
-  const [revisionModalOpen, setRevisionModalOpen] = useState(false)
-  const [revisionNote, setRevisionNote] = useState('')
 
   const sendRevision = async () => {
     if (!quote) return
