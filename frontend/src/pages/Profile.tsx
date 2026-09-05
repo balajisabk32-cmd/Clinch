@@ -34,7 +34,7 @@ const ROLE_METADATA: Record<string, RoleDetail> = {
   },
   manager: {
     title: 'Sales Manager',
-    description: 'Tier 1 quotation approvals, discount policy configuration, sales rep pipeline oversight, and executive reporting.',
+    description: 'Tier 1 quotation approvals, sales rep pipeline oversight, deal velocity tracking, and executive reporting.',
     tone: 'bg-amber-500/10 text-amber-700 ring-amber-500/25',
     allowedModules: [
       { name: 'Sales Dashboard', path: '/app/dashboard', desc: 'Pipeline overview and pending review queues' },
@@ -43,9 +43,9 @@ const ROLE_METADATA: Record<string, RoleDetail> = {
       { name: 'Deal Health Monitor', path: '/app/health', desc: 'Track deal velocity and detect stalled deals' },
       { name: 'Reports & Analytics', path: '/app/reports', desc: 'Track revenue, margin leakage, and approval times' },
       { name: 'Product Catalogue', path: '/app/products', desc: 'Explore products, pricing, and variants' },
-      { name: 'Discount Governance', path: '/app/settings', desc: 'Configure tier ceilings and approval bands' },
     ],
     restrictedModules: [
+      { name: 'Discount Governance & Settings', reason: 'Configuring company-wide discount ceilings, approval bands, and scoring weights is strictly an Administrator governance function.' },
       { name: 'Subscriptions & Invoicing', reason: 'Billing operations & credit notes are restricted to Finance.' },
       { name: 'Warehouse Allocation Dispatch', reason: 'Committing stock shipments is restricted to Operations/Finance.' },
       { name: 'System User Provisioning', reason: 'User provisioning and role assignments are restricted to Administrators.' },

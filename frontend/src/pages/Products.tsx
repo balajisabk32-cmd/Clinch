@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { api, inr } from '../lib/api'
 import { ErrorBar, Workspace } from '../components/Workspace'
 import { EASE_CSS } from '../lib/motion'
@@ -31,6 +32,8 @@ const BLANK = {
 
 export default function Products() {
   const navigate = useNavigate()
+  const { user, can } = useAuth()
+  const canManageProducts = user?.role === 'admin' || can('product.manage')
   const [rows, setRows] = useState<Product[]>([])
   const [pricelists, setPricelists] = useState<any[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -97,14 +100,16 @@ export default function Products() {
               Every product, variant and price rule in one place.
             </p>
           </div>
-          <button
-            onClick={() => setCreating(c => !c)}
-            className="ml-auto rounded-full bg-fg text-white px-4 py-2 font-display
-                       text-[12.5px] font-semibold hover:shadow-lift-lg active:scale-[.98]"
-            style={{ transition: `all 320ms ${EASE_CSS}` }}
-          >
-            {creating ? 'Cancel' : '+ New Product'}
-          </button>
+          {canManageProducts && (
+            <button
+              onClick={() => setCreating(c => !c)}
+              className="ml-auto rounded-full bg-fg text-white px-4 py-2 font-display
+                         text-[12.5px] font-semibold hover:shadow-lift-lg active:scale-[.98]"
+              style={{ transition: `all 320ms ${EASE_CSS}` }}
+            >
+              {creating ? 'Cancel' : '+ New Product'}
+            </button>
+          )}
         </header>
 
         {/* Counters (wireframe screen 16) */}
@@ -130,7 +135,7 @@ export default function Products() {
         </div>
 
         {/* New product form */}
-        {creating && (
+        {creating && canManageProducts && (
           <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5">
             <h2 className="font-display text-[14px] font-semibold text-fg mb-3">New product</h2>
             <div className="grid sm:grid-cols-3 gap-3">

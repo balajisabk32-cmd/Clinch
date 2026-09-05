@@ -39,7 +39,7 @@ const AdminPortal = lazy(() => import('./pages/AdminPortal'))
 const ALL_INTERNAL = ['admin', 'manager', 'finance', 'rep']
 const APPROVERS = ['admin', 'manager', 'finance']
 const OPERATIONS = ['admin', 'finance']
-const POLICY = ['admin', 'manager']
+const POLICY = ['admin']
 const ADMIN_ONLY = ['admin']
 
 const guard = (element: React.ReactElement, roles: string[]) => (

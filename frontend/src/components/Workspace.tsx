@@ -21,7 +21,7 @@ const ROLE_ALLOWED_ROUTES: Record<string, string[]> = {
   manager: [
     '/app/dashboard', '/app/quotations', '/app/pipeline', '/app/approvals',
     '/app/fulfilment', '/app/health', '/app/reports', '/app/products',
-    '/app/settings', '/app/profile',
+    '/app/profile',
   ],
   finance: [
     '/app/dashboard', '/app/quotations', '/app/pipeline', '/app/approvals',

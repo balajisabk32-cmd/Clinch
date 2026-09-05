@@ -51,7 +51,6 @@ PERMISSIONS: dict[Role, set[str]] = {
         "quote.view", "quote.edit", "quote.submit",
         "product.view", "fulfilment.view", "dealhealth.view", "portal.share",
         "approval.manager",          # first-level sign-off
-        "policy.config",             # PS: "Configures discount tiers and approval chains"
         "reports.view",
     },
     "finance": {
