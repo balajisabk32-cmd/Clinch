@@ -446,13 +446,16 @@ def approvals(pending_only: bool = Query(False), _actor: dict[str, Any] = Depend
         st = row["state"]
         if pending_only and not st.startswith("PENDING"):
             continue
+        rep_name = fx.REP_NAME.get(q.rep_id, q.rep_id)
+        assigned_mgr = fx.REP_TO_MANAGER.get(q.rep_id, fx.REP_TO_MANAGER.get(rep_name, "M. Shah"))
         rows.append(dict(
             ref=q.ref, customer=q.customer, tier=q.tier, state=st,
             risk_score=r.score, risk_band=r.band,
+            rep=rep_name,
             stage="Finance" if st == "PENDING_FINANCE" else
                   "Sales Manager" if st == "PENDING_MANAGER" else "—",
             assigned_to="R. Menon" if st == "PENDING_FINANCE" else
-                        "M. Shah" if st == "PENDING_MANAGER" else "—",
+                        assigned_mgr if st == "PENDING_MANAGER" else "—",
         ))
     return rows
 
@@ -480,8 +483,10 @@ def approval_detail(ref: str, _actor: dict[str, Any] = Depends(require("quote.vi
             return "approved"
         return "pending" if current == "PENDING_FINANCE" else "skipped"
 
+    rep_name = fx.REP_NAME.get(quote.rep_id, quote.rep_id)
+    assigned_mgr = fx.REP_TO_MANAGER.get(quote.rep_id, fx.REP_TO_MANAGER.get(rep_name, "M. Shah"))
     steps = [dict(role="Sales Manager", status=step_status("Sales Manager"),
-                  actor="M. Shah" if step_status("Sales Manager") == "approved" else None)]
+                  actor=assigned_mgr if step_status("Sales Manager") == "approved" else None)]
     if needs_finance:
         steps.append(dict(role="Finance", status=step_status("Finance"),
                           actor="R. Menon" if step_status("Finance") == "approved" else None))

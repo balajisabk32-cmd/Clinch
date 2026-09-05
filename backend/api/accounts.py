@@ -37,6 +37,7 @@ def _public(user: dict[str, Any]) -> dict[str, Any]:
         "id": user["id"], "name": user["name"], "email": user["email"],
         "role": user["role"], "is_active": user["is_active"],
         "created_at": user["created_at"], "last_login_at": user.get("last_login_at"),
+        "manager_id": user.get("manager_id"), "team": user.get("team"),
     }
 
 

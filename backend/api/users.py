@@ -24,6 +24,7 @@ _USERS_CACHE: dict[str, dict[str, Any]] = {}
 
 
 def _row_to_user(r: Any, *, with_hash: bool = False) -> dict[str, Any]:
+    keys = r.keys() if hasattr(r, "keys") else ()
     user = {
         "id": r["id"],
         "name": r["name"],
@@ -32,6 +33,8 @@ def _row_to_user(r: Any, *, with_hash: bool = False) -> dict[str, Any]:
         "is_active": bool(r["is_active"]),
         "created_at": r["created_at"],
         "last_login_at": r["last_login_at"],
+        "manager_id": r["manager_id"] if "manager_id" in keys else None,
+        "team": r["team"] if "team" in keys else None,
     }
     if with_hash:
         user["password_hash"] = r["password_hash"]
@@ -97,7 +100,8 @@ def list_all() -> list[dict[str, Any]]:
 
 
 def create(name: str, email: str, password: str, role: str,
-           user_id: str | None = None) -> dict[str, Any]:
+           user_id: str | None = None, manager_id: str | None = None,
+           team: str | None = None) -> dict[str, Any]:
     """Create a user. Callers must have validated email and password first."""
     email = normalize_email(email)
     if role not in ROLES:
@@ -115,13 +119,20 @@ def create(name: str, email: str, password: str, role: str,
 
     db.execute(
         """INSERT INTO app_user
-           (id, name, email, password_hash, role, is_active, created_at, last_login_at)
-           VALUES (?,?,?,?,?,1,?,NULL)""",
+           (id, name, email, password_hash, role, is_active, created_at, last_login_at, manager_id, team)
+           VALUES (?,?,?,?,?,1,?,NULL,?,?)""",
         (uid, name.strip(), email, hash_password(password), role,
-         datetime.now(timezone.utc).isoformat(timespec="seconds")),
+         datetime.now(timezone.utc).isoformat(timespec="seconds"), manager_id, team),
     )
     _USERS_CACHE.pop(uid, None)
     return by_id(uid)  # type: ignore[return-value]
+
+
+def set_manager(user_id: str, manager_id: str | None, team: str | None = None) -> dict[str, Any] | None:
+    _USERS_CACHE.pop(user_id, None)
+    db.execute("UPDATE app_user SET manager_id = ?, team = COALESCE(?, team) WHERE id = ?",
+               (manager_id, team, user_id))
+    return by_id(user_id)
 
 
 def set_active(user_id: str, active: bool) -> dict[str, Any] | None:

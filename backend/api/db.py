@@ -64,7 +64,9 @@ CREATE TABLE IF NOT EXISTS app_user (
   role TEXT NOT NULL CHECK (role IN ('admin','manager','finance','rep','customer')),
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
-  last_login_at TEXT);
+  last_login_at TEXT,
+  manager_id TEXT,
+  team TEXT);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_app_user_email ON app_user(email);
 
 CREATE TABLE IF NOT EXISTS product_variant (
@@ -201,6 +203,13 @@ def migrate(conn: sqlite3.Connection) -> None:
         conn.execute("DROP TABLE app_user")
         conn.executescript(SCHEMA)
         conn.commit()
+    elif existing:
+        if "manager_id" not in existing:
+            conn.execute("ALTER TABLE app_user ADD COLUMN manager_id TEXT")
+            conn.commit()
+        if "team" not in existing:
+            conn.execute("ALTER TABLE app_user ADD COLUMN team TEXT")
+            conn.commit()
 
 
 def close() -> None:

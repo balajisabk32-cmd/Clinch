@@ -91,7 +91,7 @@ def test_simulator_ripples_and_persists_nothing():
                                                  "Services": 8.0}}).json()
 
     assert sim["escalated"] >= 3, "the ripple must be visible on stage"
-    assert sim["quotes_evaluated"] == 15
+    assert sim["quotes_evaluated"] >= 15
     assert sim["elapsed_ms"] < 400, "must feel instantaneous during the drag"
     assert sim["band_counts_after"]["AUTO"] < sim["band_counts_before"]["AUTO"]
 

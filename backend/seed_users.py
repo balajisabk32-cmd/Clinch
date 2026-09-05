@@ -32,25 +32,45 @@ SUPERADMIN = dict(
     role="admin",
 )
 
-# Demo operators, one per internal role, so each permission boundary can be
-# exercised without an admin having to create three accounts by hand first.
+# Demo operators: 3 Clusters of 1 Manager + 4 Reps each, plus Finance & Admin
 DEMO_USERS = [
-    dict(id="rep_rao", name="A. Rao", email="rao@clinch.io",
-         password="RepRao2026!#", role="rep"),
-    dict(id="mgr_shah", name="M. Shah", email="shah@clinch.io",
-         password="MgrShah2026!#", role="manager"),
-    dict(id="fin_menon", name="R. Menon", email="menon@clinch.io",
-         password="FinMenon2026!#", role="finance"),
+    # Group 1: Enterprise North (Manager: M. Shah)
+    dict(id="mgr_shah",     name="M. Shah",     email="shah@clinch.io",      password="MgrShah2026!#",     role="manager", team="Enterprise North"),
+    dict(id="rep_rao",      name="A. Rao",      email="rao@clinch.io",       password="RepRao2026!#",      role="rep",     manager_id="mgr_shah", team="Enterprise North"),
+    dict(id="rep_iyer",     name="K. Iyer",     email="iyer@clinch.io",      password="RepIyer2026!#",     role="rep",     manager_id="mgr_shah", team="Enterprise North"),
+    dict(id="rep_nair",     name="S. Nair",     email="nair@clinch.io",      password="RepNair2026!#",     role="rep",     manager_id="mgr_shah", team="Enterprise North"),
+    dict(id="rep_verma",    name="V. Verma",    email="verma@clinch.io",     password="RepVerma2026!#",    role="rep",     manager_id="mgr_shah", team="Enterprise North"),
+
+    # Group 2: Strategic South (Manager: P. Deshmukh)
+    dict(id="mgr_deshmukh", name="P. Deshmukh", email="deshmukh@clinch.io",  password="MgrDeshmukh2026!#", role="manager", team="Strategic South"),
+    dict(id="rep_gupta",    name="R. Gupta",    email="gupta@clinch.io",     password="RepGupta2026!#",    role="rep",     manager_id="mgr_deshmukh", team="Strategic South"),
+    dict(id="rep_joshi",    name="S. Joshi",    email="joshi@clinch.io",     password="RepJoshi2026!#",    role="rep",     manager_id="mgr_deshmukh", team="Strategic South"),
+    dict(id="rep_patel",    name="D. Patel",    email="patel@clinch.io",     password="RepPatel2026!#",    role="rep",     manager_id="mgr_deshmukh", team="Strategic South"),
+    dict(id="rep_reddy",    name="N. Reddy",    email="reddy@clinch.io",     password="RepReddy2026!#",    role="rep",     manager_id="mgr_deshmukh", team="Strategic South"),
+
+    # Group 3: Commercial West (Manager: A. Kulkarni)
+    dict(id="mgr_kulkarni", name="A. Kulkarni", email="kulkarni@clinch.io",  password="MgrKulkarni2026!#", role="manager", team="Commercial West"),
+    dict(id="rep_chopra",   name="M. Chopra",   email="chopra@clinch.io",    password="RepChopra2026!#",   role="rep",     manager_id="mgr_kulkarni", team="Commercial West"),
+    dict(id="rep_mehta",    name="T. Mehta",    email="mehta@clinch.io",     password="RepMehta2026!#",    role="rep",     manager_id="mgr_kulkarni", team="Commercial West"),
+    dict(id="rep_sen",      name="B. Sen",      email="sen@clinch.io",       password="RepSen2026!#",      role="rep",     manager_id="mgr_kulkarni", team="Commercial West"),
+    dict(id="rep_bhatia",   name="P. Bhatia",   email="bhatia@clinch.io",    password="RepBhatia2026!#",   role="rep",     manager_id="mgr_kulkarni", team="Commercial West"),
+
+    # Finance
+    dict(id="fin_menon",    name="R. Menon",    email="menon@clinch.io",     password="FinMenon2026!#",    role="finance"),
 ]
 
 
 def provision(spec: dict[str, str], force: bool) -> str:
     existing = users.by_email(spec["email"])
     if existing and not force:
+        if spec.get("manager_id") or spec.get("team"):
+            users.set_manager(existing["id"], spec.get("manager_id"), spec.get("team"))
         return "exists"
     if existing:
         users.set_password(existing["id"], spec["password"])
         users.set_active(existing["id"], True)
+        if spec.get("manager_id") or spec.get("team"):
+            users.set_manager(existing["id"], spec.get("manager_id"), spec.get("team"))
         return "reset"
 
     # Never seed a credential the API itself would reject -- that would ship a
@@ -60,7 +80,8 @@ def provision(spec: dict[str, str], force: bool) -> str:
         raise SystemExit(f"Seed password for {spec['email']} violates policy: {problems}")
 
     users.create(spec["name"], spec["email"], spec["password"],
-                 spec["role"], user_id=spec.get("id"))
+                 spec["role"], user_id=spec.get("id"),
+                 manager_id=spec.get("manager_id"), team=spec.get("team"))
     return "created"
 
 
