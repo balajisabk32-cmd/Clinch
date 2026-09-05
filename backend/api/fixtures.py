@@ -117,11 +117,16 @@ def price_for(sku: str, tier: str, currency: str = "INR") -> float:
 
 
 def make_line(sku: str, qty: int, discount_pct: float = 0.0) -> Line:
-    p = BY_SKU[sku]
+    p = BY_SKU.get(sku)
+    if not p:
+        from . import state
+        p = state.get_product(sku)
+    if not p:
+        raise KeyError(f"Unknown SKU: {sku}")
     return Line(
-        sku=p["sku"], name=p["name"], category=p["category"], qty=qty,
-        list_price=p["list_price"], cost=p["cost"], discount_pct=discount_pct,
-        is_recurring=p.get("is_recurring", False),
+        sku=p["sku"], name=p.get("name") or p["sku"], category=p.get("category", "Hardware"), qty=qty,
+        list_price=float(p.get("list_price", 0.0)), cost=float(p.get("cost", 0.0)), discount_pct=float(discount_pct),
+        is_recurring=bool(p.get("is_recurring", False)),
     )
 
 

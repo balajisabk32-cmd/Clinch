@@ -44,7 +44,7 @@ export default function Builder() {
   const [basis, setBasis] = useState('none')
   const [filtered, setFiltered] = useState(0)
   const [coach, setCoach] = useState<Coach | null>(null)
-  const [cat, setCat] = useState<(typeof CATEGORIES)[number]>('Hardware')
+  const [cat, setCat] = useState<'All' | (typeof CATEGORIES)[number]>('All')
   const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -94,9 +94,11 @@ export default function Builder() {
 
   const catalogue = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    return products.filter(p =>
-      (needle ? p.name.toLowerCase().includes(needle) || p.sku.toLowerCase().includes(needle)
-              : p.category === cat))
+    return products.filter(p => {
+      const matchSearch = !needle || p.name.toLowerCase().includes(needle) || p.sku.toLowerCase().includes(needle)
+      const matchCat = cat === 'All' || p.category?.toLowerCase() === cat.toLowerCase()
+      return matchSearch && matchCat
+    })
   }, [products, cat, search])
 
   const addSuggestion = async (sku: string) => {
@@ -371,7 +373,7 @@ export default function Builder() {
             <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-4">
               <div className="flex flex-wrap items-center gap-2 mb-3">
                 <h2 className="font-display text-[14px] font-semibold text-fg mr-1">Add products</h2>
-                {CATEGORIES.map(c => (
+                {(['All', ...CATEGORIES] as const).map(c => (
                   <button
                     key={c}
                     onClick={() => { setCat(c); setSearch('') }}

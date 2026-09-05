@@ -61,6 +61,20 @@ def set_policy(p: Policy) -> None:
     _policy = p
 
 
+def get_product(sku: str) -> dict[str, Any] | None:
+    """Find product in current working state, falling back to static fixtures."""
+    for p in PRODUCTS:
+        if p["sku"] == sku:
+            return p
+    return fx.BY_SKU.get(sku)
+
+
+def sync_by_sku() -> None:
+    """Synchronize mutable products with fx.BY_SKU dictionary."""
+    for p in PRODUCTS:
+        fx.BY_SKU[p["sku"]] = p
+
+
 def reset(persist: bool = True) -> None:
     """Restore golden demo state.
 
@@ -85,6 +99,7 @@ def reset(persist: bool = True) -> None:
     STOCK_MOVES.clear()
     PRODUCTS.clear()
     PRODUCTS.extend(copy.deepcopy(fx.PRODUCTS))
+    sync_by_sku()
     PRICE_LISTS.clear()
     PRICE_LISTS.extend(copy.deepcopy(fx.PRICE_LISTS))
     _IDEMPOTENCY = {}
@@ -190,6 +205,24 @@ reset()
 #  fixtures module only supplies the starting book of business.
 # --------------------------------------------------------------------------- #
 
+def make_line(sku: str, qty: int, discount_pct: float = 0.0) -> Line:
+    p = get_product(sku)
+    if not p:
+        p = fx.BY_SKU.get(sku)
+    if not p:
+        raise KeyError(f"Unknown SKU: {sku}")
+    return Line(
+        sku=p["sku"],
+        name=p.get("name") or p["sku"],
+        category=p.get("category", "Hardware"),
+        qty=qty,
+        list_price=float(p.get("list_price", 0.0)),
+        cost=float(p.get("cost", 0.0)),
+        discount_pct=float(discount_pct),
+        is_recurring=bool(p.get("is_recurring", False)),
+    )
+
+
 def build_quote(ref: str) -> Quote | None:
     row = QUOTES.get(ref)
     if row is None:
@@ -197,7 +230,7 @@ def build_quote(ref: str) -> Quote | None:
     return Quote(
         ref=ref, customer=row["customer"], tier=row["tier"], rep_id=row["rep"],
         order_discount_pct=row.get("order_discount_pct", 0.0),
-        lines=[fx.make_line(l["sku"], l["qty"], l["discount_pct"]) for l in row["lines"]],
+        lines=[make_line(l["sku"], l["qty"], l["discount_pct"]) for l in row["lines"]],
     )
 
 

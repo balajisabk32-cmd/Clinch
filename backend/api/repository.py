@@ -133,6 +133,7 @@ def load_into(state: Any) -> None:
             stock_total=r["stock_total"], description=r["description"],
             variants=json.loads(r["variants_json"] or "[]"),
         ))
+    state.sync_by_sku()
 
     state.PRICE_LISTS.clear()
     state.PRICE_LISTS.extend(

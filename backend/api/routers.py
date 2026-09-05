@@ -216,6 +216,13 @@ def create_product(body: dict[str, Any] = Body(...),
         variants=body.get("variants", []),
     )
     state.PRODUCTS.append(product)
+    state.sync_by_sku()
+    stock_qty = int(body.get("stock_total", 50))
+    if stock_qty > 0:
+        state.STOCK.setdefault("Main Warehouse", {})[sku] = {
+            "on_hand": stock_qty,
+            "reserved": 0,
+        }
     state.record("*", _actor.get("id", "admin"), "admin", "product_created", reason=sku)
     return product
 
@@ -231,6 +238,7 @@ def update_product(sku: str, body: dict[str, Any] = Body(...),
     for k, v in body.items():
         if k in editable:
             product[k] = v
+    state.sync_by_sku()
     state.record("*", _actor.get("id", "admin"), "admin", "product_updated", reason=sku)
     return product_detail(sku)
 
@@ -352,10 +360,11 @@ def add_line(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str, Any] 
         raise HTTPException(404, f"No quotation {ref}")
     _guard_editable(ref)
     sku = body.get("sku")
-    if sku not in fx.BY_SKU:
+    product = state.get_product(sku)
+    if not product:
         raise HTTPException(422, f"Unknown product {sku!r}")
     state.add_line(ref, sku, int(body.get("qty", 1)), float(body.get("discount_pct", 0)))
-    state.record(ref, body.get("actor", "A. Rao"), "rep", "line_added", reason=sku)
+    state.record(ref, body.get("actor", _actor.get("name", "A. Rao")), "rep", "line_added", reason=sku)
     return _rebuilt(ref)
 
 
