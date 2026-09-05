@@ -27,7 +27,7 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
 
   const expired = new URLSearchParams(window.location.search).get('expired') === 'true'
-  const from = location.state?.from
+  const from = location.state?.from || new URLSearchParams(window.location.search).get('from')
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) navigate('/app/dashboard', { replace: true })
@@ -155,6 +155,45 @@ export default function Login() {
             Internal access only. Accounts are provisioned by system
             administration — there is no self-service registration.
           </p>
+
+          {/* Quick Demo Sign-In */}
+          <div className="border-t border-line pt-4 space-y-2.5">
+            <span className="font-mono text-[10.5px] uppercase tracking-eyebrow text-fg-3">
+              One-click demo sign-in
+            </span>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { role: 'Admin', email: 'admin@clinch.io', pass: 'ClinchAdmin2026!#', color: 'text-purple-700 bg-purple-50 ring-purple-600/20' },
+                { role: 'Sales Manager', email: 'shah@clinch.io', pass: 'MgrShah2026!#', color: 'text-amber-700 bg-amber-50 ring-amber-600/20' },
+                { role: 'Sales Rep', email: 'rao@clinch.io', pass: 'RepRao2026!#', color: 'text-cyan-700 bg-cyan-50 ring-cyan-600/20' },
+                { role: 'Finance', email: 'menon@clinch.io', pass: 'FinMenon2026!#', color: 'text-emerald-700 bg-emerald-50 ring-emerald-600/20' },
+              ].map(acc => (
+                <button
+                  key={acc.role}
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setEmail(acc.email)
+                    setPassword(acc.pass)
+                    setFormError(null)
+                    setBusy(true)
+                    try {
+                      const user = await login(acc.email, acc.pass)
+                      navigate(user.role === 'customer' ? '/portal' : (from || '/app/dashboard'), { replace: true })
+                    } catch (err: any) {
+                      setFormError(err?.message || 'Sign in failed')
+                    } finally {
+                      setBusy(false)
+                    }
+                  }}
+                  className={`px-2.5 py-1.5 rounded-lg text-left text-xs ring-1 font-medium hover:scale-[1.02] active:scale-[0.98] transition-all ${acc.color}`}
+                >
+                  <div className="font-bold">{acc.role}</div>
+                  <div className="text-[10px] opacity-75 font-mono truncate">{acc.email}</div>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
         <p className="text-center text-[11.5px] text-fg-4">

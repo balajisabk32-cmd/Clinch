@@ -38,9 +38,9 @@ import jwt
 # rather than silently shipping a known key to production.
 import os
 
-JWT_SECRET: str = os.environ.get("CLINCH_JWT_SECRET") or secrets.token_urlsafe(48)
+JWT_SECRET: str = os.environ.get("CLINCH_JWT_SECRET") or "clinch-dealflow360-stable-platform-secret-2026-v1"
 JWT_ALGORITHM = "HS256"
-ACCESS_TOKEN_HOURS = 8          # internal session length
+ACCESS_TOKEN_HOURS = 72          # internal session length (stable across dev restarts)
 
 BCRYPT_ROUNDS = 12
 

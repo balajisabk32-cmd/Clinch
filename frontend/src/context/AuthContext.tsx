@@ -60,10 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
     setTabs([])
     setLoading(false)
-    // A full assign rather than a router navigate: signing out should drop every
-    // component's in-memory copy of the previous user's data, not re-render
-    // around it.
-    const target = reason === 'expired' ? '/login?expired=true' : '/login'
+    const fromPath = window.location.pathname
+    const target = reason === 'expired'
+      ? `/login?expired=true&from=${encodeURIComponent(fromPath)}`
+      : '/login'
     if (!window.location.pathname.startsWith('/login')) {
       window.location.assign(target)
     }
