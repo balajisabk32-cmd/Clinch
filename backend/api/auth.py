@@ -110,7 +110,6 @@ TAB_PERMISSION: list[tuple[str, str, str]] = [
     ("/app/products",      "Products",      "product.view"),
     ("/app/settings",      "Settings",      "policy.config"),
     ("/app/users",         "Users",         "user.manage"),
-    ("/app/admin",         "Admin Portal",  "admin.reset"),
     ("/app/profile",       "Profile",       "quote.view"),
 ]
 

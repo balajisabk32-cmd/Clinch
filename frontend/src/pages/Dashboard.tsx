@@ -6,6 +6,7 @@ import { api, inr } from '../lib/api'
 import { Band } from '../components/ui'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { ErrorBar, Workspace } from '../components/Workspace'
+import { DashboardCharts } from '../components/DashboardCharts'
 import { cn } from '../lib/cn'
 
 /**
@@ -204,6 +205,9 @@ export default function Dashboard() {
             </div>
           </div>
         )}
+
+        {/* ── Executive Visual Analytics & Interactive Graphs ──────────────── */}
+        <DashboardCharts quotes={quotes} dash={dash} />
 
         {/* ── Live pipeline ──────────────────────────────────────────────────
             A real data grid. Hairline rows, right-aligned tabular money, state

@@ -1,9 +1,9 @@
-import { StrictMode, lazy, Suspense } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 
 import { AuthProvider } from './context/AuthContext'
-import { AuthLoading, ProtectedRoute, PublicOnlyRoute } from './components/ProtectedRoute'
+import { ProtectedRoute, PublicOnlyRoute } from './components/ProtectedRoute'
 import { CustomerRoute } from './components/ShopShell'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -32,8 +32,6 @@ import MyQuotations from './pages/MyQuotations'
 import MyQuotationDetail from './pages/MyQuotationDetail'
 import Profile from './pages/Profile'
 import './index.css'
-
-const AdminPortal = lazy(() => import('./pages/AdminPortal'))
 
 /*
  * Role map, mirroring the server's permission matrix (api/auth.py).
@@ -126,11 +124,7 @@ root.render(
 
             {/* ── Admin only ─────────────────────────────────────────── */}
             <Route path="/app/users" element={guard(<AdminUsers />, ADMIN_ONLY)} />
-            <Route path="/app/admin" element={guard(
-              <Suspense fallback={<AuthLoading label="Loading the admin console…" />}>
-                <AdminPortal />
-              </Suspense>, ADMIN_ONLY)} />
-            <Route path="/admin" element={<Navigate to="/app/admin" replace />} />
+            <Route path="/admin" element={<Navigate to="/app/dashboard" replace />} />
             <Route path="/admin/users" element={<Navigate to="/app/users" replace />} />
 
             <Route path="/app/*" element={<Navigate to="/app/dashboard" replace />} />

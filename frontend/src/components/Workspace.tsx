@@ -15,7 +15,7 @@ const ROLE_ALLOWED_ROUTES: Record<string, string[]> = {
   admin: [
     '/app/dashboard', '/app/quotations', '/app/pipeline', '/app/approvals',
     '/app/fulfilment', '/app/subscriptions', '/app/invoices', '/app/health',
-    '/app/reports', '/app/products', '/app/settings', '/app/users', '/app/admin',
+    '/app/reports', '/app/products', '/app/settings', '/app/users',
     '/app/profile',
   ],
   manager: [
@@ -58,7 +58,6 @@ export function Workspace({
     { to: '/app/products', label: 'Products' },
     { to: '/app/settings', label: 'Settings' },
     { to: '/app/users', label: 'Users' },
-    { to: '/app/admin', label: 'Admin Portal' },
     { to: '/app/profile', label: 'Profile' },
   ]
 

@@ -28,7 +28,6 @@ const ROLE_METADATA: Record<string, RoleDetail> = {
       { name: 'Product Catalogue', path: '/app/products', desc: 'Global SKU pricing and margins' },
       { name: 'Discount Settings', path: '/app/settings', desc: 'Policy Simulator & approval threshold rules' },
       { name: 'User Management', path: '/app/users', desc: 'Provision, deactivate, and audit system operators' },
-      { name: 'RevOps Admin Portal', path: '/app/admin', desc: 'Advanced live Policy Simulator and anomaly engine' },
     ],
     restrictedModules: [],
   },
