@@ -31,6 +31,9 @@ build/
 dist-ssr/
 
 # Database files
+*.db
+*.db-wal
+*.db-shm
 data/*.db
 data/*.db-wal
 data/*.db-shm

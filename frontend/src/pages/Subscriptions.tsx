@@ -109,7 +109,7 @@ export default function Subscriptions() {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Recurring Subscriptions &amp; Billing</h1>
-              <span className="rounded-full bg-blue-500/10 text-blue-700 px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-blue-500/20">
+              <span className="rounded-full bg-accent/10 text-accent px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-accent/20">
                 Finance Manager Only
               </span>
             </div>
@@ -144,14 +144,13 @@ export default function Subscriptions() {
             <div className="scroll-x">
               <table className="grid-table min-w-[600px]">
                 <thead>
-                  <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                                 border-b border-line">
-                    <th className="text-left font-medium px-4 py-2.5">Customer</th>
-                    <th className="text-left font-medium px-3 py-2.5">Plan</th>
-                    <th className="text-left font-medium px-3 py-2.5 w-24">Cycle</th>
-                    <th className="text-left font-medium px-3 py-2.5 w-28">Next bill</th>
-                    <th className="text-right font-medium px-3 py-2.5 w-28">Amount</th>
-                    <th className="text-left font-medium px-4 py-2.5 w-24">Status</th>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Plan</th>
+                    <th className="w-24">Cycle</th>
+                    <th className="w-28">Next bill</th>
+                    <th className="text-right font-medium w-28">Amount</th>
+                    <th className="w-24">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -163,21 +162,21 @@ export default function Subscriptions() {
                                   ${selected === s.id ? 'bg-accent-wash' : 'hover:bg-surface-2/60'}`}
                       style={{ transition: `background 200ms ${EASE_CSS}` }}
                     >
-                      <td className="px-4 py-2.5 text-fg font-medium">{s.customer}</td>
-                      <td className="px-3 py-2.5 text-fg-2">
+                      <td className="text-fg font-medium">{s.customer}</td>
+                      <td className="text-fg-2">
                         {s.plan}
                         <span className="block font-mono text-[10px] text-fg-3">
                           {s.ref} · ×{s.qty}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5 text-fg-2 capitalize">{s.cycle}</td>
-                      <td className="px-3 py-2.5 font-mono text-[12px] text-fg-2">
+                      <td className="text-fg-2 capitalize">{s.cycle}</td>
+                      <td className="font-mono text-[12px] text-fg-2">
                         {s.status === 'cancelled' ? '—' : s.next_bill_date}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">
+                      <td className="text-right font-mono tabular-nums text-fg">
                         {inr(s.qty * s.unit_price)}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td>
                         <span className={`rounded-full ring-1 px-2 py-0.5 font-mono text-[10px]
                                           font-semibold uppercase ${STATUS_TONE[s.status] ?? ''}`}>
                           {s.status}
@@ -322,7 +321,7 @@ export default function Subscriptions() {
                         value={Math.abs(proration.credit)}
                         format="inr" precision={2}
                         polarity={proration.kind === 'credit_note' ? 'higher-better' : 'lower-better'}
-                        className="font-display text-[22px] font-bold text-fg leading-none mb-1.5"
+                        className="font-display text-[19px] font-bold text-fg tracking-tight leading-none mb-1.5"
                       />
                     )}
                     {/* The arithmetic, shown rather than summarised. */}

@@ -56,11 +56,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback((reason: 'expired' | 'manual' = 'manual') => {
     tokenStore.clear()
+    try {
+      sessionStorage.removeItem('dealflow360_force_intro')
+      sessionStorage.setItem('dealflow360_intro_shown', 'true')
+      localStorage.setItem('dealflow360_intro_shown', 'true')
+    } catch {}
     if (!mounted.current) return
     setUser(null)
     setTabs([])
     setLoading(false)
-    const fromPath = window.location.pathname
+    const fromPath = typeof window !== 'undefined' ? window.location.pathname : ''
+    // If the user is on the public landing page, stay on the landing page!
+    if (fromPath === '/' || fromPath === '') {
+      return
+    }
     const target = reason === 'expired'
       ? `/login?expired=true&from=${encodeURIComponent(fromPath)}`
       : '/login'
@@ -96,11 +105,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { void refresh() }, [refresh])
 
-  // One listener for the global 401 broadcast.
+  // Listeners for expired session and cross-component logout.
   useEffect(() => {
     const onExpired = () => logout('expired')
+    const onManualLogout = () => logout('manual')
     window.addEventListener(SESSION_EXPIRED, onExpired)
-    return () => window.removeEventListener(SESSION_EXPIRED, onExpired)
+    window.addEventListener('dealflow360:logout', onManualLogout)
+    return () => {
+      window.removeEventListener(SESSION_EXPIRED, onExpired)
+      window.removeEventListener('dealflow360:logout', onManualLogout)
+    }
   }, [logout])
 
   const login = useCallback(async (email: string, password: string) => {

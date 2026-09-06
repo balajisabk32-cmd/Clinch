@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Upload, X, Check, Link as LinkIcon } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { api, inr } from '../lib/api'
 import { ErrorBar, Workspace } from '../components/Workspace'
+import { ProductImage } from '../components/ProductImage'
 import { EASE_CSS } from '../lib/motion'
 
 /**
@@ -20,15 +22,28 @@ interface Product {
   uom: string; tax_pct: number
   is_recurring?: boolean; recurrence?: string | null
   is_promoted?: boolean; stock_total?: number
+  image?: string | null
   variants?: Array<{ attribute: string; values: string[]; extra_price: number[] }>
 }
 
 const CATEGORIES = ['Hardware', 'Software', 'Services', 'Subscriptions'] as const
 
+const PRESET_IMAGES = [
+  { label: 'Laptop 14"', url: '/products/LP14.jpg' },
+  { label: 'Laptop 15"', url: '/products/LP15-VIC.jpg' },
+  { label: 'Monitor 27"', url: '/products/MON-27.jpg' },
+  { label: 'Server Rack', url: '/products/SRV-RACK.jpg' },
+  { label: 'Docking Stn', url: '/products/DOCK-01.jpg' },
+  { label: 'Cloud Suite', url: '/products/SW-CLOUD.jpg' },
+  { label: 'Security SW', url: '/products/SW-SECURE.jpg' },
+  { label: 'Onsite Svc', url: '/products/SVC-ONSITE.jpg' },
+  { label: 'Warranty Ext', url: '/products/WAR-EXT.jpg' },
+]
+
 const BLANK = {
   sku: '', name: '', category: 'Hardware', list_price: '', cost: '',
   uom: 'Each', tax_pct: '18', is_recurring: false, recurrence: 'monthly',
-  initial_warehouse: '', initial_stock_qty: '0',
+  initial_warehouse: '', initial_stock_qty: '0', image: '',
 }
 
 /** Variant options as typed key/value pairs, e.g. Color / Space Gray. */
@@ -49,6 +64,14 @@ export default function Products() {
   const [busy, setBusy] = useState(false)
   const [depots, setDepots] = useState<string[]>([])
   const [options, setOptions] = useState<Option[]>([{ key: '', value: '' }])
+
+  // Image upload state
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const [imageMode, setImageMode] = useState<'upload' | 'url' | 'presets'>('upload')
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const load = useCallback(() => {
     Promise.all([api.products(), api.pricelists()])
@@ -79,6 +102,64 @@ export default function Products() {
 
   const variantCount = rows.reduce((a, p) => a + (p.variants?.length ?? 0), 0)
 
+  const handleImageFile = async (file: File) => {
+    if (!file || !file.type.startsWith('image/')) {
+      setUploadError('Please select an image file (PNG, JPG, WebP, GIF)')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError('Image exceeds 10MB limit')
+      return
+    }
+    setUploadError(null)
+    setUploadingImage(true)
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const dataUrl = reader.result as string
+      setImagePreview(dataUrl)
+      try {
+        const res = await api.uploadProductImage(dataUrl, file.name, form.sku)
+        setForm(f => ({ ...f, image: res.url }))
+      } catch (err: any) {
+        // Keep dataUrl as direct fallback
+        setForm(f => ({ ...f, image: dataUrl }))
+      } finally {
+        setUploadingImage(false)
+      }
+    }
+    reader.onerror = () => {
+      setUploadError('Could not read image file')
+      setUploadingImage(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleImageFile(e.dataTransfer.files[0])
+    }
+  }
+
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true)
+    } else if (e.type === 'dragleave') {
+      setDragActive(false)
+    }
+  }
+
+  const clearImage = () => {
+    setImagePreview(null)
+    setUploadError(null)
+    setForm(f => ({ ...f, image: '' }))
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const create = async () => {
     setBusy(true); setError(null)
     try {
@@ -100,6 +181,8 @@ export default function Products() {
         (qty > 0 ? ` - ${qty} units received into ${form.initial_warehouse}.` : '.'))
       setForm({ ...BLANK, initial_warehouse: depots[0] ?? '' })
       setOptions([{ key: '', value: '' }])
+      setImagePreview(null)
+      setUploadError(null)
       setCreating(false); load()
     } catch (e: any) {
       setError(
@@ -124,14 +207,21 @@ export default function Products() {
 
         <header className="flex flex-wrap items-center gap-3">
           <div>
-            <h1 className="font-display text-[22px] font-bold text-fg">Product catalogue</h1>
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Product catalogue</h1>
             <p className="text-[12.5px] text-fg-3 mt-0.5">
               Every product, variant and price rule in one place.
             </p>
           </div>
           {canManageProducts && (
             <button
-              onClick={() => setCreating(c => !c)}
+              onClick={() => {
+                setCreating(c => !c)
+                if (creating) {
+                  setImagePreview(null)
+                  setUploadError(null)
+                  setForm({ ...BLANK, initial_warehouse: depots[0] ?? '' })
+                }
+              }}
               className="ml-auto rounded-full bg-fg text-white px-4 py-2 font-display
                          text-[12.5px] font-semibold hover:shadow-lift-lg active:scale-[.98]"
               style={{ transition: `all 320ms ${EASE_CSS}` }}
@@ -151,7 +241,7 @@ export default function Products() {
             { label: 'Variants', value: variantCount,
               sub: variantCount ? 'across attribute sets' : 'none defined yet' },
           ].map(c => (
-            <div key={c.label} className="rounded-2xl bg-surface ring-1 ring-black/[.055] p-5 shadow-lift">
+            <div key={c.label} className="panel p-5 shadow-lift">
               <div className="font-display text-[30px] font-bold text-fg tabular-nums leading-none">
                 {c.value}
               </div>
@@ -165,7 +255,7 @@ export default function Products() {
 
         {/* New product form */}
         {creating && canManageProducts && (
-          <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5">
+          <section className="panel p-5">
             <h2 className="font-display text-[14px] font-semibold text-fg mb-3">New product</h2>
             <div className="grid sm:grid-cols-3 gap-3">
               {[
@@ -261,6 +351,207 @@ export default function Products() {
                 </label>
               )}
             </div>
+
+            {/* Product Photography / Image Upload */}
+            <div className="mt-4 pt-4 border-t border-line">
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
+                    Product photography
+                  </span>
+                  {form.image && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-band-autoWash px-2 py-0.5 text-[10.5px] font-medium text-band-auto">
+                      <Check size={12} /> Image ready
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 bg-surface-2 p-0.5 rounded-lg border border-line text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('upload')}
+                    className={`px-2.5 py-1 rounded-md transition-colors font-medium ${
+                      imageMode === 'upload' ? 'bg-white shadow-xs text-fg' : 'text-fg-3 hover:text-fg'
+                    }`}
+                  >
+                    Upload File
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('presets')}
+                    className={`px-2.5 py-1 rounded-md transition-colors font-medium ${
+                      imageMode === 'presets' ? 'bg-white shadow-xs text-fg' : 'text-fg-3 hover:text-fg'
+                    }`}
+                  >
+                    Presets
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setImageMode('url')}
+                    className={`px-2.5 py-1 rounded-md transition-colors font-medium ${
+                      imageMode === 'url' ? 'bg-white shadow-xs text-fg' : 'text-fg-3 hover:text-fg'
+                    }`}
+                  >
+                    Image URL
+                  </button>
+                </div>
+              </div>
+
+              {/* Upload error display */}
+              {uploadError && (
+                <div className="mb-3 rounded-lg bg-band-financeWash px-3 py-2 text-[12px] text-band-finance flex items-center justify-between">
+                  <span>{uploadError}</span>
+                  <button onClick={() => setUploadError(null)} className="text-band-finance hover:opacity-75">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
+              {/* Live Image Preview Card if image is present */}
+              {form.image ? (
+                <div className="flex items-center gap-4 rounded-xl border border-line bg-surface p-3 mb-3">
+                  <div className="w-16 h-16 rounded-lg bg-white border border-line p-1 grid place-items-center overflow-hidden shrink-0 shadow-xs">
+                    <img
+                      src={imagePreview || form.image}
+                      alt="Product preview"
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] font-medium text-fg truncate">
+                      {form.image.startsWith('data:') ? 'Custom Upload' : form.image.split('/').pop()}
+                    </p>
+                    <p className="text-[11px] font-mono text-fg-3 truncate">
+                      {form.image.startsWith('data:') ? 'base64 data URL' : form.image}
+                    </p>
+                    {uploadingImage && (
+                      <p className="text-[11px] text-accent font-medium mt-0.5 animate-pulse">
+                        Uploading to server…
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-lg border border-line px-2.5 py-1 text-[11.5px] font-medium text-fg-2 hover:bg-surface-2"
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearImage}
+                      className="p-1.5 rounded-lg text-fg-4 hover:text-band-finance hover:bg-band-financeWash transition-colors"
+                      title="Remove image"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Mode: Upload File Dropzone */}
+              {imageMode === 'upload' && !form.image && (
+                <div
+                  onDragEnter={handleDrag}
+                  onDragLeave={handleDrag}
+                  onDragOver={handleDrag}
+                  onDrop={handleDrop}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
+                    dragActive
+                      ? 'border-accent bg-accent/5'
+                      : 'border-line hover:border-accent/40 bg-surface/50 hover:bg-surface'
+                  }`}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={e => {
+                      if (e.target.files && e.target.files[0]) {
+                        handleImageFile(e.target.files[0])
+                      }
+                    }}
+                  />
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <div className="w-10 h-10 rounded-full bg-surface-2 border border-line grid place-items-center text-fg-3">
+                      <Upload size={18} />
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-medium text-fg">
+                        Click to upload <span className="text-fg-3 font-normal">or drag & drop</span>
+                      </p>
+                      <p className="text-[11px] text-fg-3 mt-0.5">
+                        PNG, JPG, WebP or GIF up to 10MB
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Mode: Presets */}
+              {imageMode === 'presets' && (
+                <div className="rounded-xl border border-line p-3 bg-surface">
+                  <span className="text-[11px] text-fg-3 block mb-2 font-medium">
+                    Pick a catalogue preset photo:
+                  </span>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                    {PRESET_IMAGES.map(pr => (
+                      <button
+                        key={pr.url}
+                        type="button"
+                        onClick={() => {
+                          setForm(f => ({ ...f, image: pr.url }))
+                          setImagePreview(pr.url)
+                        }}
+                        className={`p-2 rounded-lg border text-left flex flex-col items-center gap-1.5 transition-all ${
+                          form.image === pr.url
+                            ? 'border-accent ring-1 ring-accent bg-accent/5'
+                            : 'border-line hover:border-black/20 bg-white'
+                        }`}
+                      >
+                        <img src={pr.url} alt={pr.label} className="w-10 h-10 object-contain" />
+                        <span className="text-[10.5px] font-medium text-fg-2 truncate w-full text-center">
+                          {pr.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Mode: Custom URL */}
+              {imageMode === 'url' && (
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <LinkIcon size={14} className="absolute left-3 top-3 text-fg-4" />
+                    <input
+                      type="text"
+                      placeholder="e.g. /products/LP14.jpg or https://images.unsplash.com/..."
+                      value={form.image || ''}
+                      onChange={e => {
+                        const val = e.target.value
+                        setForm(f => ({ ...f, image: val }))
+                        setImagePreview(val)
+                      }}
+                      className="w-full rounded-lg bg-surface pl-9 pr-3 py-2 text-[13px] text-fg
+                                 ring-1 ring-black/[.08] outline-none focus:ring-accent/40 placeholder:text-fg-4"
+                    />
+                  </div>
+                  {form.image && (
+                    <button
+                      type="button"
+                      onClick={clearImage}
+                      className="px-3 py-2 rounded-lg border border-line text-[12px] font-medium text-fg-3 hover:text-fg"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             {/* Variant options. Descriptive key/value pairs on one sellable
                 SKU - colour, storage, screen size - not separately stocked
                 units, which is why they do not create their own quants. */}
@@ -325,7 +616,7 @@ export default function Products() {
         )}
 
         {/* Catalogue table */}
-        <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+        <section className="panel">
           <div className="px-4 py-3 border-b border-line flex flex-wrap items-center gap-2">
             {(['ALL', ...CATEGORIES] as const).map(c => (
               <button
@@ -346,18 +637,17 @@ export default function Products() {
             />
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px] min-w-[760px]">
+          <div className="scroll-x">
+            <table className="grid-table min-w-[760px]">
               <thead>
-                <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                               border-b border-line">
-                  <th className="text-left font-medium px-4 py-2.5">Product</th>
-                  <th className="text-left font-medium px-3 py-2.5 w-32">Category</th>
-                  <th className="text-right font-medium px-3 py-2.5 w-28">Price</th>
-                  <th className="text-right font-medium px-3 py-2.5 w-24">Margin</th>
-                  <th className="text-left font-medium px-3 py-2.5 w-20">UoM</th>
-                  <th className="text-right font-medium px-3 py-2.5 w-16">Tax</th>
-                  <th className="text-left font-medium px-4 py-2.5 w-24">Type</th>
+                <tr>
+                  <th>Product</th>
+                  <th className="w-32">Category</th>
+                  <th className="text-right font-medium w-28">Price</th>
+                  <th className="text-right font-medium w-24">Margin</th>
+                  <th className="w-20">UoM</th>
+                  <th className="text-right font-medium w-16">Tax</th>
+                  <th className="w-24">Type</th>
                 </tr>
               </thead>
               <tbody>
@@ -370,24 +660,33 @@ export default function Products() {
                       className="border-b border-line last:border-0 cursor-pointer hover:bg-surface-2/60"
                       style={{ transition: `background 200ms ${EASE_CSS}` }}
                     >
-                      <td className="px-4 py-2.5">
-                        <div className="text-fg font-medium">
-                          {p.name}
-                          {p.is_promoted && (
-                            <span className="ml-2 rounded-full bg-band-managerWash text-band-manager
-                                             px-1.5 py-0.5 font-mono text-[9px] font-semibold">
-                              PROMO
-                            </span>
-                          )}
-                        </div>
-                        <div className="font-mono text-[10px] text-fg-3 mt-0.5">
-                          {p.sku}
-                          {p.variants && p.variants.length > 0 &&
-                            ` · ${p.variants.length} variant set`}
+                      <td>
+                        <div className="flex items-center gap-3">
+                          <ProductImage
+                            src={p.image}
+                            name={p.name}
+                            className="w-9 h-9 rounded-lg border border-line shrink-0 bg-white shadow-xs"
+                          />
+                          <div>
+                            <div className="text-fg font-medium">
+                              {p.name}
+                              {p.is_promoted && (
+                                <span className="ml-2 rounded-full bg-band-managerWash text-band-manager
+                                                 px-1.5 py-0.5 font-mono text-[9px] font-semibold">
+                                  PROMO
+                                </span>
+                              )}
+                            </div>
+                            <div className="font-mono text-[10px] text-fg-3 mt-0.5">
+                              {p.sku}
+                              {p.variants && p.variants.length > 0 &&
+                                ` · ${p.variants.length} variant set`}
+                            </div>
+                          </div>
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 text-fg-2">{p.category}</td>
-                      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">
+                      <td className="text-fg-2">{p.category}</td>
+                      <td className="text-right font-mono tabular-nums text-fg">
                         {inr(p.list_price)}
                       </td>
                       <td className={`px-3 py-2.5 text-right font-mono tabular-nums
@@ -395,9 +694,9 @@ export default function Products() {
                                         : margin >= 25 ? 'text-fg-2' : 'text-band-manager'}`}>
                         {margin.toFixed(0)}%
                       </td>
-                      <td className="px-3 py-2.5 text-fg-3">{p.uom}</td>
-                      <td className="px-3 py-2.5 text-right font-mono text-fg-3">{p.tax_pct}%</td>
-                      <td className="px-4 py-2.5 text-fg-3">
+                      <td className="text-fg-3">{p.uom}</td>
+                      <td className="text-right font-mono text-fg-3">{p.tax_pct}%</td>
+                      <td className="text-fg-3">
                         {p.is_recurring ? p.recurrence ?? 'recurring' : 'one-time'}
                       </td>
                     </tr>

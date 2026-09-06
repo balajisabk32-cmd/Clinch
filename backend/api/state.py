@@ -120,6 +120,118 @@ def reset(persist: bool = True) -> None:
         ))
 
 
+def negotiation_lock(ref: str) -> dict[str, Any]:
+    """Whether the customer may keep asking, and why not.
+
+    Two ways a negotiation runs out of road, and both were unhandled -- the
+    customer could ask the same thing indefinitely and the loop never closed:
+
+      * They ask again for a discount they have ALREADY asked for, and nothing
+        has moved since. That is not a negotiation, it is the same message
+        twice, and answering it costs a manager another review cycle.
+
+      * The rep sends the quotation back UNCHANGED. That is the rep's way of
+        saying "this is the price". At that point the only honest options are
+        to take it or to walk away.
+
+    Returns the lock plus the reason, so the portal can say which of the two it
+    is rather than greying out a button with no explanation.
+    """
+    row = QUOTES.get(ref) or {}
+    asks = [c for c in PORTAL_COMMENTS.get(ref, [])
+            if c.get("counter_discount_pct") is not None]
+    last_ask = float(asks[-1]["counter_discount_pct"]) if asks else None
+
+    sent = int(row.get("revision_count", 0))
+    # "Sent at least twice, and nothing changed between the last two sends."
+    resent_unchanged = sent >= 2 and not unsent_changes(ref)
+
+    return {
+        "negotiation_locked": bool(resent_unchanged),
+        "lock_reason": (
+            "Your account manager has sent the same terms again. These are the "
+            "final terms on this quotation - please confirm the order or cancel it."
+            if resent_unchanged else None),
+        "last_requested_discount": last_ask,
+        "times_sent": sent,
+    }
+
+
+def customer_requests(ref: str) -> list[dict[str, Any]]:
+    """Everything the CUSTOMER has said about this quotation, for internal eyes.
+
+    These were stored on every counter-offer but only ever rendered back to the
+    customer. The rep who has to act on the request could not see the discount
+    that was asked for -- the number existed, in PORTAL_COMMENTS, and no
+    internal screen read it. "The customer wants a better price" is not an
+    actionable brief; "the customer asked for 24% on line 1" is.
+    """
+    return [
+        dict(
+            author=c.get("author"),
+            body=c.get("body"),
+            requested_discount_pct=c.get("counter_discount_pct"),
+            line_id=c.get("line_id"),
+            at=c.get("created_at"),
+        )
+        for c in PORTAL_COMMENTS.get(ref, [])
+    ]
+
+
+def line_discounts(ref: str) -> list[dict[str, Any]]:
+    """The discount currently on each line, as a comparable snapshot."""
+    row = QUOTES.get(ref) or {}
+    return [{"sku": l["sku"], "discount_pct": float(l.get("discount_pct", 0.0))}
+            for l in row.get("lines", [])]
+
+
+def mark_sent_to_customer(ref: str) -> int:
+    """Record that the customer has been shown the quote as it stands now.
+
+    The snapshot is what makes "Revise & Send" honest: the button is offered
+    only when the rep has actually moved a discount since the customer last saw
+    the quote. Without it the action becomes a one-click way to skip approval on
+    an unchanged, still-breaching quote.
+    """
+    row = QUOTES.get(ref)
+    if row is None:
+        return 0
+    row["sent_snapshot"] = line_discounts(ref)
+    row["revision_count"] = int(row.get("revision_count", 0)) + 1
+    return row["revision_count"]
+
+
+def unsent_changes(ref: str) -> list[dict[str, Any]]:
+    """Lines whose discount has moved since the customer last saw this quote.
+
+    An empty list before the first send means "never sent" rather than
+    "unchanged", which the caller distinguishes by revision_count.
+    """
+    row = QUOTES.get(ref) or {}
+    snapshot = {s["sku"]: s["discount_pct"] for s in (row.get("sent_snapshot") or [])}
+    if not snapshot:
+        return []
+    moved = []
+    for line in line_discounts(ref):
+        was = snapshot.get(line["sku"])
+        if was is None or abs(was - line["discount_pct"]) > 1e-9:
+            moved.append({"sku": line["sku"], "was": was, "now": line["discount_pct"]})
+    return moved
+
+
+def revision_meta(ref: str) -> dict[str, Any]:
+    row = QUOTES.get(ref) or {}
+    count = int(row.get("revision_count", 0))
+    moved = unsent_changes(ref)
+    return {
+        "revision_count": count,
+        "sent_to_customer": count > 0,
+        "unsent_changes": moved,
+        # First send is always allowed; a resend requires a real change.
+        "can_revise_and_send": count == 0 or bool(moved),
+    }
+
+
 def record_approval(ref: str, *, user_id: str, name: str, role: str) -> None:
     """Stamp who signed a quotation off, on the quotation itself.
 
@@ -135,6 +247,14 @@ def record_approval(ref: str, *, user_id: str, name: str, role: str) -> None:
     row["approved_by_name"] = name
     row["approved_by_role"] = role
     row["approved_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # The exact terms that were signed off. When the customer comes back and
+    # accepts these, there is nothing new to approve -- a human has already
+    # looked at this discount and said yes. Re-queueing it would make the
+    # approver read the same quote twice and the customer wait for it.
+    row["approved_terms"] = {
+        "lines": line_discounts(ref),
+        "order_discount_pct": float(row.get("order_discount_pct", 0.0)),
+    }
     # Approving clears any outstanding revision request: the thing the manager
     # asked for has now been dealt with one way or the other.
     row["revision_requested"] = False
@@ -168,6 +288,28 @@ def request_revision(ref: str, *, notes: str) -> None:
     row["level1_approved_at"] = None
 
 
+def terms_within_approval(ref: str) -> bool:
+    """Are the current terms no more generous than what was approved?
+
+    Line-by-line, because a customer may counter on the way in. Equal or
+    tighter passes; anything more generous than the approved figure is new and
+    goes back for review. A line that did not exist when approval was given is
+    also new.
+    """
+    row = QUOTES.get(ref) or {}
+    approved = row.get("approved_terms")
+    if not approved:
+        return False
+    if float(row.get("order_discount_pct", 0.0)) > approved["order_discount_pct"] + 1e-9:
+        return False
+    was = {l["sku"]: l["discount_pct"] for l in approved["lines"]}
+    for line in line_discounts(ref):
+        prior = was.get(line["sku"])
+        if prior is None or line["discount_pct"] > prior + 1e-9:
+            return False
+    return True
+
+
 def approval_meta(ref: str) -> dict[str, Any]:
     row = QUOTES.get(ref) or {}
     return {
@@ -180,6 +322,7 @@ def approval_meta(ref: str) -> dict[str, Any]:
         "level1_approved_at": row.get("level1_approved_at"),
         "manager_revision_notes": row.get("manager_revision_notes"),
         "revision_requested": bool(row.get("revision_requested")),
+        "pre_approved": bool(row.get("approved_terms")) and terms_within_approval(ref),
     }
 
 
@@ -305,8 +448,11 @@ def create_quote(customer: str, rep: str, tier: str | None = None) -> str:
     instead. Looking it up unconditionally raised KeyError the moment a customer
     who signed up through the storefront requested a quotation.
     """
-    _next_ref[0] += 1
-    ref = f"Q-{_next_ref[0]}"
+    while True:
+        _next_ref[0] += 1
+        ref = f"Q-{_next_ref[0]}"
+        if ref not in QUOTES:
+            break
     QUOTES[ref] = dict(
         customer=customer,
         tier=tier or fx.CUSTOMERS.get(customer, {}).get("tier", "Bronze"),
@@ -494,12 +640,30 @@ def boot() -> None:
     repository.ensure_reference_data()
     if db.has_data():
         repository.load_into(_module())
+        _reconcile()
         return
 
     reset(persist=False)
     repository.seed_database()
     repository.load_into(_module())
+    _reconcile()
     db.save_golden()
+
+
+def _reconcile() -> None:
+    """Put orders back in step with invoices that are already settled.
+
+    Imported late: billing imports state, so a module-level import here would
+    be circular.
+    """
+    from .billing import reconcile_settlement
+
+    repaired = reconcile_settlement()
+    if repaired:
+        import logging
+        logging.getLogger("clinch").info(
+            "settlement reconciled on boot: %s", ", ".join(repaired))
+        persist()
 
 
 def restore() -> float:

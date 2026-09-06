@@ -47,9 +47,11 @@ export default function QuotationDetail() {
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lineComments, setLineComments] = useState({});
+  const [lineDiscounts, setLineDiscounts] = useState({});
   const [counterDiscount, setCounterDiscount] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [confirmOutcome, setConfirmOutcome] = useState(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   useEffect(() => {
@@ -59,15 +61,18 @@ export default function QuotationDetail() {
   const fetchQuote = async () => {
     try {
       setLoading(true);
-      const res = await api.get(`/quotations/${id}`);
-      setQuote(res.data);
+      const res = await api.get(`/shop/quotes/${id}`);
+      const q = res.data;
+      // Guard: if backend returned an error body, treat as not-found
+      if (!q || q.detail) { setQuote(null); return; }
+      setQuote(q);
       const initialComments = {};
-      (res.data.items || []).forEach((item) => {
-        initialComments[item.id] = item.customer_comment || '';
+      (q.lines || []).forEach((line, i) => {
+        initialComments[i] = line.customer_comment || '';
       });
       setLineComments(initialComments);
-      if (res.data.requested_discount || res.data.discount_applied) {
-        setCounterDiscount(res.data.requested_discount || res.data.discount_applied);
+      if (q.order_discount_pct) {
+        setCounterDiscount(q.order_discount_pct);
       }
     } catch (err) {
       showToast('Failed to load quotation details', 'error');
@@ -80,7 +85,7 @@ export default function QuotationDetail() {
   const getMainWorkflowState = () => {
     if (!quote) return { currentStep: 0, statusTitle: '', statusSubtitle: '' };
 
-    switch (quote.status) {
+    switch (quote.state) {
       case 'pending_review':
       case 'pending_approval':
         return {
@@ -122,44 +127,73 @@ export default function QuotationDetail() {
     }
   };
 
-  // Submit discount request / counter-offer to manager
+  // Submit discount counter-offer via the /shop/quotes/{ref}/request endpoint
   const handleNegotiate = async (e) => {
     e.preventDefault();
     try {
       setSubmitting(true);
-      const commentsPayload = Object.entries(lineComments).map(([item_id, comment]) => ({
-        item_id: parseInt(item_id),
-        comment,
-      }));
-
-      await api.put(`/quotations/${id}/negotiate`, {
-        counter_discount: counterDiscount ? parseFloat(counterDiscount) : undefined,
-        line_comments: commentsPayload,
+      // Calculate effective discount from per-product allotments if overall counterDiscount not typed
+      let effDiscount = counterDiscount ? parseFloat(counterDiscount) : undefined;
+      const itemAllotmentNotes = [];
+      (quote.lines || []).forEach((item) => {
+        const d = lineDiscounts[item.id];
+        const c = lineComments[item.id];
+        if (d && parseFloat(d) > 0) {
+          itemAllotmentNotes.push(`${item.name}: ${d}% requested discount`);
+        }
+        if (c && c.trim()) {
+          itemAllotmentNotes.push(`${item.name}: ${c.trim()}`);
+        }
       });
 
-      showToast('Discount request submitted for Sales Manager review!', 'success');
+      if (effDiscount === undefined && Object.values(lineDiscounts).some((v) => parseFloat(v) > 0)) {
+        const lines = quote?.lines || [];
+        let totSub = 0;
+        let totDisc = 0;
+        lines.forEach((l) => {
+          const sub = (l.unit_price || 0) * (l.qty || 1);
+          totSub += sub;
+          const d = parseFloat(lineDiscounts[l.id] || 0);
+          totDisc += sub * (d / 100);
+        });
+        if (totSub > 0 && totDisc > 0) {
+          effDiscount = Math.round((totDisc / totSub) * 10) / 10;
+        }
+      }
+
+      await api.post(`/shop/quotes/${id}/request`, {
+        action: 'negotiate',
+        discount_pct: effDiscount,
+        note: itemAllotmentNotes.join(' | ') || Object.values(lineComments).filter(Boolean).join(' | ') || undefined,
+      });
+      showToast('Product discount request submitted for Sales Manager review!', 'success');
       await fetchQuote();
     } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to submit negotiation', 'error');
+      showToast(err?.message || 'Failed to submit negotiation', 'error');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Customer accepts the quotation & generates official order
+  /* Customer confirms.
+     Posts to /confirm, which re-scores the FINAL terms with the same engine the
+     approval desk uses and decides what happens next. Two outcomes, and the
+     customer is told which one they got rather than left with a generic
+     "accepted": either the order proceeds straight to fulfilment, or it has
+     re-entered the approval chain because the terms are still over a ceiling. */
   const handleAcceptProposal = async () => {
-    if (!window.confirm('Confirm and accept this quotation to generate your purchase order?')) return;
+    if (!window.confirm('Confirm and accept this quotation?')) return;
     try {
       setAccepting(true);
-      const res = await api.put(`/quotations/${id}/confirm`);
-      showToast(res.data.message || 'Quotation accepted! Order created.', 'success');
-      if (res.data.order) {
-        navigate(`/orders/${res.data.order.id}`);
-      } else {
-        await fetchQuote();
-      }
+      const res = await api.post(`/shop/quotes/${id}/confirm`, {});
+      const d = res.data || {};
+      setConfirmOutcome(d);
+      showToast(
+        d.message || 'Quotation confirmed.',
+        d.approval_required ? 'info' : 'success');
+      await fetchQuote();
     } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to process order', 'error');
+      showToast(err?.message || 'Could not confirm this quotation', 'error');
     } finally {
       setAccepting(false);
     }
@@ -169,11 +203,11 @@ export default function QuotationDetail() {
   const handleAcceptCounterOffer = async () => {
     try {
       setActionLoading(true);
-      const res = await api.put(`/quotations/${id}/accept-counter`);
-      showToast(res.data.message || 'Counter offer accepted!', 'success');
+      const res = await api.post(`/shop/quotes/${id}/request`, { action: 'accept_counter' });
+      showToast(res.data?.message || 'Counter offer accepted!', 'success');
       await fetchQuote();
     } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to accept counter offer', 'error');
+      showToast(err?.message || 'Failed to accept counter offer', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -280,41 +314,88 @@ export default function QuotationDetail() {
     }
   };
 
-  // Calculate simulated counter-offer price
-  const baseItemsTotal = (quote.items || []).reduce((acc, it) => acc + Number(it.unit_price) * Number(it.quantity), 0);
+  /* Totals come from the server as `total` (and `subtotal`), computed by the
+     same pricing engine as the internal quote. The page read `total_amount`, a
+     field that has never existed on this payload, so the headline read "₹0" on
+     a quotation whose lines added up to lakhs -- and `items`/`quantity`, which
+     do not exist either, so the counter-offer preview was always zero too. */
+  const quoteTotal = Number(quote.total ?? 0);
+  const baseItemsTotal = (quote.lines || [])
+    .reduce((acc, it) => acc + Number(it.unit_price) * Number(it.qty), 0);
   const counterTotal = quote.counter_discount
     ? baseItemsTotal * (1 - Number(quote.counter_discount) / 100)
-    : quote.total_amount;
+    : quoteTotal;
 
   return (
-    <div className="container quotation-detail" style={{ paddingBottom: '80px' }}>
-      {/* Breadcrumb */}
-      <div style={{ marginBottom: '16px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-        <Link to="/quotations" style={{ color: 'var(--text-muted)' }}>Quotations</Link>
-        {' › '}
-        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{quote.quote_number}</span>
+    <div className="mx-auto max-w-[1240px] px-5 py-8">
+      {/* What confirming actually did */}
+      {confirmOutcome && (
+        <div
+          role="status"
+          className={`mb-6 p-4 rounded-xl border ${
+            confirmOutcome.approval_required
+              ? 'border-[#b45309]/30 bg-[#fbf0dc] text-[#b45309]'
+              : 'border-[#047857]/30 bg-[#dcf3ea] text-[#047857]'
+          }`}
+        >
+          <div className="font-bold text-sm">
+            {confirmOutcome.approval_required
+              ? 'Confirmed: routed for manager approval due to final discount terms.'
+              : 'Confirmed: proceeding to fulfilment.'}
+          </div>
+          <div className="text-xs mt-1.5 opacity-90">
+            {confirmOutcome.approval_required ? (
+              <>
+                The terms you accepted are above what your account manager can
+                approve alone, so {confirmOutcome.routed_to || 'their manager'} is
+                reviewing them
+                {confirmOutcome.needs_finance ? ', with Finance to follow' : ''}.
+                You do not need to do anything.
+              </>
+            ) : (
+              <>
+                Your order is with our warehouse team and an invoice will follow.
+                No approval was needed: the final terms are within policy.
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Breadcrumbs */}
+      <div className="flex items-center gap-2 text-xs text-[#7b8ca0] mb-4">
+        <Link to="/quotations" className="hover:text-[#0d1b2a] transition-colors">Quotations</Link>
+        <span>•</span>
+        <span className="font-mono text-[#0d1b2a] font-semibold">{quote.quote_number}</span>
       </div>
 
       {/* Header */}
-      <div className="quotation-detail-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '20px' }}>
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-8">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginBottom: '8px' }}>
-            <h1 style={{ fontSize: '1.8rem', fontWeight: 800, margin: 0 }}>{quote.quote_number}</h1>
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
+            <h1 className="font-['Syne',sans-serif] text-[2rem] font-extrabold text-[#0d1b2a] tracking-tight leading-tight m-0">
+              {quote.quote_number}
+            </h1>
             <StatusBadge status={quote.status} />
           </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-            Generated on {new Date(quote.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
+          <div className="text-xs text-[#7b8ca0]">
+            Last updated {quote.last_activity_at
+              ? new Date(quote.last_activity_at).toLocaleDateString('en-IN',
+                  { day: 'numeric', month: 'long', year: 'numeric' })
+              : 'recently'}
             {quote.updated_at && ` • Updated on ${new Date(quote.updated_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}`}
           </div>
         </div>
 
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '2px' }}>Total Amount</div>
-          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--accent)' }}>
-            {formatCurrency(quote.total_amount)}
+        <div className="md:text-right">
+          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-[#7b8ca0]">
+            Total Value
+          </div>
+          <div className="font-['Syne',sans-serif] text-[1.8rem] font-extrabold text-[#0e7490] leading-tight">
+            {formatCurrency(quoteTotal)}
           </div>
           {parseFloat(quote.discount_applied) > 0 && (
-            <div style={{ fontSize: '0.85rem', color: 'var(--accent)', fontWeight: 600 }}>
+            <div className="text-xs font-semibold text-[#047857] mt-0.5">
               Includes {quote.discount_applied}% volume discount
             </div>
           )}
@@ -388,7 +469,7 @@ export default function QuotationDetail() {
           <div className="discount-request-header">
             <div>
               <div className="discount-request-title">
-                <span>💬 Discount Request</span>
+                <span>Discount Request</span>
                 <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', background: 'var(--bg-hover)', padding: '2px 8px', borderRadius: 4 }}>
                   Requested Discount: {quote.requested_discount || counterDiscount}%
                 </span>
@@ -398,22 +479,22 @@ export default function QuotationDetail() {
             <div>
               {quote.discount_request_status === 'pending_approval' && (
                 <span style={{ background: 'rgba(255, 171, 0, 0.15)', color: 'var(--warning)', padding: '5px 12px', borderRadius: 100, fontSize: '0.78rem', fontWeight: 700 }}>
-                  🟡 Pending Deal Governance Review
+                  Pending Deal Governance Review
                 </span>
               )}
               {quote.discount_request_status === 'approved' && (
                 <span style={{ background: 'rgba(0, 230, 118, 0.15)', color: 'var(--success)', padding: '5px 12px', borderRadius: 100, fontSize: '0.78rem', fontWeight: 700 }}>
-                  🟢 Discount Approved
+                  Discount Approved
                 </span>
               )}
               {quote.discount_request_status === 'rejected' && (
                 <span style={{ background: 'rgba(255, 82, 82, 0.15)', color: 'var(--error)', padding: '5px 12px', borderRadius: 100, fontSize: '0.78rem', fontWeight: 700 }}>
-                  🔴 Discount Request Declined
+                  Discount Request Declined
                 </span>
               )}
               {quote.discount_request_status === 'counter_offer' && (
                 <span style={{ background: 'rgba(0, 176, 255, 0.15)', color: 'var(--info)', padding: '5px 12px', borderRadius: 100, fontSize: '0.78rem', fontWeight: 700 }}>
-                  🔵 Counter Offer Available
+                  Counter Offer Available
                 </span>
               )}
             </div>
@@ -456,7 +537,7 @@ export default function QuotationDetail() {
                     disabled={accepting}
                     style={{ background: 'var(--accent)', color: '#ffffff', fontWeight: 700 }}
                   >
-                    {accepting ? 'Processing...' : '✓ Confirm & Accept Updated Quotation'}
+                    {accepting ? 'Processing...' : 'Confirm & Accept Updated Quotation'}
                   </button>
                 )}
               </>
@@ -518,7 +599,7 @@ export default function QuotationDetail() {
                       disabled={actionLoading}
                       style={{ background: 'var(--accent)', color: '#ffffff', fontWeight: 700 }}
                     >
-                      {actionLoading ? 'Applying...' : `✓ Accept Counter Offer (${quote.counter_discount}%)`}
+                      {actionLoading ? 'Applying...' : `Accept Counter Offer (${quote.counter_discount}%)`}
                     </button>
                     <button
                       className="btn btn-secondary btn-sm"
@@ -527,7 +608,7 @@ export default function QuotationDetail() {
                         if (el) el.scrollIntoView({ behavior: 'smooth' });
                       }}
                     >
-                      💬 Continue Negotiation
+                       Continue Negotiation
                     </button>
                   </div>
                 )}
@@ -542,8 +623,15 @@ export default function QuotationDetail() {
           ======================================================= */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', overflow: 'hidden', margin: '24px 0' }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Quotation Line Items ({quote.items?.length || 0})</span>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>All specifications ISV-certified</span>
+          {/* `quote.lines`, not `quote.items`.
+
+              The customer payload has always been {lines: [{id, name, qty,
+              unit_price, discount_pct, line_total}]}. This table asked for
+              `items`, then for `quantity` and `product_name` inside each row,
+              so it rendered ZERO rows on every quotation and the header
+              confidently reported "(0)". The whole reason a customer opens this
+              page -- to see what they are being quoted for -- was missing. */}
+          <span>Quotation line items ({quote.lines?.length || 0})</span>
         </div>
         <div style={{ overflowX: 'auto' }}>
           <table className="line-items-table" style={{ margin: 0 }}>
@@ -558,25 +646,22 @@ export default function QuotationDetail() {
               </tr>
             </thead>
             <tbody>
-              {(quote.items || []).map((item) => {
-                const effectiveUnit = item.unit_price * (1 - (parseFloat(item.discount_pct || 0) / 100));
-                const lineTotal = effectiveUnit * item.quantity;
+              {(quote.lines || []).map((item) => {
+                // The server computes line_total, discounts included. Recomputing
+                // it here was a second pricing rule that could disagree with the
+                // engine's.
+                const lineTotal = item.line_total;
                 return (
                   <tr key={item.id}>
                     <td>
                       <div className="li-product-cell">
-                        {item.image_url ? (
-                          <img src={item.image_url} alt={item.product_name} className="li-product-img" />
-                        ) : (
-                          <div className="li-product-img" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📦</div>
-                        )}
                         <div>
-                          <div style={{ fontWeight: 600 }}>{item.product_name}</div>
+                          <div style={{ fontWeight: 600 }}>{item.name}</div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{item.category}</div>
                         </div>
                       </div>
                     </td>
-                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{item.quantity}</td>
+                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{item.qty}</td>
                     <td style={{ textAlign: 'right' }}>{formatCurrency(item.unit_price)}</td>
                     <td style={{ textAlign: 'center' }}>
                       {parseFloat(item.discount_pct) > 0 ? (
@@ -588,29 +673,48 @@ export default function QuotationDetail() {
                     <td style={{ textAlign: 'right', fontWeight: 700 }}>
                       {formatCurrency(lineTotal)}
                     </td>
-                    <td style={{ minWidth: '220px' }}>
+                    <td style={{ minWidth: '240px' }}>
                       {!isConfirmed ? (
-                        <textarea
-                          className="comment-field"
-                          placeholder="Add comment, required specs or packaging requirements..."
-                          value={lineComments[item.id] || ''}
-                          onChange={(e) =>
-                            setLineComments((prev) => ({ ...prev, [item.id]: e.target.value }))
-                          }
-                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                              Target Discount:
+                            </span>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: '4px', padding: '2px 6px' }}>
+                              <input
+                                type="number"
+                                min="0"
+                                max="40"
+                                step="1"
+                                placeholder="0"
+                                value={lineDiscounts[item.id] ?? ''}
+                                onChange={(e) => setLineDiscounts(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                style={{ width: '40px', fontSize: '0.75rem', fontWeight: 700, border: 'none', background: 'transparent', outline: 'none', color: 'var(--text-primary)' }}
+                              />
+                              <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' }}>%</span>
+                            </div>
+                          </div>
+                          <textarea
+                            className="comment-field"
+                            placeholder="Add item feedback, required specs or packaging..."
+                            value={lineComments[item.id] || ''}
+                            onChange={(e) =>
+                              setLineComments((prev) => ({ ...prev, [item.id]: e.target.value }))
+                            }
+                          />
+                        </div>
                       ) : (
                         <div>
-                          {item.customer_comment && (
-                            <div className="comment-display">
-                              <strong>You:</strong> {item.customer_comment}
-                            </div>
-                          )}
-                          {item.rep_comment && (
-                            <div className="comment-display" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}>
-                              <strong>Sales Manager:</strong> {item.rep_comment}
-                            </div>
-                          )}
-                          {!item.customer_comment && !item.rep_comment && (
+                          {/* Per-line comments live in quote.comments keyed by
+                              line_id, not on the line itself. */}
+                          {(quote.comments || [])
+                            .filter((c) => c.line_id === item.id && c.body)
+                            .map((c, i) => (
+                              <div key={i} className="comment-display">
+                                <strong>{c.author}:</strong> {c.body}
+                              </div>
+                            ))}
+                          {!(quote.comments || []).some((c) => c.line_id === item.id && c.body) && (
                             <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>No comments</span>
                           )}
                         </div>
@@ -628,9 +732,40 @@ export default function QuotationDetail() {
           COUNTER OFFER & DISCOUNT REQUEST FORM
           Customer can request a better discount or customization
           ======================================================= */}
-      {!isConfirmed && (
+      {/* Negotiation closed: the rep has sent the same terms twice.
+
+          The form used to be offered regardless, so a customer could keep
+          submitting an ask the server would refuse -- with no explanation on
+          screen of why nothing was happening. */}
+      {!isConfirmed && quote.negotiation_locked && (
+        <div className="counter-offer-section">
+          <h3>Final terms</h3>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginBottom: '16px' }}>
+            {quote.lock_reason}
+          </p>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleAcceptProposal}
+              disabled={accepting}
+            >
+              {accepting ? 'Processing…' : 'Confirm & place order'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => navigate('/quotations')}
+            >
+              Cancel and go back
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isConfirmed && !quote.negotiation_locked && (
         <form id="negotiate-section" onSubmit={handleNegotiate} className="counter-offer-section">
-          <h3>💬 Request Better Discount / Customization</h3>
+          <h3>Request Better Discount or Customization</h3>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '16px' }}>
             Request a revised volume discount or submit requirements for Sales Manager commercial evaluation.
           </p>
@@ -670,7 +805,7 @@ export default function QuotationDetail() {
           ======================================================= */}
       <div className="quotation-actions" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: '28px' }}>
         <Link to="/quotations" className="btn btn-ghost">
-          ← Back to All Quotations
+          Back to All Quotations
         </Link>
 
         {/* When manager approved or in negotiation: customer can accept and place order */}
@@ -681,7 +816,7 @@ export default function QuotationDetail() {
             disabled={accepting}
             style={{ background: 'var(--accent)', color: '#ffffff', fontWeight: 700 }}
           >
-            {accepting ? 'Processing Order...' : '✓ Accept Manager Approved Quote & Place Order'}
+            {accepting ? 'Processing Order...' : 'Accept Manager Approved Quote & Place Order'}
           </button>
         )}
 
@@ -700,7 +835,7 @@ export default function QuotationDetail() {
               alignItems: 'center',
               gap: '6px',
             }}>
-              ⏳ Awaiting Sales Manager Approval
+              Awaiting Sales Manager Approval
             </span>
           </div>
         )}
@@ -711,7 +846,7 @@ export default function QuotationDetail() {
             className="btn btn-primary btn-lg"
             onClick={() => navigate('/account?tab=orders')}
           >
-            📦 Track Shipment in Orders →
+            Track Shipment in Orders
           </button>
         )}
       </div>

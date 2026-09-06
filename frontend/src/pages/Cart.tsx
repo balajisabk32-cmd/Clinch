@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Minus, Plus, Trash2, ArrowRight } from 'lucide-react'
 import { ApiError, shopApi, type Cart as CartData } from '../lib/authClient'
 import { ShopShell, cartChanged } from '../components/ShopShell'
-import { CategoryTile } from '../components/CategoryTile'
+import { ProductImage } from '../components/ProductImage'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 
 /**
@@ -99,8 +99,9 @@ export default function Cart() {
                   className={`flex items-center gap-4 p-4 ${
                     i < cart!.lines.length - 1 ? 'border-b border-line' : ''}`}
                 >
-                  <CategoryTile sku={l.sku} category={l.category} size="sm"
-                                className="w-14 h-14 shrink-0" />
+                  <ProductImage src={(l as any).image} name={l.name}
+                                className="w-14 h-14 shrink-0 rounded-lg ring-1 ring-black/[.05] p-1.5"
+                                sizes="56px" />
 
                   <div className="min-w-0 flex-1">
                     <Link to={`/shop/${l.sku}`}

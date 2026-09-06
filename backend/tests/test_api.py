@@ -191,8 +191,11 @@ def test_reset_is_fast_and_restores_state():
 
 def test_payment_flips_invoice_status():
     """Rubric step 8 -- the step most teams never reach."""
-    inv = client.get("/invoices", headers=ADMIN).json()[0]
-    assert inv["status"] == "unpaid"
+    inv = next((i for i in client.get("/invoices", headers=ADMIN).json() if i["status"] == "unpaid"), None)
+    if inv is None:
+        state.reset()
+        inv = next((i for i in client.get("/invoices", headers=ADMIN).json() if i["status"] == "unpaid"), None)
+    assert inv is not None and inv["status"] == "unpaid"
     body = client.post(f"/invoices/{inv['ref']}/payment", headers=FINANCE,
                        json={"amount": inv["amount"]}).json()
     assert body["status"] == "paid"

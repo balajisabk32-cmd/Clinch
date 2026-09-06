@@ -30,6 +30,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from . import billing
 from . import db
 from . import fixtures as fx
 
@@ -37,6 +38,50 @@ from . import fixtures as fx
 # --------------------------------------------------------------------------- #
 #  Seed  ->  database
 # --------------------------------------------------------------------------- #
+
+def ensure_catalogue() -> None:
+    """Re-assert the fixture catalogue over whatever the database holds.
+
+    The product master is defined in code (fx.PRODUCTS) and cached in
+    product_variant. seed_database() only writes it into an EMPTY database, so
+    after any catalogue change -- a rename, a repricing, adding photography --
+    the two silently disagreed and the database won. That is how the storefront
+    ended up quoting a laptop at the old toy price with no image, against a
+    fixtures file that had said otherwise for an hour.
+
+    UPSERT rather than replace: rows an administrator created at runtime are not
+    in fx.PRODUCTS and must survive. Stock is deliberately NOT overwritten --
+    stock_quant is live operational data, not catalogue reference data, and
+    resetting it on every boot would undo real movements.
+    """
+    for p in fx.PRODUCTS:
+        db.execute(
+            """INSERT INTO product_variant
+                 (sku, name, category, list_price, cost, uom, tax_pct,
+                  is_recurring, recurrence, is_promoted, stock_total,
+                  description, variants_json, image)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+               ON CONFLICT(sku) DO UPDATE SET
+                 name          = excluded.name,
+                 category      = excluded.category,
+                 list_price    = excluded.list_price,
+                 cost          = excluded.cost,
+                 uom           = excluded.uom,
+                 tax_pct       = excluded.tax_pct,
+                 is_recurring  = excluded.is_recurring,
+                 recurrence    = excluded.recurrence,
+                 is_promoted   = excluded.is_promoted,
+                 description   = excluded.description,
+                 variants_json = excluded.variants_json,
+                 image         = excluded.image""",
+            (p["sku"], p["name"], p["category"], p["list_price"], p["cost"],
+             p.get("uom", "Each"), p.get("tax_pct", 18.0),
+             int(bool(p.get("is_recurring"))), p.get("recurrence"),
+             int(bool(p.get("is_promoted"))), p.get("stock_total", 0),
+             p.get("description", ""), json.dumps(p.get("variants", [])),
+             p.get("image")),
+        )
+
 
 def ensure_reference_data() -> None:
     """Reference rows that must exist in every database, always.
@@ -49,6 +94,8 @@ def ensure_reference_data() -> None:
     on an existing deployment. INSERT OR IGNORE on the unique code makes
     calling this on every boot free.
     """
+    ensure_catalogue()
+
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     db.executemany(
@@ -66,6 +113,37 @@ def ensure_reference_data() -> None:
          ]],
     )
 
+    # Ensure all enterprise customers from the seeded quote book exist
+    from core.security import hash_password
+    default_pass_hash = hash_password("password123")
+
+    SEEDED_CUSTOMERS = [
+        dict(id="customer_rajesh",    name="Rajesh Kumar",      email="rajesh@acme.com",        company="Acme Corp",       tier="Gold",   rep="rep_rao",    city="Bengaluru", ltv=242815.0),
+        dict(id="customer_vikram",    name="Vikram Malhotra",   email="buying@beta.example",     company="Beta Industries", tier="Gold",   rep="rep_rao",    city="Mumbai",    ltv=489200.0),
+        dict(id="customer_ananya",    name="Ananya Sen",        email="it@novaretail.example",   company="Nova Retail",     tier="Silver", rep="rep_nair",   city="Kolkata",   ltv=310500.0),
+        dict(id="customer_arjun",     name="Arjun Kapoor",      email="proc@zenith.example",     company="Zenith Co",       tier="Silver", rep="rep_bhatia", city="Delhi",     ltv=295400.0),
+        dict(id="customer_kavita",    name="Kavita Reddy",      email="admin@delta.example",     company="Delta LLC",       tier="Bronze", rep="rep_reddy",  city="Hyderabad", ltv=145000.0),
+        dict(id="customer_sameer",    name="Sameer Verma",      email="pm@orion.example",        company="Orion Systems",   tier="Gold",   rep="rep_chopra", city="Pune",      ltv=520000.0),
+        dict(id="customer_siddharth", name="Dr. Siddharth Roy", email="lab@vertex.example",      company="Vertex Labs",     tier="Silver", rep="rep_sen",    city="Bengaluru", ltv=585586.0),
+    ]
+
+    for c in SEEDED_CUSTOMERS:
+        if not db.one("SELECT id FROM app_user WHERE id = ?", (c["id"],)):
+            db.execute(
+                """INSERT INTO app_user (id, name, email, password_hash, role, is_active, created_at)
+                   VALUES (?, ?, ?, ?, 'customer', 1, ?)""",
+                (c["id"], c["name"], c["email"], default_pass_hash, now)
+            )
+        db.execute(
+            """INSERT OR IGNORE INTO customer_account
+                 (user_id, company, gst_number, phone, address, city, postcode,
+                  tier, tier_locked, lifetime_value, assigned_rep, created_at)
+               VALUES (?, ?, '29ABCDE1234F1Z5', '+91 98450 11223',
+                       'Plot 42, Tech Park', ?, '560100',
+                       ?, 1, ?, ?, ?)""",
+            (c["id"], c["company"], c["city"], c["tier"], c["ltv"], c["rep"], now)
+        )
+
 
 def seed_database() -> None:
     """Write the seeded book of business into an empty database."""
@@ -81,13 +159,14 @@ def seed_database() -> None:
     db.executemany(
         """INSERT INTO product_variant
            (sku, name, category, list_price, cost, uom, tax_pct, is_recurring,
-            recurrence, is_promoted, stock_total, description, variants_json)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            recurrence, is_promoted, stock_total, description, variants_json, image)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [(p["sku"], p["name"], p["category"], p["list_price"], p["cost"],
           p.get("uom", "Each"), p.get("tax_pct", 18.0),
           int(bool(p.get("is_recurring"))), p.get("recurrence"),
           int(bool(p.get("is_promoted"))), p.get("stock_total", 0),
-          p.get("description", ""), json.dumps(p.get("variants", [])))
+          p.get("description", ""), json.dumps(p.get("variants", [])),
+          p.get("image"))
          for p in fx.PRODUCTS],
     )
     db.executemany(
@@ -116,10 +195,16 @@ def seed_database() -> None:
     )
     db.executemany(
         """INSERT INTO account_move
-           (ref, order_ref, customer, kind, amount, amount_paid, status, due_date)
-           VALUES (?,?,?,?,?,?,?,?)""",
+           (ref, order_ref, customer, kind, amount, amount_paid, status,
+            due_date, method, paid_at, last_payment_at, payments_json)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        # Settlement detail is seeded too. Dropping it meant a seeded "paid"
+        # invoice knew it was paid but not when, how, or by whom -- and the
+        # printed invoice read "Settled in full on  at  via".
         [(i["ref"], i["order_ref"], i["customer"], i["kind"], i["amount"],
-          i["amount_paid"], i["status"], i["due_date"]) for i in fx.INVOICES],
+          i["amount_paid"], i["status"], i["due_date"], i.get("method"),
+          i.get("paid_at"), i.get("last_payment_at"),
+          json.dumps(i.get("payments", []))) for i in fx.INVOICES],
     )
 
     for row in fx._QUOTES:
@@ -161,6 +246,7 @@ def load_into(state: Any) -> None:
             recurrence=r["recurrence"], is_promoted=bool(r["is_promoted"]),
             stock_total=r["stock_total"], description=r["description"],
             variants=json.loads(r["variants_json"] or "[]"),
+            image=r["image"] if "image" in r.keys() else None,
         ))
     state.sync_by_sku()
 
@@ -216,8 +302,25 @@ def load_into(state: Any) -> None:
                                     if "manager_revision_notes" in keys else None),
             revision_requested=bool(r["revision_requested"])
                                if "revision_requested" in keys else False,
+            sent_snapshot=json.loads(r["sent_snapshot_json"] or "[]")
+                          if "sent_snapshot_json" in keys else [],
+            revision_count=int(r["revision_count"] or 0)
+                           if "revision_count" in keys else 0,
+            source=r["source"] if "source" in keys else None,
         )
         state.QUOTE_STATE[r["ref"]] = r["state"]
+
+    highest_ref = 1055
+    for ref_str in state.QUOTES:
+        if ref_str.startswith("Q-"):
+            try:
+                num = int(ref_str.split("-")[1])
+                if num > highest_ref:
+                    highest_ref = num
+            except (ValueError, IndexError):
+                pass
+    if hasattr(state, "_next_ref"):
+        state._next_ref[0] = max(state._next_ref[0], highest_ref)
 
     state.ALLOCATIONS.clear()
     for r in db.query("SELECT * FROM allocation"):
@@ -237,7 +340,14 @@ def load_into(state: Any) -> None:
         dict(ref=r["ref"], order_ref=r["order_ref"], customer=r["customer"],
              kind=r["kind"], amount=r["amount"], amount_paid=r["amount_paid"],
              status=r["status"], due_date=r["due_date"],
-             **({"method": r["method"]} if r["method"] else {}),
+             **({"method": r["method"],
+                 "method_label": billing.PAYMENT_METHODS.get(r["method"], r["method"])}
+                if r["method"] else {}),
+             **({"paid_at": r["paid_at"]} if _col(r, "paid_at") else {}),
+             **({"last_payment_at": r["last_payment_at"]}
+                if _col(r, "last_payment_at") else {}),
+             **({"payments": json.loads(r["payments_json"])}
+                if _col(r, "payments_json") and r["payments_json"] not in (None, "[]") else {}),
              **({"lines": json.loads(r["lines_json"])} if r["lines_json"] and r["lines_json"] != "[]" else {}))
         for r in db.query("SELECT * FROM account_move ORDER BY rowid")
     )
@@ -258,10 +368,40 @@ def load_into(state: Any) -> None:
         for r in db.query("SELECT * FROM deal_events ORDER BY id")
     )
 
+    # Resume the reference counter above the highest ref on file.
+    #
+    # It was left at its module default (1055) on every restart, while the
+    # quotations loaded from the database ran well past that. The next quote a
+    # rep created was therefore issued a reference that ALREADY EXISTED, and
+    # `QUOTES[ref] = ...` overwrote a live deal in place -- its customer, its
+    # lines and its approval state replaced silently, with the old invoice still
+    # pointing at the reference. Durable data made this worse, not better: the
+    # longer the database lived, the more quotes there were to collide with.
+    highest = 0
+    for ref in state.QUOTES:
+        _, _, tail = ref.partition("-")
+        if tail.isdigit():
+            highest = max(highest, int(tail))
+    if highest:
+        state._next_ref[0] = max(state._next_ref[0], highest)
+
 
 # --------------------------------------------------------------------------- #
 #  Working set  ->  database
 # --------------------------------------------------------------------------- #
+
+def _col(row, name: str) -> Any:
+    """Read a column that may not exist on an older row.
+
+    sqlite3.Row raises IndexError for an unknown key rather than returning
+    None, so a database that has not been migrated yet would blow up on load
+    instead of simply having no settlement detail.
+    """
+    try:
+        return row[name]
+    except (IndexError, KeyError):
+        return None
+
 
 def flush(state: Any) -> None:
     """Persist the working set. Called after every mutating request.
@@ -278,13 +418,14 @@ def flush(state: Any) -> None:
         cur.executemany(
             """INSERT INTO product_variant
                (sku, name, category, list_price, cost, uom, tax_pct, is_recurring,
-                recurrence, is_promoted, stock_total, description, variants_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                recurrence, is_promoted, stock_total, description, variants_json, image)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [(p["sku"], p["name"], p["category"], p["list_price"], p["cost"],
               p.get("uom", "Each"), p.get("tax_pct", 18.0),
               int(bool(p.get("is_recurring"))), p.get("recurrence"),
               int(bool(p.get("is_promoted"))), p.get("stock_total", 0),
-              p.get("description", ""), json.dumps(p.get("variants", [])))
+              p.get("description", ""), json.dumps(p.get("variants", [])),
+              p.get("image"))
              for p in state.PRODUCTS])
 
         cur.execute("DELETE FROM price_list")
@@ -324,13 +465,16 @@ def flush(state: Any) -> None:
             """INSERT INTO sale_order
                  (ref, customer, tier, rep, state, order_discount_pct,
                   approved_by_id, approved_by_name, approved_by_role, approved_at,
-                  manager_revision_notes, revision_requested)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  manager_revision_notes, revision_requested,
+                  sent_snapshot_json, revision_count, source)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [(ref, q["customer"], q["tier"], q["rep"],
               state.QUOTE_STATE.get(ref, "DRAFT"), q.get("order_discount_pct", 0.0),
               q.get("approved_by_id"), q.get("approved_by_name"),
               q.get("approved_by_role"), q.get("approved_at"),
-              q.get("manager_revision_notes"), 1 if q.get("revision_requested") else 0)
+              q.get("manager_revision_notes"), 1 if q.get("revision_requested") else 0,
+              json.dumps(q.get("sent_snapshot") or []), int(q.get("revision_count", 0)),
+              q.get("source"))
              for ref, q in state.QUOTES.items()])
         cur.executemany(
             """INSERT INTO sale_order_line (order_ref, position, sku, qty, discount_pct)
@@ -358,11 +502,14 @@ def flush(state: Any) -> None:
         cur.executemany(
             """INSERT INTO account_move
                (ref, order_ref, customer, kind, amount, amount_paid, status,
-                due_date, method, lines_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                due_date, method, lines_json, paid_at, last_payment_at,
+                payments_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [(i["ref"], i["order_ref"], i["customer"], i["kind"], i["amount"],
               i["amount_paid"], i["status"], i["due_date"], i.get("method"),
-              json.dumps(i.get("lines", []))) for i in state.INVOICES])
+              json.dumps(i.get("lines", [])), i.get("paid_at"),
+              i.get("last_payment_at"), json.dumps(i.get("payments", [])))
+             for i in state.INVOICES])
 
         cur.execute("DELETE FROM portal_comment")
         cur.executemany(

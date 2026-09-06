@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { Upload } from 'lucide-react'
 import { api, inr } from '../lib/api'
 import { ErrorBar, Workspace } from '../components/Workspace'
+import { ProductImage } from '../components/ProductImage'
 import { EASE_CSS } from '../lib/motion'
 
 /**
@@ -20,6 +22,7 @@ interface Detail {
   list_price: number; cost: number; uom: string; tax_pct: number
   is_recurring?: boolean; recurrence?: string | null; is_promoted?: boolean
   margin: number; margin_pct: number
+  image?: string | null
   variants: Array<{ attribute: string; values: string[]; extra_price: number[] }>
   prices: Array<{ tier: string; currency: string; adjustment_pct: number
                   rule: string; price: number }>
@@ -63,6 +66,22 @@ export default function ProductDetail() {
     } finally { setBusy(false) }
   }
 
+  const handleDetailImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async () => {
+      const dataUrl = reader.result as string
+      try {
+        const res = await api.uploadProductImage(dataUrl, file.name, sku)
+        setEdit(prev => prev ? ({ ...prev, image: res.url }) : null)
+      } catch {
+        setEdit(prev => prev ? ({ ...prev, image: dataUrl }) : null)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+
   if (!p) {
     return (
       <Workspace onReload={load}>
@@ -84,14 +103,35 @@ export default function ProductDetail() {
         )}
 
         <header className="flex flex-wrap items-center gap-4">
-          <div>
-            <Link to="/app/products" className="font-mono text-[11px] text-fg-3 hover:text-accent">
-              ← Product catalogue
-            </Link>
-            <h1 className="font-display text-[22px] font-bold text-fg mt-1">{p.name}</h1>
-            <div className="font-mono text-[11.5px] text-fg-3 mt-1">
-              {p.sku} · {p.category}
-              {p.is_recurring && ` · ${p.recurrence} subscription`}
+          <div className="flex items-center gap-4">
+            <div className="relative group">
+              <ProductImage
+                src={edit ? edit.image : p.image}
+                name={p.name}
+                className="w-16 h-16 rounded-xl border border-line bg-white shadow-xs"
+              />
+              {edit && (
+                <label className="absolute inset-0 bg-black/55 rounded-xl flex flex-col items-center justify-center cursor-pointer text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Upload size={16} />
+                  <span className="text-[9px] font-medium mt-0.5">Upload</span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleDetailImage}
+                  />
+                </label>
+              )}
+            </div>
+            <div>
+              <Link to="/app/products" className="font-mono text-[11px] text-fg-3 hover:text-accent">
+                ← Product catalogue
+              </Link>
+              <h1 className="font-display text-[19px] font-bold text-fg tracking-tight mt-0.5">{p.name}</h1>
+              <div className="font-mono text-[11.5px] text-fg-3 mt-0.5">
+                {p.sku} · {p.category}
+                {p.is_recurring && ` · ${p.recurrence} subscription`}
+              </div>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-2">
@@ -115,6 +155,7 @@ export default function ProductDetail() {
                   name: p.name, category: p.category, list_price: p.list_price,
                   cost: p.cost, uom: p.uom, tax_pct: p.tax_pct,
                   description: p.description ?? '',
+                  image: p.image ?? '',
                 })}
                 className="rounded-full bg-fg text-white px-5 py-2 font-display
                            text-[12.5px] font-semibold hover:shadow-lift-lg active:scale-[.98]"
@@ -130,7 +171,7 @@ export default function ProductDetail() {
           <div className="flex flex-col gap-4">
 
             {/* General info */}
-            <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5">
+            <section className="panel p-5">
               <h2 className="font-display text-[14px] font-semibold text-fg mb-4">General info</h2>
               <div className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
                 {([
@@ -193,7 +234,7 @@ export default function ProductDetail() {
             </section>
 
             {/* Variants */}
-            <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+            <section className="panel">
               <div className="px-5 py-3 border-b border-line">
                 <h2 className="font-display text-[14px] font-semibold text-fg">Product variants</h2>
               </div>
@@ -202,21 +243,20 @@ export default function ProductDetail() {
                   No variants defined. This product is sold as a single configuration.
                 </p>
               ) : (
-                <table className="w-full text-[13px]">
+                <table className="grid-table">
                   <thead>
-                    <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                                   border-b border-line">
-                      <th className="text-left font-medium px-5 py-2">Attribute</th>
-                      <th className="text-left font-medium px-3 py-2">Values</th>
-                      <th className="text-right font-medium px-5 py-2 w-40">Extra price</th>
+                    <tr>
+                      <th>Attribute</th>
+                      <th>Values</th>
+                      <th className="text-right font-medium w-40">Extra price</th>
                     </tr>
                   </thead>
                   <tbody>
                     {p.variants.map(v => (
                       <tr key={v.attribute} className="border-b border-line last:border-0">
-                        <td className="px-5 py-2.5 text-fg font-medium">{v.attribute}</td>
-                        <td className="px-3 py-2.5 text-fg-2">{v.values.join(', ')}</td>
-                        <td className="px-5 py-2.5 text-right font-mono tabular-nums text-fg-2">
+                        <td className="text-fg font-medium">{v.attribute}</td>
+                        <td className="text-fg-2">{v.values.join(', ')}</td>
+                        <td className="text-right font-mono tabular-nums text-fg-2">
                           {v.extra_price.map(x => x === 0 ? '—' : `+${inr(x)}`).join(' / ')}
                         </td>
                       </tr>
@@ -227,7 +267,7 @@ export default function ProductDetail() {
             </section>
 
             {/* Pricelists */}
-            <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+            <section className="panel">
               <div className="px-5 py-3 border-b border-line">
                 <h2 className="font-display text-[14px] font-semibold text-fg">Pricelists</h2>
                 <p className="text-[11.5px] text-fg-3 mt-0.5">
@@ -235,23 +275,22 @@ export default function ProductDetail() {
                   leave one tier book stale.
                 </p>
               </div>
-              <table className="w-full text-[13px]">
+              <table className="grid-table">
                 <thead>
-                  <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                                 border-b border-line">
-                    <th className="text-left font-medium px-5 py-2">Tier</th>
-                    <th className="text-left font-medium px-3 py-2 w-24">Currency</th>
-                    <th className="text-left font-medium px-3 py-2">Price rule</th>
-                    <th className="text-right font-medium px-5 py-2 w-32">Price</th>
+                  <tr>
+                    <th>Tier</th>
+                    <th className="w-24">Currency</th>
+                    <th>Price rule</th>
+                    <th className="text-right font-medium w-32">Price</th>
                   </tr>
                 </thead>
                 <tbody>
                   {p.prices.map(r => (
                     <tr key={`${r.tier}-${r.currency}`} className="border-b border-line last:border-0">
-                      <td className="px-5 py-2.5 text-fg font-medium">{r.tier}</td>
-                      <td className="px-3 py-2.5 font-mono text-fg-2">{r.currency}</td>
-                      <td className="px-3 py-2.5 text-fg-2">{r.rule}</td>
-                      <td className="px-5 py-2.5 text-right font-mono tabular-nums text-fg font-semibold">
+                      <td className="text-fg font-medium">{r.tier}</td>
+                      <td className="font-mono text-fg-2">{r.currency}</td>
+                      <td className="text-fg-2">{r.rule}</td>
+                      <td className="text-right font-mono tabular-nums text-fg font-semibold">
                         {inr(r.price)}
                       </td>
                     </tr>
@@ -262,7 +301,7 @@ export default function ProductDetail() {
           </div>
 
           {/* Stock on hand */}
-          <aside className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5
+          <aside className="panel p-5
                             lg:sticky lg:top-[72px]">
             <h2 className="font-display text-[14px] font-semibold text-fg mb-3">Quantity on hand</h2>
             {p.stock.length === 0 ? (

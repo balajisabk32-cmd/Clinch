@@ -90,6 +90,9 @@ export function Workspace({
     { to: '/app/products', label: 'Products' },
     { to: '/app/settings', label: 'Settings' },
     { to: '/app/users', label: 'Users' },
+    // Admin-only sub-pages
+    { to: '/app/admin/subscriptions', label: 'Plans' },
+    { to: '/app/admin/reports', label: 'Rep Reports' },
     { to: '/app/profile', label: 'Profile' },
   ]
 
@@ -116,14 +119,14 @@ export function Workspace({
   }
 
   return (
-    <div className="min-h-[100dvh] bg-bg">
-      <header className="sticky top-0 z-30 bg-surface/85 backdrop-blur-xl border-b border-line">
-        <div className="mx-auto max-w-[1560px] px-5 h-14 flex items-center gap-5">
+    <div className="min-h-[100dvh] bg-bg w-full max-w-full overflow-x-hidden flex flex-col">
+      <header className="sticky top-0 z-30 bg-surface/85 backdrop-blur-xl border-b border-line w-full">
+        <div className="mx-auto max-w-[1560px] w-full px-5 h-14 flex items-center gap-5">
           <Link to="/" className="shrink-0" aria-label="Clinch home">
             <img src="/CLINCH_LOGO_TRANSPARENT.png" alt="Clinch" className="h-[19px] w-auto" />
           </Link>
 
-          <nav aria-label="Workspace" className="flex items-center gap-0.5 overflow-x-auto">
+          <nav aria-label="Workspace" className="flex items-center gap-0.5 overflow-x-auto min-w-0">
             {tabs.map(t => (
               <NavLink
                 key={t.to}
@@ -141,15 +144,6 @@ export function Workspace({
           </nav>
 
           <div className="ml-auto flex items-center gap-2 shrink-0">
-            {/* Quick Switch to Customer Storefront */}
-            <Link
-              to="/shop"
-              title="Open Customer Storefront"
-              className="hidden sm:inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11.5px] text-[#46586b] hover:text-[#0d1b2a] hover:bg-surface-2 ring-1 ring-black/[.06]"
-            >
-              <span>🛒 Storefront</span>
-            </Link>
-
             {/* Active Persona Pill linking to /login */}
             <button
               onClick={handleSignOut}
@@ -158,7 +152,7 @@ export function Workspace({
                          hover:ring-accent/40 flex items-center gap-1.5 font-medium cursor-pointer"
               style={{ transition: `all 320ms ${EASE_CSS}` }}
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm"></span>
+              <span className="w-2 h-2 rounded-full bg-band-auto shadow-sm"></span>
               <span>{user.name}</span>
               <span className="text-accent text-[11px] font-semibold tracking-wide">({user.role.toUpperCase()})</span>
               <span className="text-fg-4 text-[10px] uppercase font-mono tracking-wider ml-0.5">Switch</span>
@@ -182,7 +176,7 @@ export function Workspace({
             <button
               onClick={handleSignOut}
               title="Sign out of current account"
-              className="rounded-full px-3 py-1.5 text-[12.5px] font-medium text-fg-3 hover:text-band-finance hover:bg-rose-50/50"
+              className="rounded-full px-3 py-1.5 text-[12.5px] font-medium text-fg-3 hover:text-band-finance hover:bg-band-financeWash"
               style={{ transition: `all 320ms ${EASE_CSS}` }}
             >
               Sign Out
@@ -191,7 +185,7 @@ export function Workspace({
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1560px] px-5 py-6">{children}</main>
+      <main className="mx-auto max-w-[1560px] w-full px-5 py-6 min-w-0 flex-1">{children}</main>
     </div>
   )
 }

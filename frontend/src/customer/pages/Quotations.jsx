@@ -12,68 +12,123 @@ export default function Quotations() {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    fetchQuotations();
-  }, []);
-
-  const fetchQuotations = async () => {
+  const fetchQuotations = async (silent = false) => {
     try {
-      setLoading(true);
-      const res = await api.get('/quotations');
-      setQuotations(res.data || []);
+      if (!silent && quotations.length === 0) setLoading(true);
+      const res = await api.get('/shop/quotes');
+      // /shop/quotes returns an array directly.
+      // Guard: if it's not an array (e.g. a 404 error body) fall back to [].
+      const raw = res.data;
+      setQuotations(Array.isArray(raw) ? raw : []);
     } catch (err) {
       console.error('Failed to load quotations:', err);
+      if (!silent) setQuotations([]);
     } finally {
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    fetchQuotations();
+    const interval = setInterval(() => {
+      fetchQuotations(true);
+    }, 2500);
+    const onFocus = () => fetchQuotations(true);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+
   const filteredQuotations = quotations.filter((q) => {
-    const matchesFilter = filter === 'all' || q.status === filter;
+    const matchesFilter = filter === 'all' || q.state === filter;
     const matchesSearch =
-      q.quote_number?.toLowerCase().includes(search.toLowerCase()) ||
-      String(q.total_amount).includes(search);
+      q.ref?.toLowerCase().includes(search.toLowerCase()) ||
+      String(q.total ?? '').includes(search);
     return matchesFilter && matchesSearch;
   });
 
-  const totalValue = quotations.reduce((acc, q) => acc + parseFloat(q.total_amount || 0), 0);
-  const activeCount = quotations.filter((q) => ['sent', 'under_negotiation', 'pending_review'].includes(q.status)).length;
-  const confirmedCount = quotations.filter((q) => ['confirmed', 'fulfillment', 'delivered'].includes(q.status)).length;
+  const totalValue = quotations.reduce((acc, q) => acc + parseFloat(q.total || 0), 0);
+  const activeCount = quotations.filter((q) => ['under_review', 'draft', 'submitted'].includes(q.state)).length;
+  const confirmedCount = quotations.filter((q) => ['approved', 'shipped', 'fulfilled'].includes(q.state)).length;
 
   return (
-    <div className="container" style={{ paddingBottom: '60px' }}>
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px' }}>
+    <div className="mx-auto max-w-[1240px] px-5 py-8">
+      {/* Breadcrumbs */}
+      <div className="flex items-center gap-2 text-xs text-[#7b8ca0] mb-3">
+        <button
+          type="button"
+          onClick={() => navigate('/shop')}
+          className="hover:text-[#0d1b2a] transition-colors"
+        >
+          Home
+        </button>
+        <span>•</span>
+        <span className="text-[#0d1b2a] font-medium">Quotations</span>
+      </div>
+
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
         <div>
-          <h1 className="page-title">My Quotations</h1>
-          <p className="page-subtitle">Track, negotiate, and approve your custom B2B pricing proposals</p>
+          <h1 className="font-['Syne',sans-serif] text-[2.2rem] font-extrabold text-[#0d1b2a] tracking-tight leading-tight">
+            My Quotations
+          </h1>
+          <p className="text-sm text-[#46586b] mt-1">
+            Track, negotiate, and approve your custom B2B pricing proposals
+          </p>
         </div>
-        <button className="btn btn-primary" onClick={() => navigate('/shop')}>
-          + New Quote Request
+        <button
+          type="button"
+          className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-full bg-[#0d1b2a] text-white text-sm font-semibold hover:bg-[#0e7490] transition-all shrink-0 shadow-sm"
+          onClick={() => navigate('/shop')}
+        >
+          <span>+ New Quote Request</span>
         </button>
       </div>
 
       {/* Summary KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', margin: '24px 0' }}>
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '16px 20px' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '4px' }}>Total Quotes</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{quotations.length}</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Lifetime value: {formatCurrency(totalValue)}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white border border-[#0d1b2a]/[0.08] rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[#7b8ca0] mb-1">
+            Total Quotations
+          </div>
+          <div className="font-['Syne',sans-serif] text-[1.8rem] font-extrabold text-[#0d1b2a] leading-none my-1">
+            {quotations.length}
+          </div>
+          <div className="text-xs text-[#46586b] mt-1 font-medium">
+            Lifetime value: <b className="font-mono text-[#0d1b2a]">{formatCurrency(totalValue)}</b>
+          </div>
         </div>
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '16px 20px' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--warning)', marginBottom: '4px' }}>In Negotiation / Review</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--warning)' }}>{activeCount}</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Awaiting your decision</div>
+
+        <div className="bg-white border border-[#0d1b2a]/[0.08] rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[#b45309] mb-1">
+            In Negotiation / Review
+          </div>
+          <div className="font-['Syne',sans-serif] text-[1.8rem] font-extrabold text-[#b45309] leading-none my-1">
+            {activeCount}
+          </div>
+          <div className="text-xs text-[#46586b] mt-1 font-medium">
+            Awaiting decision or manager sign-off
+          </div>
         </div>
-        <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius-md)', padding: '16px 20px' }}>
-          <div style={{ fontSize: '0.8rem', color: 'var(--success)', marginBottom: '4px' }}>Confirmed & Fulfilled</div>
-          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--success)' }}>{confirmedCount}</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Orders placed</div>
+
+        <div className="bg-white border border-[#0d1b2a]/[0.08] rounded-2xl p-5 shadow-sm flex flex-col justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[#047857] mb-1">
+            Confirmed & Fulfilled
+          </div>
+          <div className="font-['Syne',sans-serif] text-[1.8rem] font-extrabold text-[#047857] leading-none my-1">
+            {confirmedCount}
+          </div>
+          <div className="text-xs text-[#46586b] mt-1 font-medium">
+            Orders confirmed and shipped
+          </div>
         </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap', marginBottom: '20px' }}>
-        <div className="tab-group" style={{ margin: 0 }}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+        <div className="tab-group">
           {[
             { id: 'all', label: 'All' },
             { id: 'pending_review', label: 'In Review' },
@@ -83,6 +138,7 @@ export default function Quotations() {
           ].map((tab) => (
             <button
               key={tab.id}
+              type="button"
               className={`tab-btn ${filter === tab.id ? 'active' : ''}`}
               onClick={() => setFilter(tab.id)}
             >
@@ -91,33 +147,27 @@ export default function Quotations() {
           ))}
         </div>
 
-        <input
-          type="text"
-          placeholder="Filter by quote #..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{
-            maxWidth: '240px',
-            padding: '8px 12px',
-            background: 'var(--bg-input)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius-sm)',
-            color: 'var(--text-primary)',
-            fontSize: '0.85rem',
-            outline: 'none',
-          }}
-        />
+        <div className="relative max-w-xs w-full">
+          <input
+            type="text"
+            placeholder="Filter by quote # or amount..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full px-4 py-2 text-xs rounded-full bg-white border border-[#0d1b2a]/[0.1] text-[#0d1b2a] placeholder-[#7b8ca0] focus:outline-none focus:ring-2 focus:ring-[#0e7490]/30 focus:border-[#0e7490] shadow-sm transition-all"
+          />
+        </div>
       </div>
 
       {/* List */}
       <div className="quotation-list">
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)' }}>
-            Loading quotations...
+          <div className="py-16 text-center text-sm text-[#7b8ca0]">
+            <div className="w-8 h-8 rounded-full border-2 border-[#0e7490] border-t-transparent animate-spin mx-auto mb-3" />
+            Loading your quotations...
           </div>
         ) : filteredQuotations.length === 0 ? (
           <EmptyState
-            icon="📄"
+            icon=""
             title={search || filter !== 'all' ? 'No matching quotations' : 'No quotations yet'}
             description={
               search || filter !== 'all'
@@ -132,7 +182,7 @@ export default function Quotations() {
             }
           />
         ) : (
-          filteredQuotations.map((q) => <QuotationCard key={q.id} quotation={q} />)
+          filteredQuotations.map((q) => <QuotationCard key={q.ref} quotation={q} />)
         )}
       </div>
     </div>

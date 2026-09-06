@@ -1,41 +1,84 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ShoppingBag, ArrowRight, ArrowLeft, Send, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { ShoppingBag, ArrowRight, ArrowLeft, Send, CheckCircle2, ShieldAlert, Sparkles, Tag } from 'lucide-react';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../context/ToastContext';
 import CartItem from '../components/CartItem';
 import { formatCurrency } from '../components/shared';
 
 export default function Cart() {
-  const { cartItems, loading, fetchCart, submitAsQuote, cartCount } = useCart();
+  const { cartItems, cartSubtotal, loading, fetchCart, submitAsQuote, cartCount } = useCart();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [submitting, setSubmitting] = useState(false);
+  
+  // Per-product discount allotments: { [sku]: discountPct }
+  const [lineDiscounts, setLineDiscounts] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('clinch_cart_discounts') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const [askNote, setAskNote] = useState('');
 
   useEffect(() => { 
     fetchCart(); 
   }, [fetchCart]);
 
-  const subtotal = cartItems.reduce((sum, item) => {
-    return sum + parseFloat(item.unit_price || item.base_price) * item.quantity;
-  }, 0);
+  const handleLineDiscountChange = (sku, pct) => {
+    setLineDiscounts((prev) => {
+      const next = {
+        ...prev,
+        [sku]: Number(pct || 0),
+      };
+      try {
+        localStorage.setItem('clinch_cart_discounts', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
-  const totalDiscount = cartItems.reduce((sum, item) => {
-    const price = parseFloat(item.unit_price || item.base_price) * item.quantity;
-    const disc = parseFloat(item.suggested_discount || 0) / 100;
-    return sum + price * disc;
-  }, 0);
+  // Subtotal directly from server-computed cart
+  const subtotal = cartSubtotal;
 
-  const estimatedTotal = subtotal - totalDiscount;
+  // Compute total discount savings summed from each individual product allotment
+  const totalDiscount = Math.round(
+    cartItems.reduce((acc, item) => {
+      const pct = Number(lineDiscounts[item.sku] || 0);
+      const unit = parseFloat(item.your_price || item.list_price || 0);
+      const qty = item.qty ?? item.quantity ?? 1;
+      return acc + (unit * qty * (pct / 100));
+    }, 0) * 100
+  ) / 100;
+
+  const estimatedTotal = Math.max(0, Math.round((subtotal - totalDiscount) * 100) / 100);
+  const effectiveDiscountPct = subtotal > 0 ? Math.round((totalDiscount / subtotal) * 1000) / 10 : 0;
+
+  // Filter items with active discount requests for summary breakdown
+  const discountedItems = cartItems.filter((item) => Number(lineDiscounts[item.sku] || 0) > 0);
 
   const handleSubmitQuote = async () => {
     setSubmitting(true);
     try {
-      const result = await submitAsQuote();
-      showToast(`Quotation ${result.quote_number} submitted! Your sales rep will review it shortly.`, 'success', 5000);
+      // Build full line discounts map across all cart items
+      const allDiscounts = {};
+      cartItems.forEach((item) => {
+        allDiscounts[item.sku] = Number(lineDiscounts[item.sku] || 0);
+      });
+
+      const result = await submitAsQuote(
+        askNote.trim(),
+        effectiveDiscountPct > 0 ? effectiveDiscountPct : null,
+        allDiscounts
+      );
+      try {
+        localStorage.removeItem('clinch_cart_discounts');
+      } catch {}
+      showToast(`Quotation ${result.ref ?? 'submitted'} with your product discount terms! Sent to your account manager.`, 'success', 5000);
       navigate('/quotations');
     } catch (err) {
-      showToast(err.response?.data?.error || 'Failed to submit quote', 'error');
+      showToast(err?.message || 'Failed to submit quote', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -51,7 +94,7 @@ export default function Cart() {
   }
 
   return (
-    <div className="mx-auto max-w-[1240px] px-5 py-8">
+    <div className="customer-page-container mx-auto max-w-[1240px] px-5 py-8">
       {/* Breadcrumbs */}
       <div className="flex items-center gap-2 text-xs text-[#7b8ca0] mb-3">
         <Link to="/shop" className="hover:text-[#0d1b2a] transition-colors">Home</Link>
@@ -60,13 +103,13 @@ export default function Cart() {
       </div>
 
       {/* Page Header */}
-      <div className="mb-8">
+      <div className="mb-6">
         <h1 className="font-['Syne',sans-serif] text-[2.4rem] font-extrabold text-[#0d1b2a] tracking-tight leading-tight">
           Enterprise Cart
         </h1>
         <p className="text-sm text-[#46586b] mt-1">
           {cartCount > 0
-            ? `${cartCount} item${cartCount !== 1 ? 's' : ''} in your basket — suggest discounts and submit for deal governance review`
+            ? `${cartCount} item${cartCount !== 1 ? 's' : ''} in your basket — configure discount allotments per product before submitting for deal governance review`
             : 'Your cart is empty'}
         </p>
       </div>
@@ -91,20 +134,32 @@ export default function Cart() {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Cart Line Items */}
+          {/* Cart Line Items Column */}
           <div className="lg:col-span-8">
-            <div className="bg-white border border-[#0d1b2a]/[0.08] rounded-2xl p-4 mb-5 flex items-start gap-3 text-xs text-[#46586b] shadow-sm">
-              <span className="font-bold text-white bg-[#0e7490] px-2.5 py-0.5 rounded-full text-[10px] shrink-0 uppercase tracking-wider shadow-sm">
-                Dealflow Guidance
+            {/* Guidance banner for per-product discount allotment */}
+            <div className="bg-[#f8fafc] border border-[#0d1b2a]/[0.08] rounded-2xl p-4 mb-5 shadow-xs flex items-start gap-3">
+              <span className="p-2 rounded-xl bg-[#0e7490]/10 text-[#0e7490] shrink-0 mt-0.5">
+                <Tag size={18} />
               </span>
-              <span>
-                You can propose a customized discount % per product. Your dedicated Sales Rep and Sales Manager will evaluate special tier pricing.
-              </span>
+              <div className="text-xs text-[#46586b] leading-relaxed">
+                <div className="font-bold text-[#0d1b2a] text-[13px] mb-0.5">
+                  Itemized Product Discount Allotment
+                </div>
+                <div>
+                  Each product row below allows specifying custom target discounts. Different hardware and software categories carry distinct margin rules &mdash; your account manager evaluates each item individually.
+                </div>
+              </div>
             </div>
 
+            {/* List of Cart Items */}
             <div>
               {cartItems.map((item) => (
-                <CartItem key={item.id} item={item} />
+                <CartItem
+                  key={item.sku}
+                  item={item}
+                  discountPct={lineDiscounts[item.sku] || 0}
+                  onDiscountChange={handleLineDiscountChange}
+                />
               ))}
             </div>
 
@@ -131,10 +186,38 @@ export default function Cart() {
                   <span className="font-semibold text-[#0d1b2a]">{formatCurrency(subtotal)}</span>
                 </div>
 
+                {/* Itemized Discount Breakdown */}
+                {discountedItems.length > 0 && (
+                  <div className="py-2 border-y border-[#0d1b2a]/[0.06] my-2 space-y-1.5">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7b8ca0] mb-1">
+                      Product Discount Requests:
+                    </div>
+                    {discountedItems.map((item) => {
+                      const pct = lineDiscounts[item.sku];
+                      const unit = parseFloat(item.your_price || item.list_price || 0);
+                      const qty = item.qty ?? item.quantity ?? 1;
+                      const savings = Math.round(unit * qty * (pct / 100) * 100) / 100;
+                      return (
+                        <div key={item.sku} className="flex justify-between items-center text-xs text-[#047857]">
+                          <span className="truncate max-w-[170px]" title={item.name}>
+                            {item.name} ({pct}%)
+                          </span>
+                          <span className="font-semibold">−{formatCurrency(savings)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
                 {totalDiscount > 0 && (
                   <div className="flex justify-between items-center text-[#047857]">
-                    <span>Proposed Discount</span>
-                    <span className="font-semibold">−{formatCurrency(totalDiscount)}</span>
+                    <span className="font-medium">Total Discount Savings</span>
+                    <span className="font-bold">
+                      −{formatCurrency(totalDiscount)}{' '}
+                      <span className="text-[11px] font-normal text-[#7b8ca0]">
+                        ({effectiveDiscountPct}% avg)
+                      </span>
+                    </span>
                   </div>
                 )}
 
@@ -147,11 +230,28 @@ export default function Cart() {
               </div>
 
               {totalDiscount > 0 && (
-                <div className="mt-4 p-3 rounded-xl bg-[#dcf3ea] border border-[#047857]/20 flex items-center gap-2 text-xs font-medium text-[#047857]">
-                  <CheckCircle2 size={15} className="shrink-0" />
-                  <span>Proposed savings: {formatCurrency(totalDiscount)}. Subject to sales manager approval.</span>
+                <div className="mt-4 p-3 rounded-xl bg-[#dcf3ea] border border-[#047857]/20 flex items-start gap-2 text-xs font-medium text-[#047857]">
+                  <CheckCircle2 size={15} className="shrink-0 mt-0.5" />
+                  <span>
+                    Proposed item savings: {formatCurrency(totalDiscount)}. Subject to account manager & governance review.
+                  </span>
                 </div>
               )}
+
+              {/* Rep notes input */}
+              <div className="mt-5">
+                <label htmlFor="ask-note" className="block text-xs font-semibold text-[#0d1b2a] mb-1.5">
+                  Anything your rep should know (optional)
+                </label>
+                <textarea
+                  id="ask-note"
+                  rows={2}
+                  value={askNote}
+                  onChange={(e) => setAskNote(e.target.value)}
+                  placeholder="Repeat order, procurement timeline, multi-year commitment..."
+                  className="w-full rounded-xl border border-[#0d1b2a]/[0.1] bg-white px-3 py-2 text-xs text-[#0d1b2a] outline-none focus:border-[#0e7490] resize-y placeholder:text-[#7b8ca0]"
+                />
+              </div>
 
               <div className="mt-4 flex items-start gap-2 text-[11px] text-[#7b8ca0] leading-relaxed">
                 <ShieldAlert size={14} className="shrink-0 text-[#b45309] mt-0.5" />
@@ -173,7 +273,7 @@ export default function Cart() {
                   ) : (
                     <>
                       <Send size={15} />
-                      <span>Submit as Quote Request</span>
+                      <span>Submit Quote Request</span>
                     </>
                   )}
                 </button>

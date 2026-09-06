@@ -14,11 +14,11 @@ const ORDER_STEP_LABELS = {
   delivered: 'Delivered',
 };
 const ORDER_STEP_ICONS = {
-  pending_approval: '👔',
-  processing: '⚙️',
-  warehouse_assigned: '🏭',
-  shipped: '🚚',
-  delivered: '✅',
+  pending_approval: '',
+  processing: '',
+  warehouse_assigned: '',
+  shipped: '',
+  delivered: '',
 };
 
 export default function OrderTracking() {
@@ -37,8 +37,22 @@ export default function OrderTracking() {
   const fetchOrder = async () => {
     try {
       setLoading(true);
-      const res = await api.get(`/orders/${id}`);
-      setOrder(res.data);
+      // Orders in the customer portal are tracked via the quote that generated them.
+      // /orders/{id} has no storefront endpoint — use /shop/quotes/{ref} instead.
+      const res = await api.get(`/shop/quotes/${id}`);
+      const raw = res.data;
+      if (!raw || raw.detail) {
+        showToast('Order not found', 'error');
+        return;
+      }
+      // Normalize to what the template expects
+      setOrder({
+        ...raw,
+        status: raw.state,
+        total_amount: raw.total,
+        order_number: raw.ref,
+        items: raw.lines ?? [],
+      });
     } catch (err) {
       showToast('Failed to load order tracking details', 'error');
     } finally {
@@ -81,18 +95,22 @@ export default function OrderTracking() {
 
   return (
     <div className="container tracking-page" style={{ paddingBottom: '80px' }}>
-      {/* Breadcrumb */}
-      <div style={{ marginBottom: '16px', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-        <Link to="/account?tab=orders" style={{ color: 'var(--text-muted)' }}>Orders</Link>
-        {' › '}
-        <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{order.order_number}</span>
+      {/* Breadcrumbs */}
+      <div className="flex items-center gap-2 text-xs text-[#7b8ca0] mb-3">
+        <Link to="/shop" className="hover:text-[#0d1b2a] transition-colors">Home</Link>
+        <span>•</span>
+        <Link to="/account?tab=orders" className="hover:text-[#0d1b2a] transition-colors">Orders</Link>
+        <span>•</span>
+        <span className="font-mono text-[#0d1b2a] font-semibold">{order.order_number}</span>
       </div>
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '28px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
-            <h1 style={{ fontSize: '1.6rem', fontWeight: 800, margin: 0 }}>📦 {order.order_number}</h1>
+            <h1 className="font-['Syne',sans-serif] text-[1.8rem] font-extrabold text-[#0d1b2a] m-0">
+              {order.order_number}
+            </h1>
             <StatusBadge status={order.status} />
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
@@ -124,7 +142,7 @@ export default function OrderTracking() {
           gap: '16px',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1, minWidth: '280px' }}>
-            <span style={{ fontSize: '2.2rem' }}>👔</span>
+ <span style={{ fontSize: '2.2rem' }}></span>
             <div>
               <div style={{ fontWeight: 700, color: 'var(--warning)', fontSize: '1rem' }}>
                 Order Pending Sales Manager Approval
@@ -172,7 +190,7 @@ export default function OrderTracking() {
           {warehouseData.length > 0 ? (
             warehouseData.map((wh, idx) => (
               <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' }}>
-                <span style={{ fontSize: '1.4rem' }}>🏭</span>
+ <span style={{ fontSize: '1.4rem' }}></span>
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{wh.warehouse}</div>
                   <span className="warehouse-code">{wh.code}</span>
@@ -181,7 +199,7 @@ export default function OrderTracking() {
             ))
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' }}>
-              <span style={{ fontSize: '1.4rem' }}>🏭</span>
+ <span style={{ fontSize: '1.4rem' }}></span>
               <div>
                 <div style={{ fontWeight: 600 }}>Central Logistics Depot</div>
                 <span className="warehouse-code">IND-MUM-HUB1</span>
@@ -211,7 +229,7 @@ export default function OrderTracking() {
                 {item.image_url ? (
                   <img src={item.image_url} alt={item.product_name} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 6 }} />
                 ) : (
-                  <div style={{ width: 44, height: 44, background: 'var(--bg-card)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>📦</div>
+ <div style={{ width: 44, height: 44, background: 'var(--bg-card)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}></div>
                 )}
                 <div>
                   <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{item.product_name}</div>

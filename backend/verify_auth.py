@@ -79,8 +79,12 @@ check("duplicate email rejected -> 409", call("POST", "/admin/users", new_mgr, a
 
 print("\n5. Role boundaries on real endpoints")
 check("manager GET /approvals -> 200", call("GET", "/approvals", None, mgr_tok)[0], 200)
-check("rep GET /approvals -> 200 (PS: reps track approval status)",
-      call("GET", "/approvals", None, rep_tok)[0], 200)
+# The approvals DESK is a reviewer tool and reps no longer hold
+# fulfilment/approval visibility on it. Reps still track the status of their own
+# work from the quotations list, which is what the PS asks for -- this endpoint
+# is the queue a reviewer works, not a status board.
+check("rep GET /approvals -> 403 (the desk is a reviewer tool)",
+      call("GET", "/approvals", None, rep_tok)[0], 403)
 check("rep GET /invoices -> 403 (money is not a rep's to see)",
       call("GET", "/invoices", None, rep_tok)[0], 403)
 check("rep GET /subscriptions -> 403", call("GET", "/subscriptions", None, rep_tok)[0], 403)

@@ -59,13 +59,36 @@ export default function Dashboard() {
   const userRole = user?.role ?? 'rep'
   const canApprove = ['admin', 'manager', 'finance'].includes(userRole)
 
+  /* Level 2 -- the discounts that escalated past the sales manager and are
+     waiting on Finance specifically.
+
+     A finance user's dashboard counted every PENDING_* deal under one heading,
+     so the two or three that were genuinely theirs to sign sat inside a number
+     dominated by deals the sales manager had not looked at yet. The whole point
+     of a two-level ceiling is that the second level is a different desk; it gets
+     its own band, above everything else, with the deals named and actionable. */
+  const isFinance = userRole === 'finance'
+  const awaitingFinance = quotes
+    .filter(q => q.state === 'PENDING_FINANCE')
+    .sort((a, b) => b.total - a.total)
+  const awaitingManager = quotes.filter(q => q.state === 'PENDING_MANAGER')
+
   /* Counters are role-shaped: an approver is steered to the queue that is
      waiting on them, a rep to the work that is theirs to move. */
   const METRICS = canApprove
     ? [
-        { label: 'Pending approvals', value: pending.length, to: '/app/approvals',
-          sub: `${inr(pending.reduce((a, q) => a + q.total, 0))} awaiting sign-off`,
-          rail: pending.length ? 'rail-manager' : 'rail-idle', polarity: 'lower-better' as const },
+        isFinance
+          ? { label: 'Awaiting your sign-off', value: awaitingFinance.length,
+              to: '/app/approvals?stage=finance',
+              sub: awaitingFinance.length
+                ? `${inr(awaitingFinance.reduce((a, q) => a + q.total, 0))} at Level 2`
+                : `Clear \u00b7 ${awaitingManager.length} still with the sales manager`,
+              rail: awaitingFinance.length ? 'rail-finance' : 'rail-auto',
+              polarity: 'lower-better' as const }
+          : { label: 'Pending approvals', value: pending.length, to: '/app/approvals',
+              sub: `${inr(pending.reduce((a, q) => a + q.total, 0))} awaiting sign-off`,
+              rail: pending.length ? 'rail-manager' : 'rail-idle',
+              polarity: 'lower-better' as const },
         { label: 'Open quotations', value: open.length, to: '/app/quotations',
           sub: `${inr(open.reduce((a, q) => a + q.total, 0))} in the pipeline`,
           rail: 'rail-auto', polarity: 'neutral' as const },
@@ -115,6 +138,76 @@ export default function Dashboard() {
             </button>
           </div>
         </header>
+
+        {/* ── Level 2: what Finance owes a decision on ───────────────────────
+            Placed above the instrument strip deliberately. This is the only
+            thing on the screen that is blocking someone else's work: a rep and
+            a customer are both waiting on each row here. Everything below it is
+            reporting. */}
+        {isFinance && (
+          <section className={cn('panel', awaitingFinance.length && 'ring-1 ring-band-finance/25')}>
+            <div className="panel-head">
+              <span className="panel-title">
+                Level 2 approvals &middot; escalated to Finance
+              </span>
+              <span className="key text-fg-3">
+                {awaitingFinance.length
+                  ? `${awaitingFinance.length} awaiting you`
+                  : 'queue clear'}
+              </span>
+            </div>
+
+            {awaitingFinance.length === 0 ? (
+              <p className="px-4 py-3.5 text-[12.5px] text-fg-3">
+                Nothing has escalated past the sales manager.
+                {awaitingManager.length > 0 && (
+                  <> {awaitingManager.length} deal{awaitingManager.length === 1 ? ' is' : 's are'}{' '}
+                  still at Level 1 &mdash; they reach you only if the manager approves
+                  and the discount is above the Finance ceiling.</>
+                )}
+              </p>
+            ) : (
+              <table className="grid-table">
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Rep</th>
+                    <th className="text-right w-20">Risk</th>
+                    <th className="w-24">Band</th>
+                    <th className="text-right w-32">Amount</th>
+                    <th className="w-28"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {awaitingFinance.map(q => (
+                    <tr
+                      key={q.ref}
+                      onClick={() => navigate(`/app/approvals?stage=finance`)}
+                      className="border-b border-line last:border-0 cursor-pointer
+                                 hover:bg-accent-wash/40 transition-colors duration-150"
+                    >
+                      <td>
+                        <div className="text-[13px] font-medium text-fg">{q.customer}</div>
+                        <div className="font-mono text-[10.5px] text-fg-3">
+                          {q.ref} &middot; {q.tier}
+                        </div>
+                      </td>
+                      <td className="text-[12.5px] text-fg-2">{q.rep}</td>
+                      <td className="num text-fg-2">{q.risk_score.toFixed(1)}</td>
+                      <td><Band band={q.risk_band} /></td>
+                      <td className="num text-fg font-semibold">{inr(q.total)}</td>
+                      <td className="text-right">
+                        <span className="text-[12px] font-medium text-accent">
+                          Review &rarr;
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </section>
+        )}
 
         {/* ── Instrument strip ───────────────────────────────────────────────
             One panel, three cells divided by hairlines — not three floating

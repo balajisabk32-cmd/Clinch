@@ -179,8 +179,14 @@ if target:
     check("  state INVOICED", call("GET", f"/quotes/{target}", None, REP)[1]["state"], "INVOICED")
 
     if inv_ref:
+        # The method has to be one the server recognises. This used to send
+        # "Bank", which was stored verbatim because nothing validated it -- so
+        # the ledger could record a settlement method that meant nothing.
+        check("an unrecognised method is refused -> 422",
+              call("POST", f"/invoices/{inv_ref}/payment",
+                   {"method": "Bank", "amount": inv.get("amount")}, FIN)[0], 422)
         s, pay = call("POST", f"/invoices/{inv_ref}/payment",
-                      {"method": "Bank", "amount": inv.get("amount")}, FIN)
+                      {"method": "bank_transfer", "amount": inv.get("amount")}, FIN)
         check("register payment -> 200", s, 200)
         check("  invoice paid", str((pay or {}).get("status")).lower(), "paid")
         check("  order PAID", call("GET", f"/quotes/{target}", None, REP)[1]["state"], "PAID")

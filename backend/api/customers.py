@@ -62,6 +62,11 @@ def create_account(user_id: str, company: str, *, gst_number: str | None = None,
     return by_user(user_id)  # type: ignore[return-value]
 
 
+def all_accounts() -> list[dict[str, Any]]:
+    """Every storefront account, for rep-ownership lookups."""
+    return [_row_to_account(r) for r in db.query("SELECT * FROM customer_account")]
+
+
 def by_user(user_id: str) -> dict[str, Any] | None:
     return _row_to_account(
         db.one("SELECT * FROM customer_account WHERE user_id = ?", (user_id,)))

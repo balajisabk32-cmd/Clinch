@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { EASE_CSS, scrollToAnchor } from '../lib/motion'
+import { SkipperButton } from './skipper'
 
 /**
  * Floating island nav.
@@ -36,13 +37,13 @@ export function Nav() {
       <header className="fixed top-0 inset-x-0 z-40 flex justify-center pointer-events-none">
         <div
           className="pointer-events-auto mt-6 mx-4 flex items-center gap-2 rounded-full border
-                     ring-1 ring-black/[.06] bg-surface/80 backdrop-blur-xl px-2 py-2"
+                     ring-1 ring-black/[.06] bg-surface/80 backdrop-blur-xl px-2.5 py-1.5"
           style={{
             transition: `all 700ms ${EASE_CSS}`,
             boxShadow: scrolled ? 'var(--lift-2)' : 'var(--lift-1)',
           }}
         >
-          <Link to="/" className="flex items-center pl-2.5 pr-3.5 shrink-0" aria-label="Clinch home">
+          <Link to="/" className="flex items-center pl-2 pr-3 shrink-0" aria-label="Clinch home">
             {/* The mark already contains the wordmark - a second "Clinch" label
                 beside it reads as a duplication bug, so the image carries it alone. */}
             <img src="/CLINCH_LOGO_TRANSPARENT.png" alt="Clinch" className="h-[22px] w-auto" />
@@ -62,25 +63,24 @@ export function Nav() {
             ))}
           </nav>
 
-          <Link
+          <SkipperButton
             to="/shop"
-            className="hidden sm:inline-flex items-center gap-1.5 rounded-full border border-black/[.08] px-3 py-1.5 font-display text-[13px] font-medium text-fg-2 hover:text-fg hover:bg-surface-2 active:scale-[.98]"
-            style={{ transition: `all 400ms ${EASE_CSS}` }}
+            variant="secondary"
+            size="sm"
+            className="hidden sm:inline-flex"
+            icon={null}
           >
-            🛒 Customer Portal
-          </Link>
+            Customer Portal
+          </SkipperButton>
 
-          <Link
+          <SkipperButton
             to="/login"
-            className="group ml-1 inline-flex items-center gap-2 rounded-full bg-fg pl-4 pr-1.5 py-1.5
-                       font-display text-[13px] font-semibold text-white active:scale-[.98]"
-            style={{ transition: `all 500ms ${EASE_CSS}` }}
+            variant="primary"
+            size="sm"
+            className="ml-1"
           >
             Open workspace
-            <span className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center text-[12px]
-                             group-hover:translate-x-[2px] group-hover:-translate-y-[1px] group-hover:scale-105"
-                  style={{ transition: `transform 500ms ${EASE_CSS}` }}>↗</span>
-          </Link>
+          </SkipperButton>
 
           {/* Hamburger — morphs to an X rather than swapping icons (§5A) */}
           <button
@@ -109,7 +109,7 @@ export function Nav() {
           onClick={() => setOpen(false)}
           className="font-display text-2xl font-semibold text-accent py-2"
         >
-          🛒 Customer Portal
+           Customer Portal
         </Link>
         {LINKS.map((l, i) => (
           <a

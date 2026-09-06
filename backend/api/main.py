@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import registry, state
 from .accounts import accounts, admin
+from .billing import billing, customer_billing
 from .storefront import storefront
 from .inventory import inventory
 from .plans import plans
@@ -39,7 +40,8 @@ app.add_middleware(
 )
 
 for r in (accounts, admin, storefront, inventory, plans, reporting,
-          intelligence, sales, operations, portal, insights, infra):
+          intelligence, sales, operations, portal, insights, infra,
+          billing, customer_billing):
     app.include_router(r)
 
 

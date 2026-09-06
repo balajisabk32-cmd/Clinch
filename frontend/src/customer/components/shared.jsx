@@ -4,7 +4,7 @@ export function StarRating({ rating, reviewCount }) {
     <div className="product-card-rating">
       <div className="stars">
         {stars.map((s) => (
-          <span key={s} className={`star ${s <= Math.round(rating) ? '' : 'empty'}`}>★</span>
+ <span key={s} className={`star ${s <= Math.round(rating) ? '' : 'empty'}`}></span>
         ))}
       </div>
       {reviewCount !== undefined && (
@@ -15,11 +15,16 @@ export function StarRating({ rating, reviewCount }) {
 }
 
 export function formatCurrency(amount) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(amount || 0);
+  // Rupees, on the Indian digit grouping. The whole book, every seeded
+  // order and every ceiling in the engine is denominated in INR; showing
+  // USD here quoted the customer a number the quotation would not match.
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency', currency: 'INR', maximumFractionDigits: 0,
+  }).format(amount || 0);
 }
 
 export function TierBadge({ tier }) {
-  return <span className={`badge badge-${tier}`}>🏷️ {tier}</span>;
+  return <span className={`badge badge-${tier}`}> {tier}</span>;
 }
 
 export function StatusBadge({ status }) {

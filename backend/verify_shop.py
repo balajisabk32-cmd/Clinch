@@ -31,9 +31,10 @@ stamp = uuid.uuid4().hex[:6]
 email = f"priya.{stamp}@northwind.example"
 
 print("\n1. Registration")
+acct_company = f"Northwind {stamp}"
 s, reg = call("POST", "/auth/register", {
     "name": "Priya Sharma", "email": email, "password": "Shop!Pass2026",
-    "company": "Northwind Traders", "gst_number": "29ABCDE1234F1Z5",
+    "company": acct_company, "gst_number": "29ABCDE1234F1Z5",
     "phone": "+91 98450 11223", "city": "Bengaluru", "role": "admin"})
 check("register -> 201", s, 201)
 check("  role pinned to customer despite role:admin in body",
@@ -54,9 +55,24 @@ check("duplicate email -> 409",
 print("\n2. The air gap holds for an account, not just a token")
 s, cat = call("GET", "/shop/catalog", None, tok)
 check("catalog -> 200", s, 200)
-blob = json.dumps(cat)
-for leaked in ("cost", "margin", "risk_score", "ceiling", "rep"):
-    check(f"  '{leaked}' absent from catalogue payload", leaked in blob, False)
+# Checked on KEYS, not on the raw text. A substring scan reported a leak the
+# moment a product description contained the word "advance replacement", which
+# is a false positive that would eventually train someone to ignore this test.
+def _keys(obj, acc=None):
+    acc = acc if acc is not None else set()
+    if isinstance(obj, dict):
+        acc.update(obj.keys())
+        for v in obj.values():
+            _keys(v, acc)
+    elif isinstance(obj, list):
+        for v in obj:
+            _keys(v, acc)
+    return acc
+
+cat_keys = _keys(cat)
+for leaked in ("cost", "unit_cost", "margin", "margin_pct", "risk_score",
+               "ceiling", "over", "rep", "rep_id"):
+    check(f"  no '{leaked}' field in catalogue payload", leaked in cat_keys, False)
 p0 = cat["products"][0]
 check("  Bronze price == list price", p0["your_price"], p0["list_price"])
 
@@ -84,7 +100,11 @@ check("empty cart request -> 422", call("POST", "/shop/quote-requests", {}, tok)
 print("\n6. The customer sees only their own quotations")
 s, mine = call("GET", "/shop/quotes", None, tok)
 check("my quotes -> 200", s, 200)
-check("  exactly the one just requested", [q["ref"] for q in mine], [ref])
+# Present, not sole: this account may have raised more than one request
+# during the run, and asserting exclusivity made the check order-dependent.
+check("  the new request is listed", ref in [q["ref"] for q in mine], True)
+check("  and every listing belongs to this company",
+      all(q["customer"] == acct_company for q in mine), True)
 check("another company's quote -> 404", call("GET", "/shop/quotes/Q-1042", None, tok)[0], 404)
 s, detail = call("GET", f"/shop/quotes/{ref}", None, tok)
 check("own quote detail -> 200", s, 200)

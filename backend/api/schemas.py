@@ -51,7 +51,11 @@ QuoteState = Literal[
 # --------------------------------------------------------------------------- #
 
 LEGAL_TRANSITIONS: dict[str, list[str]] = {
-    "DRAFT":           ["PENDING_MANAGER", "APPROVED"],   # APPROVED = auto-approve path
+    # NEGOTIATION here is the "Revise & Send to Customer" path: a rep who
+    # has pulled a discount back within policy may put the revised quote in
+    # front of the customer without asking a manager to approve something
+    # that no longer breaches anything.
+    "DRAFT":           ["PENDING_MANAGER", "APPROVED", "NEGOTIATION"],
     "PENDING_MANAGER": ["PENDING_FINANCE", "APPROVED", "REJECTED", "DRAFT"],
     "PENDING_FINANCE": ["APPROVED", "REJECTED", "DRAFT"],
     "APPROVED":        ["CONFIRMED", "NEGOTIATION"],

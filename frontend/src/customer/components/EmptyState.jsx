@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 
 export default function EmptyState({
-  icon = '📦',
+  icon = '',
   title = 'Nothing here yet',
   description = 'Explore our catalog and find products for your business.',
   actionText = 'Browse Products',

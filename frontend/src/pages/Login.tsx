@@ -17,7 +17,7 @@ import { EASE_CSS } from '../lib/motion'
 export default function Login() {
   const navigate = useNavigate()
   const location = useLocation() as { state?: { from?: string } }
-  const { login, user, isAuthenticated, isLoading } = useAuth()
+  const { login, logout, user, isAuthenticated, isLoading } = useAuth()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -26,18 +26,24 @@ export default function Login() {
   const [formError, setFormError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const expired = new URLSearchParams(window.location.search).get('expired') === 'true'
-  const from = location.state?.from || new URLSearchParams(window.location.search).get('from')
+  const searchParams = new URLSearchParams(window.location.search)
+  const expired = searchParams.get('expired') === 'true'
+  const isSwitching = searchParams.get('switch') === 'true' || searchParams.get('logout') === 'true'
+  const from = location.state?.from || searchParams.get('from')
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
+    if (isSwitching) {
+      logout('manual')
+      return
+    }
+    if (!isLoading && isAuthenticated && from) {
       if (user?.role === 'customer') {
         navigate('/shop', { replace: true })
       } else {
-        navigate(from || '/app/dashboard', { replace: true })
+        navigate(from, { replace: true })
       }
     }
-  }, [isLoading, isAuthenticated, user, navigate, from])
+  }, [isLoading, isAuthenticated, user, navigate, from, isSwitching, logout])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -51,20 +57,7 @@ export default function Login() {
     setBusy(true)
     try {
       const user = await login(email, password)
-      if (user.role === 'customer' || email === 'rajesh@acme.com' || email.includes('acme') || email.includes('techcorp')) {
-        try {
-          const custRes = await fetch('http://localhost:5000/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password }),
-          })
-          if (custRes.ok) {
-            const custData = await custRes.json()
-            if (custData?.token) {
-              localStorage.setItem('df360_token', custData.token)
-            }
-          }
-        } catch {}
+      if (user.role === 'customer' || email === 'rajesh@acme.com' || email.includes('acme')) {
         navigate('/shop', { replace: true })
         return
       }
@@ -95,6 +88,33 @@ export default function Login() {
               Access the Clinch sales operations workspace.
             </p>
           </div>
+
+          {isAuthenticated && user && !expired && (
+            <div className="rounded-xl bg-accent-wash/60 ring-1 ring-accent/25 p-3 flex items-center justify-between text-xs">
+              <div className="truncate pr-2">
+                <p className="font-medium text-fg truncate">
+                  Signed in as <span className="font-semibold">{user.name}</span>
+                </p>
+                <p className="text-[11px] text-fg-3 capitalize font-mono truncate">{user.email} · {user.role}</p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => navigate(user.role === 'customer' ? '/shop' : '/app/dashboard')}
+                  className="px-2.5 py-1 rounded-md bg-accent text-white font-medium hover:opacity-90 transition-opacity"
+                >
+                  Continue
+                </button>
+                <button
+                  type="button"
+                  onClick={() => logout('manual')}
+                  className="px-2.5 py-1 rounded-md bg-surface text-fg ring-1 ring-black/[.08] hover:bg-black/[.02] transition-colors"
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          )}
 
           {expired && !formError && (
             <div className="rounded-xl bg-band-managerWash ring-1 ring-band-manager/25
@@ -188,11 +208,11 @@ export default function Login() {
             </span>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { role: 'Customer Portal', name: 'Rajesh Kumar (Acme)', email: 'rajesh@acme.com', pass: 'password123', color: 'text-lime-900 bg-lime-100 ring-lime-600/30 col-span-2 shadow-sm font-semibold' },
-                { role: 'Admin', name: 'Clinch Admin', email: 'admin@clinch.io', pass: 'ClinchAdmin2026!#', color: 'text-purple-700 bg-purple-50 ring-purple-600/20' },
-                { role: 'Sales Manager', name: 'M. Shah', email: 'shah@clinch.io', pass: 'MgrShah2026!#', color: 'text-amber-700 bg-amber-50 ring-amber-600/20' },
-                { role: 'Sales Rep', name: 'A. Rao', email: 'rao@clinch.io', pass: 'RepRao2026!#', color: 'text-cyan-700 bg-cyan-50 ring-cyan-600/20' },
-                { role: 'Finance', name: 'R. Menon', email: 'menon@clinch.io', pass: 'FinMenon2026!#', color: 'text-emerald-700 bg-emerald-50 ring-emerald-600/20' },
+                { role: 'Customer Portal', name: 'Rajesh Kumar (Acme Corp · Gold)', email: 'rajesh@acme.com', pass: 'password123', color: 'text-band-auto bg-band-autoWash ring-band-auto/30 col-span-2 shadow-sm font-semibold' },
+                { role: 'Admin', name: 'Clinch Admin', email: 'admin@clinch.io', pass: 'ClinchAdmin2026!#', color: 'text-accent bg-accent-wash ring-accent/20' },
+                { role: 'Sales Manager', name: 'M. Shah', email: 'shah@clinch.io', pass: 'MgrShah2026!#', color: 'text-band-manager bg-band-managerWash ring-band-manager/20' },
+                { role: 'Sales Rep', name: 'A. Rao', email: 'rao@clinch.io', pass: 'RepRao2026!#', color: 'text-accent bg-accent-wash ring-accent/20' },
+                { role: 'Finance', name: 'R. Menon', email: 'menon@clinch.io', pass: 'FinMenon2026!#', color: 'text-band-auto bg-band-autoWash ring-band-auto/20' },
               ].map(acc => (
                 <button
                   key={acc.role}
@@ -206,20 +226,7 @@ export default function Login() {
                     setBusy(true)
                     try {
                       const user = await login(acc.email, acc.pass)
-                      if (user.role === 'customer' || acc.email === 'rajesh@acme.com' || acc.email.includes('acme') || acc.email.includes('techcorp')) {
-                        try {
-                          const custRes = await fetch('http://localhost:5000/api/auth/login', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email: acc.email, password: acc.pass }),
-                          })
-                          if (custRes.ok) {
-                            const custData = await custRes.json()
-                            if (custData?.token) {
-                              localStorage.setItem('df360_token', custData.token)
-                            }
-                          }
-                        } catch {}
+                      if (user.role === 'customer' || acc.email === 'rajesh@acme.com' || acc.email.includes('acme')) {
                         navigate('/shop', { replace: true })
                         return
                       }

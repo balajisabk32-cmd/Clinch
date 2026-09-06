@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { animate, stagger } from 'animejs';
 import api from '../api';
 import ProductCard from '../components/ProductCard';
 import EmptyState from '../components/EmptyState';
@@ -52,52 +53,86 @@ export default function Shop() {
     fetchBrands();
   }, []);
 
-  const fetchBrands = async () => {
-    try {
-      const res = await api.get('/products/brands');
-      setAllBrands(res.data || []);
-    } catch {
-      setAllBrands([
-        'Apple', 'Dell', 'Logitech', 'Sony', 'Cisco',
-        'Samsung', 'Lenovo', 'Microsoft', 'CrowdStrike',
-        'Oracle', 'AWS', 'JetBrains', 'VMware',
-      ]);
-    }
-  };
+  // Brands are extracted from the catalog — no separate /products/brands endpoint exists.
+  // We populate them after the first catalog load (see the product useEffect below).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const fetchBrands = () => {}; // intentional no-op — brands come from catalog products
 
-  // Fetch products cleanly on searchParams change — no skeleton flash on clicks!
+
+  // Fetch products from the customer catalog endpoint.
+  // Brand and price filtering are client-side since /shop/catalog only supports
+  // category and q (text search) on the server.
   useEffect(() => {
     let isCancelled = false;
 
     const params = new URLSearchParams();
-    if (search) params.append('search', search);
-    if (sort) params.append('sort', sort);
-    if (selectedCategories.length > 0) {
-      params.append('category', selectedCategories.join(','));
+    if (search) params.append('q', search);          // backend param is 'q', not 'search'
+    // Send only the first selected category (backend takes a single value)
+    if (selectedCategories.length === 1) {
+      params.append('category', selectedCategories[0]);
     }
-    if (selectedBrands.length > 0) {
-      params.append('brand', selectedBrands.join(','));
-    }
-    if (minPrice) params.append('min_price', minPrice);
-    if (maxPrice) params.append('max_price', maxPrice);
 
-    api.get(`/products?${params.toString()}`)
+    api.get(`/shop/catalog${params.toString() ? `?${params.toString()}` : ''}`)
       .then((res) => {
-        if (!isCancelled) {
-          setProducts(res.data.products || []);
+        if (isCancelled) return;
+        // Response shape: { tier, categories, products: [...] }
+        const raw = res.data;
+        let list = Array.isArray(raw?.products) ? raw.products
+                 : Array.isArray(raw)            ? raw
+                 : [];
+
+        // Derive brand list from the first full load (no filter active yet)
+        if (!search && selectedCategories.length === 0 && selectedBrands.length === 0) {
+          const names = [...new Set(list.map(p => (p.category || '').toUpperCase()).filter(Boolean))];
+          if (names.length > 0) setAllBrands(names);
         }
+
+        // Client-side brand filter
+        if (selectedBrands.length > 0) {
+          list = list.filter(p =>
+            selectedBrands.some(b => (p.category || '').toUpperCase() === b.toUpperCase())
+          );
+        }
+
+        // Client-side price filter
+        const min = minPrice ? parseFloat(minPrice) : null;
+        const max = maxPrice ? parseFloat(maxPrice) : null;
+        if (min !== null || max !== null) {
+          list = list.filter(p => {
+            const price = p.your_price ?? p.list_price ?? 0;
+            if (min !== null && price < min) return false;
+            if (max !== null && price > max) return false;
+            return true;
+          });
+        }
+
+        // Client-side sort (backend returns popularity order by default)
+        if (sort === 'price_asc')  list = [...list].sort((a, b) => (a.your_price ?? a.list_price ?? 0) - (b.your_price ?? b.list_price ?? 0));
+        if (sort === 'price_desc') list = [...list].sort((a, b) => (b.your_price ?? b.list_price ?? 0) - (a.your_price ?? a.list_price ?? 0));
+
+        setProducts(list);
       })
       .catch((err) => console.error('Error loading products:', err))
-      .finally(() => {
-        if (!isCancelled) {
-          setInitialLoading(false);
-        }
-      });
+      .finally(() => { if (!isCancelled) setInitialLoading(false); });
 
-    return () => {
-      isCancelled = true;
-    };
+    return () => { isCancelled = true; };
   }, [searchParams]);
+
+  const gridRef = useRef(null);
+
+  useEffect(() => {
+    if (!gridRef.current || products.length === 0) return;
+    const cards = gridRef.current.children;
+    if (cards && cards.length > 0) {
+      animate(cards, {
+        opacity: [0, 1],
+        translateY: [14, 0],
+        duration: 420,
+        delay: stagger(35),
+        ease: 'outCubic',
+      });
+    }
+  }, [products]);
 
   // Toggle category (multi-select + click to toggle off)
   const toggleCategory = (cat) => {
@@ -183,7 +218,9 @@ export default function Shop() {
       ? 'Hardware & Software'
       : search
       ? `Search: "${search}"`
-      : 'Bestsellers';
+      // Not 'Bestsellers': nothing in this product records units sold or
+      // ranks by them, so the heading asserted a ranking that did not exist.
+      : 'All products';
 
   const isAllActive = selectedCategories.length === 0 || selectedCategories.length === 2;
 
@@ -230,14 +267,14 @@ export default function Shop() {
               className={`protech-cat-tab ${selectedCategories.includes('Hardware') ? 'active' : ''}`}
               onClick={() => toggleCategory('Hardware')}
             >
-              Hardware {selectedCategories.includes('Hardware') && '✓'}
+              Hardware {selectedCategories.includes('Hardware') && ''}
             </button>
 
             <button
               className={`protech-cat-tab ${selectedCategories.includes('Software') ? 'active' : ''}`}
               onClick={() => toggleCategory('Software')}
             >
-              Software {selectedCategories.includes('Software') && '✓'}
+              Software {selectedCategories.includes('Software') && ''}
             </button>
           </div>
 
@@ -271,7 +308,7 @@ export default function Shop() {
           {activeFilterCount > 0 && (
             <div className="protech-reset-box">
               <button className="protech-reset-btn" onClick={resetFilters}>
-                ✕ Reset filters
+                 Reset filters
               </button>
             </div>
           )}
@@ -282,21 +319,21 @@ export default function Shop() {
               {selectedCategories.map((cat) => (
                 <span key={cat} className="protech-chip">
                   {cat}
-                  <button onClick={() => removeFilter('category', cat)}>✕</button>
+ <button onClick={() => removeFilter('category', cat)}></button>
                 </span>
               ))}
 
               {search && (
                 <span className="protech-chip">
                   "{search}"
-                  <button onClick={() => removeFilter('search')}>✕</button>
+ <button onClick={() => removeFilter('search')}></button>
                 </span>
               )}
 
               {selectedBrands.map((b) => (
                 <span key={b} className="protech-chip">
                   {b}
-                  <button onClick={() => removeFilter('brand', b)}>✕</button>
+ <button onClick={() => removeFilter('brand', b)}></button>
                 </span>
               ))}
             </div>
@@ -346,7 +383,7 @@ export default function Shop() {
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
                     type="number"
-                    placeholder="Min $"
+                    placeholder="Min"
                     value={localMinPrice}
                     onChange={(e) => setLocalMinPrice(e.target.value)}
                     onBlur={handlePriceBlur}
@@ -356,7 +393,7 @@ export default function Shop() {
                   <span style={{ color: 'var(--text-muted)' }}>–</span>
                   <input
                     type="number"
-                    placeholder="Max $"
+                    placeholder="Max"
                     value={localMaxPrice}
                     onChange={(e) => setLocalMaxPrice(e.target.value)}
                     onBlur={handlePriceBlur}
@@ -381,7 +418,7 @@ export default function Shop() {
               <div className="protech-accordion-body">
                 {/* Search Brands Input */}
                 <div className="protech-brand-search-wrap">
-                  <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>🔍</span>
+ <span style={{ fontSize: '0.8rem', opacity: 0.6 }}></span>
                   <input
                     type="text"
                     placeholder="Search brands"
@@ -426,16 +463,16 @@ export default function Shop() {
             </div>
           ) : products.length === 0 ? (
             <EmptyState
-              icon="🔍"
+              icon=""
               title="No products match your selection"
               description="Try deselecting some categories or brands to view available products."
               actionText="Reset All Filters"
               onAction={resetFilters}
             />
           ) : (
-            <div className="protech-products-grid">
+            <div ref={gridRef} className="protech-products-grid">
               {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
+                <ProductCard key={product.sku} product={product} />
               ))}
             </div>
           )}

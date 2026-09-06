@@ -48,7 +48,11 @@ PERMISSIONS: dict[Role, set[str]] = {
         "product.view", "dealhealth.view", "portal.share",
     },
     "manager": {
-        "quote.view", "quote.edit", "quote.submit",
+        # NOT quote.edit / quote.submit. A manager reviews quotations; building
+        # one and then signing it off is the same person on both sides of the
+        # control. They review, return for revision, and approve -- all of which
+        # act on a rep's work rather than replacing it.
+        "quote.view",
         "product.view", "fulfilment.view", "dealhealth.view", "portal.share",
         "approval.manager",          # first-level sign-off
         "policy.config",             # PS: "Configures discount tiers and approval chains"
@@ -69,8 +73,14 @@ PERMISSIONS: dict[Role, set[str]] = {
     "customer": {"portal.view", "shop.browse", "shop.cart", "shop.quote"},
 }
 
+# Building a quotation is a sales duty. It is deliberately NOT in the
+# grant-everything set, so `admin` does not inherit it: an administrator who
+# could raise a quote and approve it holds both halves of the control, and the
+# separation this product exists to enforce would be advisory.
+SALES_ONLY: set[str] = {"quote.edit", "quote.submit"}
+
 ALL_PERMISSIONS: set[str] = {
-    "quote.view", "quote.edit", "quote.submit",
+    "quote.view",
     "approval.manager", "approval.finance",
     "fulfilment.view", "fulfilment.allocate",
     "billing.view", "billing.modify", "invoice.manage",
@@ -79,7 +89,7 @@ ALL_PERMISSIONS: set[str] = {
     "reports.view", "dealhealth.view", "portal.share", "admin.reset",
     "user.manage",
 }
-PERMISSIONS["admin"] = set(ALL_PERMISSIONS)
+PERMISSIONS["admin"] = set(ALL_PERMISSIONS)   # SALES_ONLY excluded by construction
 
 # Human-readable reasons, so a 403 explains itself instead of just refusing.
 PERMISSION_LABEL: dict[str, str] = {

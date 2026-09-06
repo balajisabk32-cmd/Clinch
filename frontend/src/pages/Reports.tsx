@@ -113,7 +113,7 @@ export default function Reports() {
 
         <header className="flex flex-wrap items-center gap-3">
           <div>
-            <h1 className="font-display text-[22px] font-bold text-fg">Reporting</h1>
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Reporting</h1>
             <p className="text-[12.5px] text-fg-3 mt-0.5">
               Sales trends, approval bottlenecks and platform usage.
             </p>
@@ -140,7 +140,7 @@ export default function Reports() {
         </header>
 
         {/* The four filters PS A7 names */}
-        <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-4
+        <section className="panel p-4
                             flex flex-wrap items-end gap-4 no-print">
           <label className="flex flex-col gap-1.5">
             <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">Period</span>
@@ -196,7 +196,7 @@ export default function Reports() {
         {/* KPI tiles */}
         <div className="grid sm:grid-cols-3 gap-4">
           {KPIS.map(k => (
-            <div key={k.label} className="rounded-2xl bg-surface ring-1 ring-black/[.055] p-5 shadow-lift">
+            <div key={k.label} className="panel p-5 shadow-lift">
               <div className={`font-display font-bold text-fg tabular-nums leading-tight
                                ${k.small ? 'text-[18px]' : 'text-[30px] leading-none'}`}>
                 {k.value}
@@ -211,26 +211,25 @@ export default function Reports() {
 
         <div className="grid lg:grid-cols-2 gap-4">
           {/* Per rep */}
-          <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+          <section className="panel">
             <div className="px-4 py-3 border-b border-line">
               <h2 className="font-display text-[14px] font-semibold text-fg">By sales rep</h2>
             </div>
-            <table className="w-full text-[13px]">
+            <table className="grid-table">
               <thead>
-                <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                               border-b border-line">
-                  <th className="text-left font-medium px-4 py-2">Rep</th>
-                  <th className="text-right font-medium px-3 py-2 w-20">Quotes</th>
-                  <th className="text-right font-medium px-3 py-2 w-28">Value</th>
-                  <th className="text-right font-medium px-4 py-2 w-24">Avg risk</th>
+                <tr>
+                  <th>Rep</th>
+                  <th className="text-right font-medium w-20">Quotes</th>
+                  <th className="text-right font-medium w-28">Value</th>
+                  <th className="text-right font-medium w-24">Avg risk</th>
                 </tr>
               </thead>
               <tbody>
                 {Object.entries(data.by_rep).map(([name, v]) => (
                   <tr key={name} className="border-b border-line last:border-0">
-                    <td className="px-4 py-2.5 text-fg font-medium">{name}</td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg-2">{v.quotes}</td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">{inr(v.value)}</td>
+                    <td className="text-fg font-medium">{name}</td>
+                    <td className="text-right font-mono tabular-nums text-fg-2">{v.quotes}</td>
+                    <td className="text-right font-mono tabular-nums text-fg">{inr(v.value)}</td>
                     <td className={`px-4 py-2.5 text-right font-mono tabular-nums font-semibold
                                     ${v.avg_risk >= 60 ? 'text-band-finance'
                                       : v.avg_risk >= 20 ? 'text-band-manager' : 'text-band-auto'}`}>
@@ -248,29 +247,28 @@ export default function Reports() {
           </section>
 
           {/* Per category */}
-          <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+          <section className="panel">
             <div className="px-4 py-3 border-b border-line">
               <h2 className="font-display text-[14px] font-semibold text-fg">
                 By product category
               </h2>
             </div>
-            <table className="w-full text-[13px]">
+            <table className="grid-table">
               <thead>
-                <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                               border-b border-line">
-                  <th className="text-left font-medium px-4 py-2">Category</th>
-                  <th className="text-right font-medium px-3 py-2 w-20">Units</th>
-                  <th className="text-right font-medium px-3 py-2 w-28">Revenue</th>
-                  <th className="text-right font-medium px-4 py-2 w-28">Discount</th>
+                <tr>
+                  <th>Category</th>
+                  <th className="text-right font-medium w-20">Units</th>
+                  <th className="text-right font-medium w-28">Revenue</th>
+                  <th className="text-right font-medium w-28">Discount</th>
                 </tr>
               </thead>
               <tbody>
                 {Object.entries(data.by_category).map(([name, v]) => (
                   <tr key={name} className="border-b border-line last:border-0">
-                    <td className="px-4 py-2.5 text-fg font-medium">{name}</td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg-2">{v.units}</td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">{inr(v.revenue)}</td>
-                    <td className="px-4 py-2.5 text-right font-mono tabular-nums text-band-finance">
+                    <td className="text-fg font-medium">{name}</td>
+                    <td className="text-right font-mono tabular-nums text-fg-2">{v.units}</td>
+                    <td className="text-right font-mono tabular-nums text-fg">{inr(v.revenue)}</td>
+                    <td className="text-right font-mono tabular-nums text-band-finance">
                       −{inr(v.discount)}
                     </td>
                   </tr>
@@ -286,7 +284,7 @@ export default function Reports() {
         </div>
 
         {/* Detail rows */}
-        <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
+        <section className="panel">
           <div className="px-4 py-3 border-b border-line flex items-center gap-3">
             <h2 className="font-display text-[14px] font-semibold text-fg">Quotations</h2>
             <span className="font-mono text-[11px] text-fg-3">{data.rows.length} row(s)</span>
@@ -301,30 +299,29 @@ export default function Reports() {
               ))}
             </span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px] min-w-[700px]">
+          <div className="scroll-x">
+            <table className="grid-table min-w-[700px]">
               <thead>
-                <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                               border-b border-line">
-                  <th className="text-left font-medium px-4 py-2.5">Quotation</th>
-                  <th className="text-left font-medium px-3 py-2.5">Customer</th>
-                  <th className="text-left font-medium px-3 py-2.5">Rep</th>
-                  <th className="text-left font-medium px-3 py-2.5">Stage</th>
-                  <th className="text-right font-medium px-3 py-2.5 w-20">Risk</th>
-                  <th className="text-right font-medium px-4 py-2.5 w-28">Amount</th>
+                <tr>
+                  <th>Quotation</th>
+                  <th>Customer</th>
+                  <th>Rep</th>
+                  <th>Stage</th>
+                  <th className="text-right font-medium w-20">Risk</th>
+                  <th className="text-right font-medium w-28">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {data.rows.map(r => (
                   <tr key={r.ref} className="border-b border-line last:border-0">
-                    <td className="px-4 py-2.5 font-mono text-fg">{r.ref}</td>
-                    <td className="px-3 py-2.5 text-fg font-medium">{r.customer}</td>
-                    <td className="px-3 py-2.5 text-fg-2">{r.rep}</td>
-                    <td className="px-3 py-2.5 text-fg-2">{r.state.replace(/_/g, ' ')}</td>
-                    <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">
+                    <td className="font-mono text-fg">{r.ref}</td>
+                    <td className="text-fg font-medium">{r.customer}</td>
+                    <td className="text-fg-2">{r.rep}</td>
+                    <td className="text-fg-2">{r.state.replace(/_/g, ' ')}</td>
+                    <td className="text-right font-mono tabular-nums text-fg">
                       {r.risk_score.toFixed(1)}
                     </td>
-                    <td className="px-4 py-2.5 text-right font-mono tabular-nums text-fg">
+                    <td className="text-right font-mono tabular-nums text-fg">
                       {inr(r.total)}
                     </td>
                   </tr>

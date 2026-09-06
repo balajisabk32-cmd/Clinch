@@ -53,7 +53,7 @@ export default function Fulfilment() {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Fulfilment &amp; Warehouse Dispatch</h1>
-              <span className="rounded-full bg-blue-500/10 text-blue-700 px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-blue-500/20">
+              <span className="rounded-full bg-accent/10 text-accent px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-accent/20">
                 Finance Manager Only
               </span>
             </div>
@@ -102,12 +102,11 @@ export default function Fulfilment() {
                 <div className="scroll-x">
                   <table className="grid-table min-w-[420px]">
                     <thead>
-                      <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                                     border-b border-line">
-                        <th className="text-left font-medium px-4 py-2">Product</th>
-                        <th className="text-right font-medium px-3 py-2 w-24">In stock</th>
-                        <th className="text-right font-medium px-3 py-2 w-24">Reserved</th>
-                        <th className="text-right font-medium px-4 py-2 w-24">Available</th>
+                      <tr>
+                        <th>Product</th>
+                        <th className="text-right font-medium w-24">In stock</th>
+                        <th className="text-right font-medium w-24">Reserved</th>
+                        <th className="text-right font-medium w-24">Available</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -115,14 +114,14 @@ export default function Fulfilment() {
                         const scarce = s.available === 0
                         return (
                           <tr key={s.sku} className="border-b border-line last:border-0">
-                            <td className="px-4 py-2">
+                            <td>
                               <div className="text-fg">{s.name}</div>
                               <div className="font-mono text-[10px] text-fg-3">{s.sku}</div>
                             </td>
-                            <td className="px-3 py-2 text-right font-mono tabular-nums text-fg-2">
+                            <td className="text-right font-mono tabular-nums text-fg-2">
                               {s.on_hand}
                             </td>
-                            <td className="px-3 py-2 text-right font-mono tabular-nums text-fg-3">
+                            <td className="text-right font-mono tabular-nums text-fg-3">
                               {s.reserved > 0 ? s.reserved : '—'}
                             </td>
                             <td className={`px-4 py-2 text-right font-mono tabular-nums font-semibold
@@ -167,14 +166,13 @@ export default function Fulfilment() {
             <div className="scroll-x">
               <table className="grid-table min-w-[720px]">
                 <thead>
-                  <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                                 border-b border-line">
-                    <th className="text-left font-medium px-4 py-2.5">Order</th>
-                    <th className="text-left font-medium px-3 py-2.5">Customer</th>
-                    <th className="text-left font-medium px-3 py-2.5 w-36">Status</th>
-                    <th className="text-left font-medium px-3 py-2.5">Warehouse</th>
-                    <th className="text-right font-medium px-3 py-2.5 w-20">Units</th>
-                    <th className="text-right font-medium px-4 py-2.5 w-28">Ship cost</th>
+                  <tr>
+                    <th>Order</th>
+                    <th>Customer</th>
+                    <th className="w-36">Status</th>
+                    <th>Warehouse</th>
+                    <th className="text-right font-medium w-20">Units</th>
+                    <th className="text-right font-medium w-28">Ship cost</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -185,19 +183,23 @@ export default function Fulfilment() {
                       className="border-b border-line last:border-0 cursor-pointer hover:bg-surface-2/60"
                       style={{ transition: `background 200ms ${EASE_CSS}` }}
                     >
-                      <td className="px-4 py-2.5 font-mono text-fg">{r.ref}</td>
-                      <td className="px-3 py-2.5 text-fg font-medium">{r.customer}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={`rounded-full ring-1 px-2.5 py-0.5 font-mono text-[10px]
-                                          font-semibold ${STATUS_TONE[r.status] ?? ''}`}>
-                          {r.status}
-                        </span>
-                        {r.allocated && (
-                          <span className="ml-2 font-mono text-[9.5px] text-band-auto">COMMITTED</span>
-                        )}
+                      <td className="font-mono text-fg">{r.ref}</td>
+                      <td className="text-fg font-medium">{r.customer}</td>
+                      <td>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`rounded-full ring-1 px-2.5 py-0.5 font-mono text-[10px]
+                                            font-semibold ${STATUS_TONE[r.status] ?? ''}`}>
+                            {r.status}
+                          </span>
+                          {r.allocated && (
+                            <span className="rounded-full bg-band-autoWash text-band-auto ring-1 ring-band-auto/25 px-2 py-0.5 font-mono text-[9.5px] font-semibold">
+                              COMMITTED
+                            </span>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-3 py-2.5 text-fg-2">{r.warehouse_label}</td>
-                      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">
+                      <td className="text-fg-2">{r.warehouse_label}</td>
+                      <td className="text-right font-mono tabular-nums text-fg">
                         {r.units}
                         {r.backordered > 0 && (
                           <span className="block text-[10px] text-band-finance">

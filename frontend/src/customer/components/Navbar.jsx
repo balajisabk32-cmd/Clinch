@@ -1,19 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
+import { formatCurrency } from './shared';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  Store, 
-  Layers, 
-  Code, 
-  FileText, 
-  Package, 
-  Search, 
-  Heart, 
-  ShoppingBag, 
-  ArrowUpRight, 
-  LogOut, 
-  User, 
-  ChevronDown 
-} from 'lucide-react';
+import { ArrowUpRight, ChevronDown, Code, FileText, Heart, Layers, LogOut, Package, Receipt, Search, ShoppingBag, Store, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useCart } from '../context/CartContext';
 import { useWishlist } from '../context/WishlistContext';
@@ -39,7 +27,7 @@ export default function Navbar({ onSearch }) {
   const profileRef = useRef(null);
 
   useEffect(() => {
-    api.get('/account')
+    api.get('/shop/me')
       .then(res => setAccountInfo(res.data))
       .catch(() => {});
   }, []);
@@ -65,11 +53,15 @@ export default function Navbar({ onSearch }) {
   const currentCategory = queryParams.get('category');
   const userTier = (user?.tier || accountInfo?.tier || 'silver').toLowerCase();
   const tierStyle = TIER_BADGES[userTier] || TIER_BADGES.silver;
-  const companyName = user?.company || accountInfo?.company || 'Acme Enterprises Pvt. Ltd.';
-  const userName = user?.name || 'Rajesh Kumar';
+  // /shop/me already returns tier_progress; no second request needed.
+  const tierProgress = accountInfo;
+  // Neutral placeholders. A hardcoded "Acme Enterprises" / "Rajesh Kumar" shows
+  // one customer's details to every other customer during the first paint.
+  const companyName = user?.company || accountInfo?.company || 'Your organisation';
+  const userName = user?.name || accountInfo?.name || 'Account';
 
   return (
-    <header className="clinch-storefront-header sticky top-0 z-40 bg-white border-b border-[#0d1b2a]/[0.08]" style={{ boxShadow: '0 1px 3px rgba(13,27,42,0.04)' }}>
+    <header className="clinch-storefront-header sticky top-0 z-40 bg-white/85 backdrop-blur-xl border-b border-[#0d1b2a]/[0.06] shadow-[0_4px_20px_-4px_rgba(13,27,42,0.06)]" style={{ transition: 'all 240ms ease' }}>
       {/* Main Navigation Bar */}
       <div className="mx-auto max-w-[1240px] px-5 h-16 flex items-center justify-between gap-4">
         {/* Left: Clinch Brand Logo + Storefront Pill */}
@@ -144,6 +136,18 @@ export default function Navbar({ onSearch }) {
           >
             <Package size={14} />
             <span>Orders</span>
+          </Link>
+
+          <Link
+            to="/payments"
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
+              location.pathname === '/payments'
+                ? 'bg-[#0d1b2a] text-white'
+                : 'text-[#46586b] hover:text-[#0d1b2a] hover:bg-[#edf0f4]'
+            }`}
+          >
+            <Receipt size={14} />
+            <span>Payments</span>
           </Link>
 
           <Link
@@ -334,15 +338,33 @@ export default function Navbar({ onSearch }) {
             <span>Enterprise B2B pricing active</span>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-[11.5px] text-[#7b8ca0]">
-              Next milestone: <strong>Gold Tier (25% off)</strong>
-            </span>
-            <div className="w-28 h-1.5 rounded-full bg-[#edf0f4] overflow-hidden">
-              <div className="h-full bg-[#0e7490] rounded-full" style={{ width: '65%' }} />
+          {/* Real tier progress, from /shop/me.
+              This was hardcoded "Next milestone: Gold Tier (25% off)" at a fixed
+              65% -- wrong three ways: it showed a Gold milestone to accounts
+              already ON Gold, 25% is not a discount this system grants (Gold is
+              6%), and the bar never moved because the width was a literal. */}
+          {tierProgress && tierProgress.next_tier && (
+            <div className="flex items-center gap-3">
+              <span className="text-[11.5px] text-[#7b8ca0]">
+                Next tier: <strong>{tierProgress.next_tier}</strong>
+                {tierProgress.remaining > 0 && (
+                  <> &mdash; {formatCurrency(tierProgress.remaining)} more</>
+                )}
+              </span>
+              <div className="w-28 h-1.5 rounded-full bg-[#edf0f4] overflow-hidden">
+                <div className="h-full bg-[#0e7490] rounded-full transition-[width] duration-700"
+                     style={{ width: `${tierProgress.progress_pct ?? 0}%` }} />
+              </div>
+              <span className="text-[11.5px] font-semibold text-[#0e7490]">
+                {Math.round(tierProgress.progress_pct ?? 0)}%
+              </span>
             </div>
-            <span className="text-[11.5px] font-semibold text-[#0e7490]">65%</span>
-          </div>
+          )}
+          {tierProgress && !tierProgress.next_tier && (
+            <span className="text-[11.5px] text-[#7b8ca0]">
+              Top tier &mdash; best available pricing applied
+            </span>
+          )}
         </div>
       </div>
     </header>

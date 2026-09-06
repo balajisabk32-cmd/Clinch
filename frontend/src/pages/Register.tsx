@@ -76,7 +76,7 @@ function PasswordField({
                 'flex items-center gap-1.5 text-[11.5px]',
                 c.met ? 'text-band-auto' : 'text-fg-3',
               )}>
-                <span aria-hidden="true">{c.met ? '✓' : '○'}</span>{c.label}
+ <span aria-hidden="true">{c.met ? '' : '○'}</span>{c.label}
               </li>
             ))}
           </ul>

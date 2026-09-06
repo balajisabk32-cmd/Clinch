@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, request } from '../lib/authClient'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import {
@@ -34,6 +34,8 @@ interface ApprovalItem {
   assigned_to?: string
   days_inactive?: number
   breach_detail?: string
+  is_customer?: boolean
+  revision_count?: number
   source?: string
   is_unassigned?: boolean
   manager_id?: string
@@ -45,7 +47,21 @@ export default function Approvals() {
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'ALL' | 'MANAGER' | 'FINANCE' | 'UNASSIGNED' | 'RESOLVED'>('ALL')
+  /* The stage filter survives a reload and can be linked to, so the finance
+     dashboard's Level 2 band can hand the user straight to their own queue
+     instead of dropping them on ALL and asking them to find it again. */
+  const [params, setParams] = useSearchParams()
+  const stageParam = (params.get('stage') ?? '').toUpperCase()
+  const initialFilter = (['ALL', 'MANAGER', 'FINANCE', 'UNASSIGNED', 'RESOLVED']
+    .includes(stageParam) ? stageParam : 'ALL') as
+    'ALL' | 'MANAGER' | 'FINANCE' | 'UNASSIGNED' | 'RESOLVED'
+  const [filter, setFilterState] =
+    useState<'ALL' | 'MANAGER' | 'FINANCE' | 'UNASSIGNED' | 'RESOLVED'>(initialFilter)
+  const setFilter = useCallback(
+    (f: 'ALL' | 'MANAGER' | 'FINANCE' | 'UNASSIGNED' | 'RESOLVED') => {
+      setFilterState(f)
+      setParams(f === 'ALL' ? {} : { stage: f.toLowerCase() }, { replace: true })
+    }, [setParams])
   const [search, setSearch] = useState('')
   const [actionSuccess, setActionSuccess] = useState<string | null>(null)
   const [busyRef, setBusyRef] = useState<string | null>(null)
@@ -442,11 +458,11 @@ export default function Approvals() {
               <button
                 onClick={() => setFilter('UNASSIGNED')}
                 className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-medium transition-all flex items-center gap-1.5 ${
-                  filter === 'UNASSIGNED' ? 'bg-rose-700 text-white shadow-sm' : 'text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200'
+                  filter === 'UNASSIGNED' ? 'bg-band-finance text-white shadow-sm' : 'text-band-finance bg-band-financeWash hover:bg-band-financeWash border border-band-finance'
                 }`}
               >
-                <span>⚠️ Unassigned Requests</span>
-                <span className="rounded-full bg-rose-500/20 px-1.5 py-0.2 text-[10px] font-mono font-bold">
+ <span> Unassigned Requests</span>
+                <span className="rounded-full bg-band-finance/20 px-1.5 py-0.2 text-[10px] font-mono font-bold">
                   {unassignedCount}
                 </span>
               </button>
@@ -587,7 +603,7 @@ export default function Approvals() {
         )}
 
         {/* Approvals Table */}
-        <div className="rounded-2xl bg-surface border border-black/[.06] shadow-lift overflow-hidden">
+        <div className="panel">
           {loading ? (
             <div className="py-16 text-center text-[13px] text-fg-3">
               Loading approvals queue...
@@ -597,18 +613,18 @@ export default function Approvals() {
               No approval requests match the selected criteria.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px] min-w-[900px]">
+            <div className="scroll-x">
+              <table className="grid-table min-w-[900px]">
                 <thead>
-                  <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3 border-b border-line bg-surface-2/40">
-                    <th className="text-left font-medium px-4 py-3">Quotation</th>
-                    <th className="text-left font-medium px-3 py-3">Escalation Reason</th>
-                    <th className="text-left font-medium px-3 py-3">Rep</th>
-                    <th className="text-right font-medium px-3 py-3">Amount</th>
-                    <th className="text-left font-medium px-3 py-3">Risk Band</th>
-                    <th className="text-left font-medium px-3 py-3">Assigned Approver</th>
-                    <th className="text-left font-medium px-3 py-3">Stage</th>
-                    <th className="text-right font-medium px-4 py-3">Manager Actions</th>
+                  <tr>
+                    <th>Quotation</th>
+                    <th>Escalation Reason</th>
+                    <th>Rep</th>
+                    <th className="text-right font-medium">Amount</th>
+                    <th>Risk Band</th>
+                    <th>Assigned Approver</th>
+                    <th>Stage</th>
+                    <th className="text-right font-medium">Manager Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -621,7 +637,7 @@ export default function Approvals() {
                         className="border-b border-line last:border-0 hover:bg-surface-2/40 transition-colors"
                       >
                         {/* Quotation Ref & Customer */}
-                        <td className="px-4 py-3">
+                        <td>
                           <div className="font-semibold text-fg flex items-center gap-2">
                             <span>{item.customer}</span>
                             <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-surface-2 text-fg-3 font-semibold">
@@ -634,18 +650,18 @@ export default function Approvals() {
                         </td>
 
                         {/* Breach / Reason */}
-                        <td className="px-3 py-3">
+                        <td>
                           <span className="text-[12px] text-band-manager bg-band-manager/10 rounded-md px-2 py-1 font-medium inline-block max-w-[260px] truncate" title={item.breach_detail}>
                             {item.breach_detail}
                           </span>
                         </td>
 
                         {/* Sales Rep */}
-                        <td className="px-3 py-3">
+                        <td>
                           {item.is_unassigned || item.rep === 'Unassigned' ? (
                             <div>
-                              <span className="inline-flex items-center gap-1 text-rose-700 font-semibold bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md text-[11px]">
-                                ⚠️ Unassigned
+                              <span className="inline-flex items-center gap-1 text-band-finance font-semibold bg-band-financeWash border border-band-finance px-2 py-0.5 rounded-md text-[11px]">
+                                 Unassigned
                               </span>
                               <div className="text-[10px] text-fg-4 mt-0.5">Needs rep assignment</div>
                             </div>
@@ -653,7 +669,7 @@ export default function Approvals() {
                             <div>
                               <div className="font-medium text-fg">{item.rep}</div>
                               {item.source === 'Customer Request' && (
-                                <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-600/20 px-1.5 py-0.2 text-[9px] font-bold mt-0.5">
+                                <span className="inline-flex items-center rounded-full bg-accent-wash text-accent ring-1 ring-accent/20 px-1.5 py-0.2 text-[9px] font-bold mt-0.5">
                                   Customer Request
                                 </span>
                               )}
@@ -663,17 +679,17 @@ export default function Approvals() {
                         </td>
 
                         {/* Order Amount */}
-                        <td className="px-3 py-3 text-right font-mono font-semibold tabular-nums text-fg">
+                        <td className="text-right font-mono font-semibold tabular-nums text-fg">
                           {item.total ? inr(item.total) : '—'}
                         </td>
 
                         {/* Risk Band */}
-                        <td className="px-3 py-3">
+                        <td>
                           <Band band={item.risk_band} />
                         </td>
 
                         {/* Assigned Approver */}
-                        <td className="px-3 py-3 font-medium text-fg-2">
+                        <td className="font-medium text-fg-2">
                           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-2 text-[11.5px] text-fg-2 font-mono">
                             <span className="w-1.5 h-1.5 rounded-full bg-accent" />
                             {item.assigned_to || (item.state === 'PENDING_FINANCE' ? 'R. Menon' : 'M. Shah')}
@@ -681,14 +697,14 @@ export default function Approvals() {
                         </td>
 
                         {/* Stage */}
-                        <td className="px-3 py-3 font-mono text-[11.5px] text-fg-3">
+                        <td className="font-mono text-[11.5px] text-fg-3">
                           <span className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-fg-2">
                             {item.state.replace(/_/g, ' ')}
                           </span>
                         </td>
 
                         {/* Action Buttons */}
-                        <td className="px-4 py-3 text-right">
+                        <td className="text-right">
                           {isPending ? (
                             <div className="inline-flex items-center gap-1.5 justify-end">
                               {/* Reassign Button */}
@@ -701,7 +717,7 @@ export default function Approvals() {
                                   }}
                                   disabled={isBusy}
                                   title="Reassign to another Sales Rep"
-                                  className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
+                                  className="inline-flex items-center gap-1 rounded-full bg-surface-2 hover:bg-accent-wash text-accent border border-accent px-2.5 py-1 font-medium text-[12px] disabled:opacity-40 transition-all"
                                 >
                                   <ArrowRightLeft size={12} />
                                   <span>Reassign</span>
@@ -709,11 +725,11 @@ export default function Approvals() {
                               )}
 
                               {item.state === 'PENDING_MANAGER' && user?.role === 'finance' ? (
-                                <span className="font-mono text-[11px] px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                                <span className="font-mono text-[11px] px-2.5 py-1 rounded-full bg-band-managerWash text-band-manager border border-band-manager">
                                   Awaiting Sales Manager (L1)
                                 </span>
                               ) : item.state === 'PENDING_FINANCE' && user?.role === 'manager' ? (
-                                <span className="font-mono text-[11px] px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200">
+                                <span className="font-mono text-[11px] px-2.5 py-1 rounded-full bg-accent-wash text-accent border border-accent">
                                   Awaiting Finance (L2)
                                 </span>
                               ) : (
@@ -818,17 +834,28 @@ export default function Approvals() {
                   <label className="block text-[12px] font-semibold text-fg-2 mb-1">
                     Select New Sales Rep
                   </label>
+                  {/* The server returns only the caller's own cluster for a
+                      manager, so this list is already scoped -- it used to offer
+                      all twelve reps to every manager. Naming the constraint
+                      here means an empty or short list reads as intended rather
+                      than as data missing. */}
                   <select
                     value={selectedNewRep}
                     onChange={e => setSelectedNewRep(e.target.value)}
                     className="w-full rounded-xl bg-surface border border-line px-3 py-2 text-[13px] text-fg outline-none focus:ring-2 focus:ring-accent/30"
                   >
+                    {repsList.length === 0 && <option value="">No reps in your team</option>}
                     {repsList.map((r: any) => (
                       <option key={r.id} value={r.id}>
-                        {r.name} ({r.email}) — Reports to: {r.manager_name || 'M. Shah'}
+                        {r.name} ({r.email})
                       </option>
                     ))}
                   </select>
+                  <p className="mt-1.5 text-[11px] text-fg-3">
+                    {user?.role === 'manager'
+                      ? `Your team — ${repsList.length} rep${repsList.length === 1 ? '' : 's'} reporting to ${user?.name ?? 'you'}. A deal can only move within your own cluster.`
+                      : `All ${repsList.length} sales reps across every cluster.`}
+                  </p>
                 </div>
 
                 <div className="rounded-xl bg-accent/5 border border-accent/20 p-3">

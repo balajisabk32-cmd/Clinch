@@ -1,51 +1,71 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-import api from '../api';
+/**
+ * Wishlist context — client-side only.
+ *
+ * There is no backend wishlist endpoint. The list is persisted in
+ * localStorage so it survives a page refresh, and it is keyed by product SKU.
+ * No network call is made: the wishlist is purely a front-end convenience
+ * that the customer uses to shortlist items before requesting a quotation.
+ */
+
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { useToast } from './ToastContext';
 
-const WishlistContext = createContext();
+const WishlistContext = createContext(null);
+
+const STORAGE_KEY = 'clinch_wishlist';
+
+function loadStored() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStored(list) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); } catch {}
+}
 
 export function WishlistProvider({ children }) {
-  const [wishlist, setWishlist] = useState([]);
+  const [wishlist, setWishlist] = useState(() => loadStored());
   const { showToast } = useToast();
 
-  const fetchWishlist = useCallback(async () => {
-    try {
-      const res = await api.get('/wishlist');
-      setWishlist(res.data);
-    } catch (err) {
-      console.error('Wishlist fetch error:', err);
-    }
-  }, []);
+  // Keep localStorage in sync whenever the list changes.
+  useEffect(() => { saveStored(wishlist); }, [wishlist]);
 
-  const addToWishlist = useCallback(async (product_id) => {
-    try {
-      await api.post('/wishlist', { product_id });
-      await fetchWishlist();
-      showToast('Saved to wishlist! ❤️', 'success');
-    } catch (err) {
-      showToast('Failed to save', 'error');
-    }
-  }, [fetchWishlist, showToast]);
+  /** `fetchWishlist` is a no-op — the list is already in state from localStorage. */
+  const fetchWishlist = useCallback(() => {}, []);
 
-  const removeFromWishlist = useCallback(async (id) => {
-    try {
-      await api.delete(`/wishlist/${id}`);
-      setWishlist((prev) => prev.filter((item) => item.id !== id));
-      showToast('Removed from wishlist', 'info');
-    } catch (err) {
-      showToast('Remove failed', 'error');
-    }
+  const addToWishlist = useCallback((product) => {
+    const sku = product?.sku ?? product;
+    setWishlist((prev) => {
+      if (prev.some((item) => item.sku === sku)) return prev;
+      const entry = typeof product === 'object' ? product : { sku };
+      return [...prev, entry];
+    });
+    showToast('Saved to wishlist!', 'success');
+  }, [showToast]);
+
+  const removeFromWishlist = useCallback((sku) => {
+    setWishlist((prev) => prev.filter((item) => item.sku !== sku));
+    showToast('Removed from wishlist', 'info');
   }, [showToast]);
 
   const isInWishlist = useCallback(
-    (product_id) => wishlist.some((item) => item.product_id === product_id),
-    [wishlist]
+    (sku) => wishlist.some((item) => item.sku === sku),
+    [wishlist],
   );
 
-  const wishlistCount = wishlist.length;
-
   return (
-    <WishlistContext.Provider value={{ wishlist, fetchWishlist, addToWishlist, removeFromWishlist, isInWishlist, wishlistCount }}>
+    <WishlistContext.Provider value={{
+      wishlist,
+      fetchWishlist,
+      addToWishlist,
+      removeFromWishlist,
+      isInWishlist,
+      wishlistCount: wishlist.length,
+    }}>
       {children}
     </WishlistContext.Provider>
   );

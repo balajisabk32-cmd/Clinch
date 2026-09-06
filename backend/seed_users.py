@@ -83,9 +83,30 @@ def provision(spec: dict[str, str], force: bool) -> str:
         if not ok:
             raise SystemExit(f"Seed password for {spec['email']} violates policy: {problems}")
 
-    users.create(spec["name"], spec["email"], spec["password"],
-                 spec["role"], user_id=spec.get("id"),
-                 manager_id=spec.get("manager_id"), team=spec.get("team"))
+    created_user = users.create(spec["name"], spec["email"], spec["password"],
+                                spec["role"], user_id=spec.get("id"),
+                                manager_id=spec.get("manager_id"), team=spec.get("team"))
+
+    if spec.get("role") == "customer":
+        user_id = created_user["id"]
+        if not db.one("SELECT user_id FROM customer_account WHERE user_id = ?", (user_id,)):
+            db.execute(
+                """INSERT INTO customer_account
+                   (user_id, company, gst_number, phone, address, city, postcode,
+                    tier, tier_locked, lifetime_value, assigned_rep, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
+                (user_id, spec.get("company", "Acme Corp"),
+                 spec.get("gst_number", "29ABCDE1234F1Z5"),
+                 spec.get("phone", "+91 98450 11223"),
+                 spec.get("address", "Plot 42, Electronics City Phase 1"),
+                 spec.get("city", "Bengaluru"),
+                 spec.get("postcode", "560100"),
+                 spec.get("tier", "Gold"),
+                 1 if spec.get("tier_locked", True) else 0,
+                 spec.get("lifetime_value", 242815.0),
+                 spec.get("assigned_rep", "rep_rao"))
+            )
+
     return "created"
 
 

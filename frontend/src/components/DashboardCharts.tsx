@@ -34,13 +34,13 @@ interface DashboardChartsProps {
 }
 
 const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string; text: string }> = {
-  DRAFT: { label: 'Drafts', color: '#64748b', bg: 'bg-slate-500', text: 'text-slate-600' },
-  PENDING_MANAGER: { label: 'Manager Queue', color: '#f59e0b', bg: 'bg-amber-500', text: 'text-amber-600' },
-  PENDING_FINANCE: { label: 'Finance Review', color: '#ef4444', bg: 'bg-rose-500', text: 'text-rose-600' },
-  APPROVED: { label: 'Approved', color: '#10b981', bg: 'bg-emerald-500', text: 'text-emerald-600' },
-  NEGOTIATION: { label: 'Negotiation', color: '#06b6d4', bg: 'bg-cyan-500', text: 'text-cyan-600' },
-  CONFIRMED: { label: 'Confirmed', color: '#3b82f6', bg: 'bg-blue-500', text: 'text-blue-600' },
-  PAID: { label: 'Paid & Won', color: '#8b5cf6', bg: 'bg-purple-500', text: 'text-purple-600' },
+  DRAFT: { label: 'Drafts', color: '#64748b', bg: 'bg-surface-3', text: 'text-fg-3' },
+  PENDING_MANAGER: { label: 'Manager Queue', color: '#f59e0b', bg: 'bg-band-manager', text: 'text-band-manager' },
+  PENDING_FINANCE: { label: 'Finance Review', color: '#ef4444', bg: 'bg-band-finance', text: 'text-band-finance' },
+  APPROVED: { label: 'Approved', color: '#10b981', bg: 'bg-band-auto', text: 'text-band-auto' },
+  NEGOTIATION: { label: 'Negotiation', color: '#06b6d4', bg: 'bg-accent', text: 'text-accent' },
+  CONFIRMED: { label: 'Confirmed', color: '#3b82f6', bg: 'bg-accent', text: 'text-accent' },
+  PAID: { label: 'Paid & Won', color: '#8b5cf6', bg: 'bg-accent', text: 'text-accent' },
 }
 
 const BAND_CONFIG: Record<string, { label: string; color: string; desc: string }> = {
@@ -50,10 +50,10 @@ const BAND_CONFIG: Record<string, { label: string; color: string; desc: string }
 }
 
 const TIER_COLORS: Record<string, { color: string; bg: string; text: string }> = {
-  Platinum: { color: '#8b5cf6', bg: 'bg-purple-500/10', text: 'text-purple-600' },
-  Gold: { color: '#f59e0b', bg: 'bg-amber-500/10', text: 'text-amber-600' },
-  Silver: { color: '#64748b', bg: 'bg-slate-500/10', text: 'text-slate-600' },
-  Bronze: { color: '#d97706', bg: 'bg-orange-500/10', text: 'text-orange-600' },
+  Platinum: { color: '#8b5cf6', bg: 'bg-accent/10', text: 'text-accent' },
+  Gold: { color: '#f59e0b', bg: 'bg-band-manager/10', text: 'text-band-manager' },
+  Silver: { color: '#64748b', bg: 'bg-surface-3/10', text: 'text-fg-3' },
+  Bronze: { color: '#d97706', bg: 'bg-band-manager/10', text: 'text-band-manager' },
 }
 
 export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
@@ -231,7 +231,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                  <span className="w-2 h-2 rounded-full bg-accent"></span>
                   <span className="font-display text-[13.5px] font-bold text-fg">
                     Pipeline Stages &amp; Velocity Funnel
                   </span>
@@ -293,13 +293,13 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
             {/* Stage Summary Footer */}
             <div className="mt-4 pt-3 border-t border-line flex items-center justify-between text-[11.5px] text-fg-3">
               <span className="flex items-center gap-1.5">
-                <ShieldCheck size={13} className="text-emerald-500" />
+                <ShieldCheck size={13} className="text-band-auto" />
                 <span>
                   {quotes.filter(q => q.state === 'APPROVED' || q.state === 'CONFIRMED' || q.state === 'PAID').length} deals cleared governance
                 </span>
               </span>
               <span className="font-mono text-fg-2">
-                Stalled deals: <strong className="text-rose-600">{quotes.filter(q => q.is_stalled).length}</strong>
+                Stalled deals: <strong className="text-band-finance">{quotes.filter(q => q.is_stalled).length}</strong>
               </span>
             </div>
           </div>
@@ -311,7 +311,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span className="w-2 h-2 rounded-full bg-band-manager"></span>
                   <span className="font-display text-[13.5px] font-bold text-fg">
                     AI Blended Risk Distribution
                   </span>
@@ -437,7 +437,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
             {/* Leakage Metrics Strip */}
             {dash && (
               <div className="mt-4 pt-3 border-t border-line grid grid-cols-2 gap-2 text-[11.5px]">
-                <div className="flex items-center gap-1.5 text-rose-600 font-medium">
+                <div className="flex items-center gap-1.5 text-band-finance font-medium">
                   <AlertTriangle size={13} />
                   <span>Leakage: {inr(dash.leakage_total || 0)}</span>
                 </div>
@@ -455,7 +455,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                  <span className="w-2 h-2 rounded-full bg-band-auto"></span>
                   <span className="font-display text-[13.5px] font-bold text-fg">
                     Sales Rep Pipeline Volume &amp; Risk Matrix
                   </span>
@@ -478,7 +478,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
                       <div className="flex items-center justify-between text-[12px] mb-1">
                         <div className="flex items-center gap-2">
                           <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                            isTop ? 'bg-amber-400 text-amber-950' : 'bg-surface-2 text-fg-3'
+                            isTop ? 'bg-band-manager text-band-manager' : 'bg-surface-2 text-fg-3'
                           }`}>
                             {idx + 1}
                           </span>
@@ -492,10 +492,10 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
                           <span
                             className={`text-[10px] font-bold px-1.5 py-0.2 rounded ${
                               rep.avgRisk >= 40
-                                ? 'bg-rose-50 text-rose-600 ring-1 ring-rose-200'
+                                ? 'bg-band-financeWash text-band-finance ring-1 ring-band-finance'
                                 : rep.avgRisk >= 20
-                                ? 'bg-amber-50 text-amber-600 ring-1 ring-amber-200'
-                                : 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-200'
+                                ? 'bg-band-managerWash text-band-manager ring-1 ring-band-manager'
+                                : 'bg-band-autoWash text-band-auto ring-1 ring-band-auto'
                             }`}
                             title={`Average Risk Score: ${rep.avgRisk.toFixed(1)}`}
                           >
@@ -507,7 +507,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
                       {/* Relative Bar */}
                       <div className="h-1.5 w-full rounded-full bg-surface-2 overflow-hidden">
                         <div
-                          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500"
+                          className="h-full rounded-full bg-gradient-to-r from-band-auto to-band-auto transition-all duration-500"
                           style={{ width: `${Math.max(barWidth, 4)}%` }}
                         />
                       </div>
@@ -520,7 +520,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
             {/* Rep Matrix Footer */}
             <div className="mt-4 pt-3 border-t border-line flex items-center justify-between text-[11.5px] text-fg-3">
               <span className="flex items-center gap-1">
-                <Award size={13} className="text-amber-500" />
+                <Award size={13} className="text-band-manager" />
                 <span>Leader: <strong>{repStats.list[0]?.name || 'N/A'}</strong> ({inr(repStats.list[0]?.total || 0)})</span>
               </span>
               <span className="font-mono text-fg-2">
@@ -536,7 +536,7 @@ export function DashboardCharts({ quotes, dash }: DashboardChartsProps) {
             <div>
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                  <span className="w-2 h-2 rounded-full bg-accent"></span>
                   <span className="font-display text-[13.5px] font-bold text-fg">
                     Customer Tier Revenue &amp; Deal Exposure
                   </span>

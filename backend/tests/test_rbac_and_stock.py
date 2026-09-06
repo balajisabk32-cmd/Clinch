@@ -87,10 +87,27 @@ def test_neither_manager_nor_finance_may_create_products_or_warehouses():
     assert "warehouse.manage" in permissions_for("admin")
 
 
-def test_admin_holds_every_permission():
+def test_admin_holds_every_permission_except_building_a_quotation():
+    """Admin is the superset of every role -- with one deliberate exception.
+
+    Raising a quotation and submitting it are SALES duties. An administrator who
+    could do both and also approve the result would hold both halves of the
+    control this product exists to enforce, so `quote.edit` and `quote.submit`
+    are withheld from the grant-everything set rather than removed role by role.
+    Admin still SEES every quotation; they just cannot author one.
+    """
+    from api.auth import SALES_ONLY
+
     admin = permissions_for("admin")
     for role in ("rep", "manager", "finance"):
-        assert permissions_for(role) <= admin
+        missing = permissions_for(role) - admin
+        assert missing <= SALES_ONLY, (
+            f"{role} holds {missing - SALES_ONLY} that admin does not")
+
+    assert not (admin & SALES_ONLY), "admin must not be able to author a quotation"
+    assert SALES_ONLY <= permissions_for("rep"), "the rep must keep them"
+    for role in ("manager", "finance", "admin"):
+        assert not (permissions_for(role) & SALES_ONLY), f"{role} can author a quotation"
 
 
 def test_customer_role_has_no_internal_reach():

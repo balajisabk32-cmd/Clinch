@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, request } from '../lib/authClient'
 import {
   CheckCircle2,
@@ -11,11 +11,14 @@ import {
   Download,
   RotateCcw,
   XCircle,
+  Send,
 } from 'lucide-react'
 import { api, inr, type Coach, type Product, type QuoteDetail, type Suggestion } from '../lib/api'
 import { Band, ContributionBar } from '../components/ui'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { StockIndicator } from '../components/StockIndicator'
+import { NumberField } from '../components/NumberField'
+import { RevisionHistory } from '../components/RevisionHistory'
 import { ErrorBar, Workspace } from '../components/Workspace'
 import { UpsellPanel } from '../components/UpsellPanel'
 import { EASE_CSS } from '../lib/motion'
@@ -116,7 +119,16 @@ export default function Builder() {
     load()
   }, [load])
 
-  const editable = quote?.state === 'DRAFT' || quote?.state === 'NEGOTIATION'
+  const { user } = useAuth()
+
+  /* Editing is a REP duty, and the state has to allow it.
+     Folding the role in here rather than at each control means every stepper,
+     discount field, add/remove button and the submit action are all gated by
+     one condition -- a manager or admin opening this screen reads it, and the
+     API refuses them anyway if they try. */
+  const isRep = user?.role === 'rep'
+  const editable = isRep
+    && (quote?.state === 'DRAFT' || quote?.state === 'NEGOTIATION')
 
   const catalogue = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -153,7 +165,6 @@ export default function Builder() {
 
   // Identity comes from the verified session; localStorage is not an
   // authority on who anyone is.
-  const { user } = useAuth()
 
   if (!quote) {
     return (
@@ -176,6 +187,33 @@ export default function Builder() {
     } catch {
       setFlash('Quotation accepted! Transferred to fulfillment tracking.')
       setTimeout(() => navigate('/app/fulfilment'), 1400)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /* Revise & Send to Customer.
+
+     Deliberately not an approval. A rep who has pulled a discount back inside
+     policy can put the corrected offer straight in front of the customer; the
+     server re-scores from the current lines and records the answer, and if the
+     customer accepts terms that are still over a ceiling the confirmation
+     endpoint routes it to a manager at that point. So this is a shortcut past
+     the queue only when there is genuinely nothing to approve. */
+  const handleReviseAndSend = async () => {
+    if (!quote) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await api.reviseAndSend(quote.ref)
+      setFlash(res.message)
+      load()
+      window.setTimeout(() => setFlash(null), 6000)
+    } catch (e: any) {
+      setError(
+        e?.message?.includes('409')
+          ? 'Nothing has changed since the customer last saw this quotation.'
+          : `Could not send the revision (${e?.message ?? 'unknown error'}).`)
     } finally {
       setBusy(false)
     }
@@ -244,6 +282,21 @@ export default function Builder() {
           <div className="flex items-center gap-2.5 rounded-xl bg-band-autoWash border border-band-auto/25 px-4 py-3 text-[13px] text-band-auto font-medium animate-fadeIn">
             <CheckCircle2 size={16} className="text-band-auto shrink-0" />
             <span>{flash}</span>
+          </div>
+        )}
+
+        {!isRep && (
+          <div className="panel rail rail-idle px-4 py-2.5 flex items-center gap-2.5">
+            <ShieldCheck size={15} className="text-fg-3 shrink-0" />
+            <span className="text-[12.5px] text-fg-2">
+              Read-only. Quotations are built and submitted by the account&rsquo;s
+              sales rep&mdash;
+              {user?.role === 'manager'
+                ? ' your part is to approve, reject or return this one.'
+                : user?.role === 'finance'
+                ? ' your part is second-level sign-off and settlement.'
+                : ' administrators oversee the book rather than author it.'}
+            </span>
           </div>
         )}
 
@@ -401,7 +454,7 @@ export default function Builder() {
               <button
                 onClick={() => handleManagerAction('reject')}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-rose-100 text-rose-700 border border-rose-300 px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-band-financeWash text-band-finance border border-band-finance px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
               >
                 <XCircle size={14} />
                 <span>Reject</span>
@@ -409,7 +462,7 @@ export default function Builder() {
               <button
                 onClick={() => { setRevisionModalOpen(true); setRevisionNote('') }}
                 disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-amber-100 text-amber-800 border border-amber-300 px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface hover:bg-band-managerWash text-band-manager border border-band-manager px-3.5 py-2 font-display text-[12.5px] font-medium disabled:opacity-50"
               >
                 <RotateCcw size={13} />
                 <span>Request Rep Revision</span>
@@ -420,22 +473,22 @@ export default function Builder() {
 
         {/* ── Informational Bar for Sales Manager awaiting Finance sign-off ── */}
         {user?.role === 'manager' && quote.state === 'PENDING_FINANCE' && (
-          <div className="rounded-2xl bg-amber-500/10 border border-amber-500/25 p-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="rounded-2xl bg-band-manager/10 border border-band-manager/25 p-4 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Clock size={20} className="text-amber-700 shrink-0" />
+              <Clock size={20} className="text-band-manager shrink-0" />
               <div>
-                <div className="text-[13px] font-semibold text-amber-900 flex items-center gap-2">
+                <div className="text-[13px] font-semibold text-band-manager flex items-center gap-2">
                   <span>Awaiting Second-Level Finance Sign-off</span>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-800">
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-band-manager/20 text-band-manager">
                     Stage: Finance
                   </span>
                 </div>
-                <div className="text-[12px] text-amber-800 mt-0.5">
+                <div className="text-[12px] text-band-manager mt-0.5">
                   Level 1 Sales Manager sign-off completed ({quote.level1_approved_by_name || 'M. Shah'}). High-risk discount requires Finance Manager (R. Menon) second-level sign-off.
                 </div>
               </div>
             </div>
-            <span className="rounded-full bg-amber-100 text-amber-800 px-3 py-1 font-mono text-[11px] font-semibold border border-amber-200">
+            <span className="rounded-full bg-band-managerWash text-band-manager px-3 py-1 font-mono text-[11px] font-semibold border border-band-manager">
               PENDING FINANCE
             </span>
           </div>
@@ -500,8 +553,17 @@ export default function Builder() {
         {/* ── Quote header ──────────────────────────────────────────── */}
         <header className="flex flex-wrap items-center gap-x-5 gap-y-3">
           <div>
+            <div className="flex items-center gap-2 mb-1.5">
+              <Link
+                to={user?.role === 'customer' ? '/quotations' : '/app/quotations'}
+                className="inline-flex items-center gap-1 font-mono text-[11px] text-fg-3 hover:text-accent transition-colors"
+              >
+                <span>←</span>
+                <span>{user?.role === 'customer' ? 'My Quotations' : 'Quotations'}</span>
+              </Link>
+            </div>
             <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-[22px] font-bold text-fg leading-none">
+              <h1 className="font-display text-[19px] font-bold text-fg tracking-tight leading-none">
                 {user?.role === 'customer' ? 'Official Quotation' : quote.customer}
               </h1>
               <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[10px]
@@ -520,15 +582,20 @@ export default function Builder() {
             <div className="text-right">
               <AnimatedNumber
                 value={quote.total} format="inr" polarity="neutral"
-                className="font-display text-[20px] font-bold text-fg leading-none"
+                className="font-display text-[19px] font-bold text-fg tracking-tight leading-none"
               />
               <div className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3 mt-1">
                 incl. tax
               </div>
             </div>
 
-            {/* Role-specific Primary Action Button */}
-            {user?.role === 'customer' ? (
+            {/* Role-specific primary action.
+                Submitting is a rep action, so it is not offered to anyone
+                else. A greyed-out "Submit for Finance Approval" in a manager's
+                toolbar reads as something they failed to earn rather than
+                something that is not their job -- the read-only banner above
+                says whose job it is. */}
+            {!isRep && user?.role !== 'customer' ? null : user?.role === 'customer' ? (
               <button
                 onClick={handleCustomerAccept}
                 disabled={busy || quote.state === 'CONFIRMED' || quote.state === 'FULFILLED'}
@@ -592,8 +659,36 @@ export default function Builder() {
                   : 'Confirm — Auto-Approved'}
               </button>
             )}
+
+            {/* Offered only when the rep has actually moved a discount since
+                the customer last saw the quote (or has never sent it). Showing
+                it on an unchanged, still-breaching quote would make it a
+                one-click way around the approval queue. */}
+            {isRep && editable && quote.can_revise_and_send
+             && (quote.lines ?? []).length > 0 && (
+              <button
+                onClick={handleReviseAndSend}
+                disabled={busy}
+                title={quote.revision_count
+                  ? `Send revision ${quote.revision_count + 1} to ${quote.customer}`
+                  : `Send this quotation to ${quote.customer} without requesting approval`}
+                className="inline-flex items-center gap-2 rounded-full px-5 py-2.5
+                           font-display text-[13px] font-semibold text-fg
+                           ring-1 ring-black/[.10] bg-surface
+                           hover:ring-accent/45 hover:text-accent
+                           disabled:opacity-35 disabled:cursor-not-allowed transition-all"
+              >
+                <Send size={14} />
+                {quote.revision_count ? 'Revise & resend to customer'
+                                      : 'Send to customer'}
+              </button>
+            )}
           </div>
         </header>
+
+        {/* Every revision cycle on this quotation. */}
+        <RevisionHistory quoteRef={quote.ref}
+                         defaultOpen={(quote.revision_count ?? 0) > 0} />
 
         {/* ── Rep Allowance Guardrail HUD (Visible to Sales Reps) ── */}
         {user?.role === 'rep' && (
@@ -873,16 +968,15 @@ export default function Builder() {
                   No lines yet. Add a product above to start building this quotation.
                 </p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-[13px] min-w-[720px]">
+                <div className="scroll-x">
+                  <table className="grid-table min-w-[720px]">
                     <thead>
-                      <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                                     border-b border-line">
-                        <th className="text-left font-medium px-4 py-2">Product</th>
-                        <th className="text-center font-medium px-2 py-2 w-28">Qty</th>
-                        <th className="text-center font-medium px-2 py-2 w-24">Disc %</th>
-                        <th className="text-right font-medium px-2 py-2 w-28">Ceiling</th>
-                        <th className="text-right font-medium px-4 py-2 w-32">Net</th>
+                      <tr>
+                        <th>Product</th>
+                        <th className="text-center font-medium w-28">Qty</th>
+                        <th className="text-center font-medium w-24">Disc %</th>
+                        <th className="text-right font-medium w-28">Ceiling</th>
+                        <th className="text-right font-medium w-32">Net</th>
                         <th className="w-10" />
                       </tr>
                     </thead>
@@ -891,7 +985,7 @@ export default function Builder() {
                         const breach = l.over > 0
                         return (
                           <tr key={l.id} className="border-b border-line last:border-0">
-                            <td className="px-4 py-2.5">
+                            <td>
                               <div className="font-medium text-fg leading-tight">{l.name}</div>
                               <div className="font-mono text-[10.5px] text-fg-3 mt-0.5">
                                 {l.sku} · {l.category} · {inr(l.list_price)}
@@ -905,7 +999,7 @@ export default function Builder() {
                             </td>
 
                             {/* Quantity stepper (PS B3: adjust quantities +/-) */}
-                            <td className="px-2 py-2.5">
+                            <td>
                               <div className="flex items-center justify-center gap-1">
                                 <button
                                   onClick={() => apply(() => api.patchLine(ref, l.id, { qty: l.qty - 1 }))}
@@ -926,24 +1020,25 @@ export default function Builder() {
                             </td>
 
                             {/* Line-level discount */}
-                            <td className="px-2 py-2.5">
-                              <input
-                                type="number" min={0} max={100} step={0.5}
+                            <td>
+                              {/* Not disabled while a request is in flight:
+                                  disabling steals focus mid-keystroke, which is
+                                  what made two-digit discounts impossible. */}
+                              <NumberField
                                 value={l.discount_pct}
-                                disabled={!editable || busy}
-                                onChange={e => apply(() =>
-                                  api.patchLine(ref, l.id, { discount_pct: Number(e.target.value) }))}
-                                className={`w-full rounded-lg px-2 py-1 text-center font-mono tabular-nums
-                                            ring-1 outline-none bg-surface disabled:opacity-40
-                                            ${breach ? 'ring-band-finance/40 text-band-finance'
-                                                     : 'ring-black/[.08] text-fg'}
-                                            focus:ring-accent/45`}
-                                aria-label={`Discount for ${l.name}`}
+                                disabled={!editable}
+                                onCommit={next => apply(() =>
+                                  api.patchLine(ref, l.id, { discount_pct: next }))}
+                                ariaLabel={`Discount for ${l.name}`}
+                                suffix="%"
+                                className={breach
+                                  ? 'ring-band-finance/40 text-band-finance focus:ring-band-finance'
+                                  : 'ring-black/[.08] text-fg focus:ring-accent/45'}
                               />
                             </td>
 
                             {/* Effective vs ceiling — the governance fact, per line */}
-                            <td className="px-2 py-2.5 text-right font-mono tabular-nums">
+                            <td className="text-right font-mono tabular-nums">
                               <div className={breach ? 'text-band-finance font-semibold' : 'text-fg-3'}>
                                 {l.effective_discount}% / {l.ceiling}%
                               </div>
@@ -954,7 +1049,7 @@ export default function Builder() {
                               )}
                             </td>
 
-                            <td className="px-4 py-2.5 text-right font-mono tabular-nums text-fg">
+                            <td className="text-right font-mono tabular-nums text-fg">
                               {inr(l.net)}
                             </td>
                             <td className="pr-3">
@@ -980,15 +1075,15 @@ export default function Builder() {
                   <span className="font-mono text-[10px] uppercase tracking-eyebrow text-fg-3">
                     Order-level discount
                   </span>
-                  <input
-                    type="number" min={0} max={100} step={0.5}
-                    value={quote.order_discount_pct}
-                    disabled={!editable || busy}
-                    onChange={e => apply(() => api.setOrderDiscount(ref, Number(e.target.value)))}
-                    className="w-20 rounded-lg bg-surface px-2 py-1 text-center font-mono tabular-nums
-                               text-fg ring-1 ring-black/[.08] focus:ring-accent/45 outline-none
-                               disabled:opacity-40"
-                  />
+                  <span className="w-24 inline-block">
+                    <NumberField
+                      value={quote.order_discount_pct}
+                      disabled={!editable}
+                      onCommit={next => apply(() => api.setOrderDiscount(ref, next))}
+                      ariaLabel="Order-level discount"
+                      suffix="%"
+                    />
+                  </span>
                   <span className="text-[11.5px] text-fg-3">stacks on every line</span>
                 </label>
 

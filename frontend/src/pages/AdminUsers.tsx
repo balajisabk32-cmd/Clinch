@@ -80,7 +80,7 @@ function PasswordField({
                     c.met ? 'text-band-auto' : 'text-fg-3'}`}>
                 <span className={`w-3.5 h-3.5 rounded-[4px] grid place-items-center text-[9px]
                                   font-bold ${c.met ? 'bg-band-auto text-white' : 'bg-surface-3'}`}>
-                  {c.met ? '✓' : ''}
+                  {c.met ? '' : ''}
                 </span>
                 {c.label}
               </li>
@@ -171,7 +171,7 @@ export default function AdminUsers() {
 
         <header className="flex flex-wrap items-center gap-3">
           <div>
-            <h1 className="font-display text-[22px] font-bold text-fg">User management</h1>
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">User management</h1>
             <p className="text-[12.5px] text-fg-3 mt-0.5">
               Internal accounts are created here. There is no public registration.
             </p>
@@ -188,7 +188,7 @@ export default function AdminUsers() {
 
         {creating && (
           <form onSubmit={create}
-                className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5
+                className="panel p-5
                            grid md:grid-cols-2 gap-5">
             <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5">
@@ -265,7 +265,7 @@ export default function AdminUsers() {
 
         {resetFor && (
           <form onSubmit={doReset}
-                className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5
+                className="panel p-5
                            flex flex-col gap-4 max-w-[480px]">
             <h2 className="font-display text-[15px] font-semibold text-fg">
               Reset password — {resetFor.name}
@@ -287,50 +287,49 @@ export default function AdminUsers() {
           </form>
         )}
 
-        <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px] min-w-[760px]">
+        <section className="panel">
+          <div className="scroll-x">
+            <table className="grid-table min-w-[760px]">
               <thead>
-                <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                               border-b border-line">
-                  <th className="text-left font-medium px-4 py-2.5">Name</th>
-                  <th className="text-left font-medium px-3 py-2.5">Email</th>
-                  <th className="text-left font-medium px-3 py-2.5 w-24">Role</th>
-                  <th className="text-left font-medium px-3 py-2.5 w-28">Created</th>
-                  <th className="text-left font-medium px-3 py-2.5 w-28">Last login</th>
-                  <th className="text-left font-medium px-3 py-2.5 w-24">Status</th>
-                  <th className="text-right font-medium px-4 py-2.5 w-48">Actions</th>
+                <tr>
+                  <th>Name</th>
+                  <th>Email</th>
+                  <th className="w-24">Role</th>
+                  <th className="w-28">Created</th>
+                  <th className="w-28">Last login</th>
+                  <th className="w-24">Status</th>
+                  <th className="text-right font-medium w-48">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(u => (
                   <tr key={u.id} className="border-b border-line last:border-0">
-                    <td className="px-4 py-2.5 text-fg font-medium">
+                    <td className="text-fg font-medium">
                       {u.name}
                       {u.id === me?.id && (
                         <span className="ml-2 font-mono text-[9.5px] text-fg-3">you</span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[12px] text-fg-2">{u.email}</td>
-                    <td className="px-3 py-2.5">
+                    <td className="font-mono text-[12px] text-fg-2">{u.email}</td>
+                    <td>
                       <span className={`rounded-full ring-1 px-2 py-0.5 font-mono text-[10px]
                                         font-semibold uppercase ${ROLE_TONE[u.role] ?? ''}`}>
                         {u.role}
                       </span>
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[11.5px] text-fg-3">
+                    <td className="font-mono text-[11.5px] text-fg-3">
                       {u.created_at?.slice(0, 10) ?? '—'}
                     </td>
-                    <td className="px-3 py-2.5 font-mono text-[11.5px] text-fg-3">
+                    <td className="font-mono text-[11.5px] text-fg-3">
                       {u.last_login_at?.slice(0, 10) ?? 'never'}
                     </td>
-                    <td className="px-3 py-2.5">
+                    <td>
                       <span className={`font-mono text-[10.5px] font-semibold ${
                         u.is_active ? 'text-band-auto' : 'text-band-finance'}`}>
                         {u.is_active ? 'ACTIVE' : 'INACTIVE'}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                    <td className="text-right whitespace-nowrap">
                       <button
                         onClick={() => toggle(u)}
                         disabled={u.id === me?.id}

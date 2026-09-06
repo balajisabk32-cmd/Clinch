@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Search, Plus, Check } from 'lucide-react'
 import { ApiError, shopApi, type ShopProduct } from '../lib/authClient'
 import { ShopShell, cartChanged } from '../components/ShopShell'
-import { CategoryTile } from '../components/CategoryTile'
+import { ProductImage } from '../components/ProductImage'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { cn } from '../lib/cn'
 
@@ -120,46 +120,45 @@ export default function Shop() {
             </button>
           </div>
         ) : (
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {products.map(p => {
               const saving = p.list_price - p.your_price
               const avail = AVAILABILITY[p.availability] ?? AVAILABILITY.made_to_order
               return (
                 <article
                   key={p.sku}
-                  className="group flex flex-col rounded-2xl bg-surface ring-1 ring-black/[.06]
-                             shadow-lift overflow-hidden hover:shadow-lift-lg
-                             transition-shadow duration-300"
+                  className="group flex flex-col rounded-xl bg-surface ring-1 ring-black/[.06]
+                             overflow-hidden hover:ring-accent/35 hover:shadow-lift
+                             transition-all duration-300"
                 >
-                  <Link to={`/shop/${p.sku}`} className="block">
-                    <CategoryTile sku={p.sku} category={p.category} size="md"
-                                  className="h-[132px] rounded-none" />
+                  <Link to={`/shop/${p.sku}`} className="block relative">
+                    <ProductImage src={p.image} name={p.name}
+                                  className="h-[190px] p-4" />
+                    {p.is_promoted && (
+                      <span className="absolute top-2.5 left-2.5 rounded-sm bg-band-manager
+                                       text-white px-1.5 py-0.5 font-mono text-[9px]
+                                       font-semibold tracking-wide">
+                        PROMOTED
+                      </span>
+                    )}
                   </Link>
 
-                  <div className="flex flex-col gap-2 p-4 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <Link to={`/shop/${p.sku}`}
-                            className="font-display text-[15px] font-semibold text-fg leading-snug
-                                       hover:text-accent transition-colors">
-                        {p.name}
-                      </Link>
-                      {p.is_promoted && (
-                        <span className="shrink-0 rounded-full bg-band-managerWash text-band-manager
-                                         px-2 py-0.5 font-mono text-[9px] font-semibold">
-                          PROMO
-                        </span>
-                      )}
-                    </div>
+                  <div className="flex flex-col gap-1.5 p-3.5 flex-1">
+                    <Link to={`/shop/${p.sku}`}
+                          className="font-display text-[14px] font-semibold text-fg leading-snug
+                                     hover:text-accent transition-colors line-clamp-2">
+                      {p.name}
+                    </Link>
 
-                    <p className="text-[12.5px] text-fg-3 leading-relaxed line-clamp-2">
-                      {p.description || `${p.category} · sold per ${p.uom.toLowerCase()}`}
+                    <p className="text-[12px] text-fg-3 leading-relaxed line-clamp-2">
+                      {p.description || `${p.category} - sold per ${p.uom.toLowerCase()}`}
                     </p>
 
                     <div className="mt-auto pt-2 flex items-end justify-between gap-3">
                       <div className="flex flex-col">
                         <AnimatedNumber
                           value={p.your_price} format="inr" flash={false}
-                          className="font-display text-[19px] font-bold text-fg leading-none"
+                          className="font-display text-[17px] font-bold text-fg leading-none"
                         />
                         {saving > 0 && (
                           <span className="mt-1 text-[11.5px] text-fg-3">

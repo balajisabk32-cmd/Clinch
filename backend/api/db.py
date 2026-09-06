@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS product_variant (
   -- JSON rather than a variant table because these are descriptive options on
   -- one sellable SKU, not separately stocked units -- modelling them as rows
   -- would imply stock is held per combination, which it is not.
+  image TEXT,
   attribute_values TEXT,
   -- Where this product's opening stock was placed at creation. Kept for the
   -- audit trail; live quantities always come from stock_quant, never here.
@@ -122,7 +123,10 @@ CREATE TABLE IF NOT EXISTS sale_order (
   approved_at TEXT,
   -- Coaching note attached when a manager sends a quote back.
   manager_revision_notes TEXT,
-  revision_requested INTEGER NOT NULL DEFAULT 0);
+  revision_requested INTEGER NOT NULL DEFAULT 0,
+  -- What the customer last saw, so a resend can prove something changed.
+  sent_snapshot_json TEXT,
+  revision_count INTEGER NOT NULL DEFAULT 0);
 
 CREATE TABLE IF NOT EXISTS sale_order_line (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -154,7 +158,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_plan_code ON subscription_plan(code);
 CREATE TABLE IF NOT EXISTS account_move (
   ref TEXT PRIMARY KEY, order_ref TEXT, customer TEXT, kind TEXT,
   amount REAL, amount_paid REAL DEFAULT 0, status TEXT,
-  due_date TEXT, method TEXT, lines_json TEXT DEFAULT '[]');
+  due_date TEXT, method TEXT, lines_json TEXT DEFAULT '[]',
+  -- Settlement detail. Without these an invoice survived a restart knowing it
+  -- was paid but not when, how, or by whom -- so the printed invoice read
+  -- "Settled in full on  at  via ..." and the payment history vanished.
+  paid_at TEXT, last_payment_at TEXT, payments_json TEXT DEFAULT '[]');
 
 CREATE TABLE IF NOT EXISTS portal_comment (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,6 +238,17 @@ def migrate(conn: sqlite3.Connection) -> None:
     # all and could never authenticate, so recreating the table loses nothing
     # real -- and it avoids SQLite's refusal to add NOT NULL columns without a
     # default. Accounts are re-provisioned by seed_users.py.
+    # Settlement columns on account_move (paid_at / last_payment_at /
+    # payments_json). Added rather than recreated: real invoices live here.
+    moves = columns("account_move")
+    if moves:
+        for col, decl in (("paid_at", "TEXT"),
+                          ("last_payment_at", "TEXT"),
+                          ("payments_json", "TEXT DEFAULT '[]'")):
+            if col not in moves:
+                conn.execute(f"ALTER TABLE account_move ADD COLUMN {col} {decl}")
+        conn.commit()
+
     existing = columns("app_user")
     if existing and "password_hash" not in existing:
         conn.execute("DROP TABLE app_user")
@@ -253,9 +272,13 @@ def migrate(conn: sqlite3.Connection) -> None:
         ("sale_order", "approved_at",            "TEXT"),
         ("sale_order", "manager_revision_notes", "TEXT"),
         ("sale_order", "revision_requested",     "INTEGER NOT NULL DEFAULT 0"),
+        ("sale_order", "sent_snapshot_json",     "TEXT"),
+        ("sale_order", "revision_count",         "INTEGER NOT NULL DEFAULT 0"),
+        ("sale_order", "source",                 "TEXT"),
         ("product_variant", "attribute_values",  "TEXT"),
         ("product_variant", "initial_warehouse", "TEXT"),
         ("product_variant", "initial_stock_qty", "INTEGER NOT NULL DEFAULT 0"),
+        ("product_variant", "image",             "TEXT"),
     ]
     for table, column, decl in ADDITIONS:
         present = columns(table)

@@ -6,7 +6,6 @@ import { api, inr } from '../lib/api'
 import { Band } from '../components/ui'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 import { ErrorBar, Workspace } from '../components/Workspace'
-import { EASE_CSS } from '../lib/motion'
 import { cn } from '../lib/cn'
 
 /**
@@ -35,6 +34,8 @@ interface Row {
   revision_requested?: boolean
   manager_revision_notes?: string | null
   approved_by_name?: string | null
+  revision_count?: number
+  awaiting_customer?: boolean
 }
 
 /** Kanban stages, in lifecycle order (PS B2). */
@@ -59,8 +60,10 @@ const STAGES: Array<{ key: string; label: string; match?: (r: Row) => boolean }>
     match: r => r.state === 'INVOICED' || r.state === 'PAID' },
 ]
 
-const CUSTOMERS = ['Acme Corp', 'Beta Industries', 'Nova Retail', 'Zenith Co',
-                   'Delta LLC', 'Orion Systems', 'Vertex Labs']
+/* The account list comes from the server (/my/customers), which returns only
+   the firms this rep owns. It was a hardcoded list of all seven, so a rep could
+   pick a customer belonging to someone else and the create would 403. */
+interface AccountOption { name: string; tier: string; owner: string | null; is_mine: boolean }
 
 const railFor = (r: Row) =>
   r.is_stalled ? 'rail-finance'
@@ -93,17 +96,33 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
     }
   }
 
-  const [filter, setFilter] = useState<'all' | 'customer' | 'rep_created' | 'unassigned'>('all')
-  const [newFor, setNewFor] = useState(CUSTOMERS[0])
+  const [accounts, setAccounts] = useState<AccountOption[]>([])
+  const [newFor, setNewFor] = useState('')
   const [query, setQuery] = useState('')
 
+  /* One strip, left to right in the order work actually moves:
+     everything -> a customer asked -> nobody owns it -> a rep must act ->
+     the customer has it -> a reviewer has it -> done.
+
+     This replaced two competing strips. A second row offered
+     All / Customer Requests / Rep Created / Unassigned while this one offered
+     lifecycle stages, they overlapped on "Customer requests", and they were
+     driven by different state (one from the URL, one from a useState), so the
+     two could disagree and the selection did not survive a reload. */
   const TABS = [
-    { key: 'all',      label: 'All deals',   match: (_r: Row) => true },
-    { key: 'action',   label: 'Action required',
+    { key: 'all', label: 'All deals', match: (_r: Row) => true },
+    { key: 'requests', label: 'Customer requests',
+      match: (r: Row) => (r.source === 'Customer Request' || !!r.is_customer)
+                      && !r.is_unassigned && r.rep !== 'Unassigned' },
+    { key: 'unassigned', label: 'Unassigned',
+      match: (r: Row) => !!r.is_unassigned || r.rep === 'Unassigned' },
+    { key: 'action', label: 'Action required',
       match: (r: Row) => r.state === 'DRAFT' && !!r.revision_requested },
-    { key: 'queue',    label: 'In approval',
+    { key: 'sent', label: 'With customer',
+      match: (r: Row) => r.state === 'NEGOTIATION' },
+    { key: 'queue', label: 'In approval',
       match: (r: Row) => r.state.startsWith('PENDING') },
-    { key: 'done',     label: 'Confirmed & fulfilled',
+    { key: 'done', label: 'Confirmed & fulfilled',
       match: (r: Row) => ['CONFIRMED', 'FULFILLED', 'INVOICED', 'PAID'].includes(r.state) },
   ] as const
   const tab = (params.get('tab') ?? 'all') as (typeof TABS)[number]['key']
@@ -115,6 +134,14 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
   }, [])
   useEffect(load, [load])
 
+  // Only a rep can author, so only a rep needs the list.
+  useEffect(() => {
+    if (!isRep) return
+    api.myCustomers()
+      .then(a => { setAccounts(a); setNewFor(prev => prev || a[0]?.name || '') })
+      .catch(() => { /* the create control stays disabled without a book */ })
+  }, [isRep])
+
   const create = async () => {
     setBusy(true)
     try {
@@ -125,19 +152,8 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
     } finally { setBusy(false) }
   }
 
-  const custCount = rows.filter(r => (r.source === 'Customer Request' || r.is_customer) && !r.is_unassigned && r.rep !== 'Unassigned').length
-  const repCount = rows.filter(r => r.source !== 'Customer Request' && !r.is_customer && !r.is_unassigned && r.rep !== 'Unassigned').length
-  const unassignedCount = rows.filter(r => r.is_unassigned || r.rep === 'Unassigned').length
-
   const displayRows = useMemo(() => {
-    let list = rows.filter(activeTab.match)
-    if (filter === 'customer') {
-      list = list.filter(r => (r.source === 'Customer Request' || r.is_customer) && !r.is_unassigned && r.rep !== 'Unassigned')
-    } else if (filter === 'rep_created') {
-      list = list.filter(r => r.source !== 'Customer Request' && !r.is_customer && !r.is_unassigned && r.rep !== 'Unassigned')
-    } else if (filter === 'unassigned') {
-      list = list.filter(r => r.is_unassigned || r.rep === 'Unassigned')
-    }
+    const list = rows.filter(activeTab.match)
     const q = query.trim().toLowerCase()
     if (!q) return list
     return list.filter(r =>
@@ -146,58 +162,72 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
       (r.rep && r.rep.toLowerCase().includes(q)) ||
       r.state.toLowerCase().includes(q)
     )
-  }, [rows, activeTab, filter, query])
+  }, [rows, activeTab, query])
 
   const bookValue = displayRows.reduce((a, r) => a + (r.total || 0), 0)
   const returned = rows.filter(r => r.state === 'DRAFT' && !!r.revision_requested)
 
+  /* Pipeline card.
+
+     Sized for the column it lives in. The previous version put the customer
+     name, an 80-character "Customer Request" pill, a band pill, the ref, tier,
+     rep, amount and risk into roughly 190px, so the name truncated to nothing
+     and the badges wrapped onto their own lines at uneven heights. Origin is
+     now a dot with a title rather than a pill -- the tab and the table already
+     spell it out, and inside a column it only needs to be distinguishable. */
   const Card = ({ r }: { r: Row }) => {
     const isCust = r.source === 'Customer Request' || r.is_customer
     const isUnassigned = r.is_unassigned || r.rep === 'Unassigned'
+    const origin = isUnassigned ? 'Unassigned - no rep on this deal'
+      : isCust ? 'Raised by the customer'
+      : 'Raised by the rep'
     return (
       <button
         onClick={() => navigate(`/app/quotations/${r.ref}`)}
+        title={`${r.customer} - ${r.ref} - ${origin}`}
         className={cn(
-          'w-full text-left rounded-xl bg-surface ring-1 ring-black/[.055] p-3.5 shadow-lift',
-          'hover:ring-accent/35 hover:-translate-y-0.5',
+          'w-full text-left rounded-md bg-surface ring-1 ring-black/[.06] px-2.5 py-2',
+          'rail hover:ring-accent/40 hover:bg-accent-wash/40 transition-colors duration-150',
           railFor(r),
         )}
-        style={{ transition: `all 320ms ${EASE_CSS}` }}
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5 font-display text-[14px] font-semibold text-fg leading-tight truncate">
-              <span>{r.customer}</span>
-              {isUnassigned ? (
-                <span className="inline-flex items-center rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-600/20 px-1.5 py-0.5 text-[9px] font-bold shrink-0">
-                  ⚠️ Unassigned
-                </span>
-              ) : isCust ? (
-                <span className="inline-flex items-center rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-600/20 px-1.5 py-0.5 text-[9px] font-bold shrink-0">
-                  🛒 Customer Request
-                </span>
-              ) : (
-                <span className="inline-flex items-center rounded-full bg-zinc-100 text-zinc-600 ring-1 ring-zinc-400/20 px-1.5 py-0.5 text-[9px] font-medium shrink-0">
-                  👤 Rep Created
-                </span>
-              )}
-            </div>
-            <div className="font-mono text-[10.5px] text-fg-3 mt-1">
-              {r.ref} · {r.tier} · {r.rep}
-            </div>
-          </div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span
+            aria-hidden="true"
+            className={cn('w-1.5 h-1.5 rounded-full shrink-0',
+              isUnassigned ? 'bg-band-finance'
+                : isCust ? 'bg-accent' : 'bg-fg-4')}
+          />
+          <span className="text-[12.5px] font-medium text-fg truncate flex-1">
+            {r.customer}
+          </span>
           <Band band={r.risk_band} />
         </div>
-        <div className="mt-3 flex items-end justify-between">
-          <span className="font-display text-[16px] font-bold text-fg tabular-nums">{inr(r.total)}</span>
-          <span className="font-mono text-[11px] text-fg-3 tabular-nums">
-            risk {r.risk_score.toFixed(1)}
+
+        <div className="mt-1 font-mono text-[10.5px] text-fg-3 truncate">
+          {r.ref} · {r.tier}
+          {isUnassigned
+            ? <span className="text-band-finance"> · unassigned</span>
+            : <> · {r.rep}</>}
+        </div>
+
+        <div className="mt-1.5 flex items-baseline justify-between gap-2">
+          <span className="font-display text-[13.5px] font-bold text-fg tabular-nums">
+            {inr(r.total)}
+          </span>
+          <span className="font-mono text-[10.5px] tabular-nums text-fg-3">
+            {r.risk_score.toFixed(1)}
           </span>
         </div>
+
         {r.is_stalled && (
-          <div className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-band-financeWash
-                          px-2 py-0.5 font-mono text-[9.5px] font-semibold text-band-finance">
-            STALLED · {r.days_inactive}d idle
+          <div className="mt-1 font-mono text-[9.5px] font-semibold text-band-finance">
+            STALLED · {r.days_inactive}d
+          </div>
+        )}
+        {r.revision_requested && (
+          <div className="mt-1 font-mono text-[9.5px] font-semibold text-band-manager">
+            RETURNED FOR REVISION
           </div>
         )}
       </button>
@@ -206,7 +236,7 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
 
   return (
     <Workspace onReload={load}>
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 w-full min-w-0 max-w-full">
         {error && <ErrorBar message={error} onRetry={load} />}
 
         {flash && (
@@ -220,7 +250,7 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
               className="text-band-auto/70 hover:text-band-auto text-xs font-mono px-2 py-0.5"
               aria-label="Dismiss message"
             >
-              ✕
+
             </button>
           </div>
         )}
@@ -300,52 +330,7 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
           </p>
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            {/* Filter Toggle: All vs Customer Requests vs Rep Created vs Unassigned */}
-            <div className="inline-flex rounded-full bg-surface-2 p-0.5 ring-1 ring-black/[.06]">
-              <button
-                onClick={() => setFilter('all')}
-                className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition-all ${
-                  filter === 'all' ? 'bg-surface text-fg shadow-sm' : 'text-fg-3 hover:text-fg'
-                }`}
-              >
-                All ({rows.length})
-              </button>
-              <button
-                onClick={() => setFilter('customer')}
-                className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition-all flex items-center gap-1.5 ${
-                  filter === 'customer' ? 'bg-[#0d1b2a] text-white shadow-sm' : 'text-fg-3 hover:text-fg'
-                }`}
-              >
-                <span>🛒 Customer Requests</span>
-                <span className="rounded-full bg-blue-500/20 px-1.5 py-0.2 text-[10px] font-mono">
-                  {custCount}
-                </span>
-              </button>
-              <button
-                onClick={() => setFilter('rep_created')}
-                className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition-all flex items-center gap-1.5 ${
-                  filter === 'rep_created' ? 'bg-[#0d1b2a] text-white shadow-sm' : 'text-fg-3 hover:text-fg'
-                }`}
-              >
-                <span>👤 Rep Created</span>
-                <span className="rounded-full bg-zinc-500/20 px-1.5 py-0.2 text-[10px] font-mono">
-                  {repCount}
-                </span>
-              </button>
-              {unassignedCount > 0 && (
-                <button
-                  onClick={() => setFilter('unassigned')}
-                  className={`rounded-full px-3 py-1 text-[11.5px] font-medium transition-all flex items-center gap-1.5 ${
-                    filter === 'unassigned' ? 'bg-rose-700 text-white shadow-sm' : 'text-rose-600 hover:text-rose-700'
-                  }`}
-                >
-                  <span>⚠️ Unassigned</span>
-                  <span className="rounded-full bg-rose-500/20 px-1.5 py-0.2 text-[10px] font-mono font-bold">
-                    {unassignedCount}
-                  </span>
-                </button>
-              )}
-            </div>
+
 
             {/* Search Input */}
             <label className="relative">
@@ -380,6 +365,11 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
                 ))}
             </div>
 
+            {!isRep && (
+              <span className="text-[11.5px] text-fg-3">
+                View only &mdash; quotations are raised by the account&rsquo;s sales rep.
+              </span>
+            )}
             {isRep && (
               <>
                 <select
@@ -389,9 +379,16 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
                              ring-1 ring-black/[.08] outline-none focus:ring-accent/45"
                   aria-label="Customer for new quotation"
                 >
-                  {CUSTOMERS.map(c => <option key={c} value={c}>{c}</option>)}
+                  {accounts.length === 0 && <option value="">No accounts assigned</option>}
+                  {accounts.map(c => (
+                    <option key={c.name} value={c.name}>{c.name} · {c.tier}</option>
+                  ))}
                 </select>
-                <button onClick={create} disabled={busy} className="ctl ctl-primary">
+                <button onClick={create} disabled={busy || !newFor}
+                        title={accounts.length === 0
+                          ? 'No accounts are assigned to you yet'
+                          : `Raise a quotation for ${newFor}`}
+                        className="ctl ctl-primary">
                   {busy ? 'Creating…' : '+ New Quotation'}
                 </button>
               </>
@@ -411,37 +408,33 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
         )}
 
         {mode === 'pipeline' ? (
-          <div className="scroll-x pb-1">
-            <div className="grid gap-2.5"
-                 style={{ gridTemplateColumns: `repeat(${STAGES.length}, minmax(196px, 1fr))` }}>
+          <div className="w-full min-w-0 max-w-full overflow-x-auto scroll-x pb-4">
+            <div className="flex items-start gap-3 pb-2 min-w-max">
               {STAGES.map(st => {
                 const inStage = displayRows.filter(
                   st.match ? st.match : r => r.state === st.key)
                 const stageValue = inStage.reduce((a, r) => a + r.total, 0)
                 return (
-                  <div key={st.key} className="flex flex-col gap-2 min-w-0">
+                  <div key={st.key} className="w-[240px] shrink-0 flex flex-col gap-2 min-w-0">
                     {/* Column header carries the money, which is the number an
                         operator wants from a stage — not just the count. */}
-                    <div className="panel-sq px-2.5 py-2 flex flex-col gap-0.5">
+                    <div className="panel-sq px-2.5 py-2 flex flex-col gap-0.5 bg-surface-2/70 border border-line">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="panel-title truncate">{st.label}</span>
-                        <AnimatedNumber
-                          value={inStage.length}
-                          format="int"
-                          className="text-[11px] text-fg-3"
-                        />
+                        <span className="font-semibold text-xs text-fg truncate">{st.label}</span>
+                        <span className="font-mono text-[10.5px] font-bold text-fg-3 bg-surface px-1.5 py-0.2 rounded ring-1 ring-black/[.05]">
+                          {inStage.length}
+                        </span>
                       </div>
                       <AnimatedNumber
                         value={stageValue}
                         format="inr-compact"
                         flash={false}
-                        className="text-[13px] font-semibold text-fg"
+                        className="text-[13px] font-bold text-fg tabular-nums"
                       />
                     </div>
                     {inStage.map(r => <Card key={r.ref} r={r} />)}
                     {inStage.length === 0 && (
-                      <div className="rounded-md border border-dashed border-line-2 py-5 text-center
-                                      text-[11px] text-fg-4">
+                      <div className="rounded-md border border-dashed border-line-2 py-6 text-center text-[11px] text-fg-4 bg-surface/20">
                         Empty
                       </div>
                     )}
@@ -454,16 +447,18 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
           <div className="panel">
             <div className="scroll-x">
               <table className="grid-table min-w-[820px]">
+                {/* Six headers for six cells. The body was rewritten to fold
+                    ref and tier into the customer cell but the header kept its
+                    original eight, so every column sat one or two places to the
+                    left of its label and the last two were empty. */}
                 <thead>
                   <tr>
-                    <th>Ref</th>
                     <th>Customer</th>
-                    <th>Tier</th>
-                    <th>Rep</th>
                     <th>Status</th>
-                    <th>Band</th>
-                    <th className="text-right">Risk</th>
-                    <th className="text-right">Amount</th>
+                    <th>Rep</th>
+                    <th className="text-right w-20">Risk</th>
+                    <th className="w-24">Band</th>
+                    <th className="text-right w-32">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -473,20 +468,20 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
                       onClick={() => navigate(`/app/quotations/${r.ref}`)}
                       className="cursor-pointer"
                     >
-                      <td className="px-4 py-2.5">
+                      <td>
                         <div className="flex items-center gap-2">
                           <span className="font-medium text-fg">{r.customer}</span>
                           {r.is_unassigned || r.rep === 'Unassigned' ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-600/20 px-2 py-0.5 text-[10px] font-bold">
-                              <span>⚠️ Unassigned</span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-band-financeWash text-band-finance ring-1 ring-band-finance/20 px-2 py-0.5 text-[10px] font-bold">
+ <span> Unassigned</span>
                             </span>
                           ) : (r.source === 'Customer Request' || r.is_customer) ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 text-blue-700 ring-1 ring-blue-600/20 px-2 py-0.5 text-[10px] font-bold">
-                              <span>🛒 Customer Request</span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-accent-wash text-accent ring-1 ring-accent/20 px-2 py-0.5 text-[10px] font-bold">
+ <span> Customer Request</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 text-zinc-600 ring-1 ring-zinc-400/20 px-2 py-0.5 text-[10px] font-medium">
-                              <span>👤 Rep Created</span>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 text-fg-3 ring-1 ring-black/[.08] px-2 py-0.5 text-[10px] font-medium">
+ <span> Rep Created</span>
                             </span>
                           )}
                         </div>
@@ -497,27 +492,23 @@ export default function Quotations({ view = 'list' }: { view?: 'list' | 'pipelin
                           )}
                         </div>
                       </td>
-                      <td className="px-3 py-2.5 text-fg-2 font-medium">
+                      <td className="text-fg-2 font-medium">
                         <span className="rounded-full bg-surface-2 px-2.5 py-0.5 text-[11px]">
                           {r.state.replace(/_/g, ' ')}
                         </span>
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td>
                         {r.is_unassigned || r.rep === 'Unassigned' ? (
-                          <span className="inline-flex items-center gap-1 text-rose-600 font-semibold bg-rose-50 px-2 py-0.5 rounded-md text-[11px]">
+                          <span className="inline-flex items-center gap-1 text-band-finance font-semibold bg-band-financeWash px-2 py-0.5 rounded-md text-[11px]">
                             Unassigned
                           </span>
                         ) : (
                           <span className="text-fg-2 font-medium">{r.rep}</span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-fg">
-                        {r.risk_score.toFixed(1)}
-                      </td>
-                      <td className="px-3 py-2.5"><Band band={r.risk_band} /></td>
-                      <td className="px-4 py-2.5 text-right font-mono font-semibold tabular-nums text-fg">
-                        {inr(r.total)}
-                      </td>
+                      <td className="num text-fg-2">{r.risk_score.toFixed(1)}</td>
+                      <td><Band band={r.risk_band} /></td>
+                      <td className="num text-fg font-semibold">{inr(r.total)}</td>
                     </tr>
                   ))}
                 </tbody>

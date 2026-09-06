@@ -113,6 +113,18 @@ export async function request<T>(
       throw new ApiError(401, detail, message)
     }
 
+    // If there was no token sent, this was an anonymous public request
+    // (such as the landing page reading live engine data). It is NOT an expired session.
+    if (!token) {
+      throw new ApiError(401, null, 'Authentication required.')
+    }
+
+    // If the user is viewing the public landing page, do not force-redirect to /login
+    if (typeof window !== 'undefined' && (window.location.pathname === '/' || window.location.pathname === '')) {
+      tokenStore.clear()
+      throw new ApiError(401, null, 'Authentication required.')
+    }
+
     // If a non-auth request received 401, verify with /auth/me before declaring session expired.
     // This prevents transient blips from evicting active users during quick UI mutations.
     if (path !== '/auth/me' && token) {
@@ -185,11 +197,13 @@ export interface ShopProduct {
   list_price: number; your_price: number
   availability: 'in_stock' | 'low_stock' | 'made_to_order'
   variants: any[]
+  image: string | null
 }
 
 export interface CartLine {
   sku: string; name: string; category: string; qty: number
   list_price: number; your_price: number; line_total: number; is_recurring: boolean
+  image: string | null
 }
 
 export interface Cart {
@@ -345,6 +359,16 @@ export const shopApi = {
   quotes: () => request<Omit<ShopQuote, 'lines'>[]>('/shop/quotes'),
 
   quote: (ref: string) => request<ShopQuote>(`/shop/quotes/${ref}`),
+
+  confirm: (ref: string, body: { counter_discount_pct?: number | null
+                                 line_id?: number | null
+                                 comment?: string } = {}) =>
+    request<{ ref: string; state: string; approval_required: boolean
+              risk_score: number; risk_band: string
+              routed_to?: string; needs_finance?: boolean
+              fulfilment_suggestion?: any; message: string }>(
+      `/shop/quotes/${ref}/confirm`,
+      { method: 'POST', body: JSON.stringify(body) }),
 
   negotiate: (ref: string, body: { line_id?: number | null
                                    counter_discount_pct?: number | null

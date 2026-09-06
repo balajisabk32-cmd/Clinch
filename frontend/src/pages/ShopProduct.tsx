@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Minus, Plus, Check } from 'lucide-react'
 import { ApiError, shopApi, type ShopProduct } from '../lib/authClient'
 import { ShopShell, cartChanged } from '../components/ShopShell'
-import { CategoryTile } from '../components/CategoryTile'
+import { ProductImage } from '../components/ProductImage'
 import { AnimatedNumber } from '../components/motion/AnimatedNumber'
 
 /** Product detail — the customer's view. No cost, no margin, no risk. */
@@ -71,8 +71,9 @@ export default function ShopProductPage() {
         </button>
 
         <div className="grid gap-8 lg:grid-cols-[minmax(0,420px)_1fr] items-start">
-          <CategoryTile sku={p.sku} category={p.category} size="lg"
-                        className="h-[300px] w-full" />
+          <ProductImage src={p.image} name={p.name}
+                        className="h-[380px] w-full rounded-2xl ring-1 ring-black/[.06] p-8"
+                        sizes="(max-width: 1024px) 100vw, 420px" />
 
           <div className="flex flex-col gap-5">
             <div>

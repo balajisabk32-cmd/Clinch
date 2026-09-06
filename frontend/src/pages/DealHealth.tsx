@@ -203,7 +203,7 @@ export default function DealHealth() {
           <div className="p-4 panel hover:bg-accent-wash/25 transition-shadow">
             <div className="flex items-center justify-between text-xs text-fg-3">
               <span className="font-medium">Portfolio Avg Discount</span>
-              <span className="w-5 h-5 rounded-full bg-accent text-accent flex items-center justify-center font-bold">%</span>
+              <span className="w-5 h-5 rounded-full bg-accent-wash text-accent flex items-center justify-center font-bold">%</span>
             </div>
             <div className="mt-2 text-2xl font-bold tracking-tight text-fg">
               {summary ? `${summary.averageDiscount.toFixed(1)}%` : '0%'}
@@ -256,7 +256,7 @@ export default function DealHealth() {
                   <div
                     onClick={() => setActiveHealthFilter('CLOSED_LOST')}
                     style={{ width: `${(summary.closedLostDeals / summary.totalDeals) * 100}%` }}
-                    className="h-full bg-slate-400 hover:bg-slate-500 transition-colors cursor-pointer"
+                    className="h-full bg-surface-3 hover:bg-surface-3 transition-colors cursor-pointer"
                     title={`CLOSED_LOST: ${summary.closedLostDeals} deals (${Math.round((summary.closedLostDeals / summary.totalDeals) * 100)}%)`}
                   />
                 </>
@@ -307,11 +307,11 @@ export default function DealHealth() {
               <button
                 onClick={() => setActiveHealthFilter(activeHealthFilter === 'CLOSED_LOST' ? 'ALL' : 'CLOSED_LOST')}
                 className={`p-2 rounded-xl flex items-center justify-between ring-1 transition-all ${
-                  activeHealthFilter === 'CLOSED_LOST' ? 'bg-slate-100 ring-slate-500 text-slate-900 font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
+                  activeHealthFilter === 'CLOSED_LOST' ? 'bg-surface-2 ring-black/[.08] text-fg font-semibold' : 'bg-surface-2 ring-black/[.05] text-fg-2'
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-surface-3"></span>
                   <span>Closed Lost</span>
                 </div>
                 <span>{summary?.closedLostDeals || 0}</span>
@@ -368,13 +368,13 @@ export default function DealHealth() {
                     const fullDeal = deals.find((d) => d.id === deal.dealId)
                     if (fullDeal) openDealModal(fullDeal)
                   }}
-                  className="p-3.5 rounded-xl border border-band-finance bg-band-finance/40 hover:bg-band-finance/80 hover:border-band-finance transition-all cursor-pointer space-y-2 group"
+                  className="p-3.5 rounded-xl border border-band-finance/25 bg-band-financeWash/40 hover:bg-band-financeWash/80 hover:border-band-finance/50 transition-all cursor-pointer space-y-2 group shadow-sm"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs font-bold text-fg group-hover:text-accent transition-colors">
                       {deal.dealId}
                     </span>
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-band-financeWash text-band-finance">
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-band-financeWash text-band-finance ring-1 ring-band-finance/20">
                       Score: {deal.riskScore ?? '—'} ({deal.riskLevel || 'HIGH'})
                     </span>
                   </div>
@@ -384,7 +384,7 @@ export default function DealHealth() {
                     <span>Discount: <strong className="text-band-finance font-bold">{deal.discount}%</strong></span>
                     <span>Approval: <strong className="text-fg-2">{deal.approvalStage || 'NONE'}</strong></span>
                   </div>
-                  <div className="text-xs text-band-finance/85 pl-2 border-l-2 border-band-finance bg-white/60 p-1.5 rounded-r">
+                  <div className="text-xs text-band-finance font-medium pl-2.5 border-l-2 border-band-finance bg-surface/90 p-2 rounded-r ring-1 ring-black/[.04]">
                     {deal.riskExplanation || 'Discount exceeds representative historical baseline.'}
                   </div>
                 </div>
@@ -412,13 +412,13 @@ export default function DealHealth() {
                     const fullDeal = deals.find((d) => d.id === deal.dealId)
                     if (fullDeal) openDealModal(fullDeal)
                   }}
-                  className="p-3.5 rounded-xl border border-band-manager bg-band-manager/40 hover:bg-band-manager/80 hover:border-band-manager transition-all cursor-pointer space-y-2 group"
+                  className="p-3.5 rounded-xl border border-band-manager/25 bg-band-managerWash/40 hover:bg-band-managerWash/80 hover:border-band-manager/50 transition-all cursor-pointer space-y-2 group shadow-sm"
                 >
                   <div className="flex items-center justify-between">
                     <span className="font-mono text-xs font-bold text-fg group-hover:text-accent transition-colors">
                       {deal.dealId}
                     </span>
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-band-managerWash text-band-manager">
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-bold bg-band-managerWash text-band-manager ring-1 ring-band-manager/20">
                       {deal.daysStalled} Days Inactive
                     </span>
                   </div>
@@ -427,7 +427,7 @@ export default function DealHealth() {
                     <span>Rep: <strong className="text-fg-2">{deal.salesRep}</strong></span>
                     <span>Value: <strong className="text-fg-2">{inr(deal.value)}</strong></span>
                   </div>
-                  <div className="text-xs text-band-manager/85 pl-2 border-l-2 border-band-manager bg-white/60 p-1.5 rounded-r">
+                  <div className="text-xs text-band-manager font-medium pl-2.5 border-l-2 border-band-manager bg-surface/90 p-2 rounded-r ring-1 ring-black/[.04]">
                     Velocity alert: No buyer updates or stage transitions in the last {deal.daysStalled} days.
                   </div>
                 </div>
@@ -604,8 +604,8 @@ export default function DealHealth() {
                       HEALTHY: 'bg-band-autoWash text-band-auto ring-band-auto/20',
                       AT_RISK: 'bg-band-financeWash text-band-finance ring-band-finance/20',
                       STALLED: 'bg-band-managerWash text-band-manager ring-band-manager/20',
-                      CLOSED_LOST: 'bg-slate-100 text-slate-700 ring-slate-400/20',
-                    }[deal.healthCategory] || 'bg-slate-50 text-slate-700'
+                      CLOSED_LOST: 'bg-surface-2 text-fg-2 ring-black/[.08]',
+                    }[deal.healthCategory] || 'bg-surface-2 text-fg-2'
 
                     return (
                       <tr
@@ -727,15 +727,21 @@ export default function DealHealth() {
 
             {/* Risk Explanation if present */}
             {selectedDeal.riskExplanation && (
-              <div className="p-3.5 rounded-xl border border-band-finance bg-band-finance/70 text-xs text-band-finance space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-band-finance">
-                  <AlertTriangle size={14} className="text-band-finance" />
-                  <span>Governance Risk Explanation</span>
-                  <span className="text-[10px] bg-band-finance px-1.5 py-0.2 rounded font-mono">
-                    Approval Stage: {selectedDeal.approvalStage}
-                  </span>
+              <div className="p-3.5 rounded-xl border border-band-finance/30 bg-band-financeWash text-xs space-y-2 shadow-sm">
+                <div className="font-bold flex items-center justify-between gap-2 text-band-finance">
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle size={15} className="text-band-finance shrink-0" />
+                    <span className="font-semibold text-sm">Governance Risk Explanation</span>
+                  </div>
+                  {selectedDeal.approvalStage && selectedDeal.approvalStage !== 'NONE' && (
+                    <span className="text-[10px] bg-band-finance text-white px-2 py-0.5 rounded font-mono font-semibold tracking-wide shadow-xs">
+                      Approval Stage: {selectedDeal.approvalStage}
+                    </span>
+                  )}
                 </div>
-                <p>{selectedDeal.riskExplanation}</p>
+                <p className="text-fg-2 font-medium leading-relaxed pl-5">
+                  {selectedDeal.riskExplanation}
+                </p>
               </div>
             )}
 

@@ -7,10 +7,20 @@
  * hardcoding it into the landing page would quietly make that claim false.
  */
 
-import { request as authedRequest } from './authClient'
+import { request as authedRequest, tokenStore } from './authClient'
 
 
 export type Band = 'AUTO' | 'MANAGER' | 'FINANCE'
+
+export interface AuditEvent {
+  order_ref: string
+  actor: string
+  actor_role: string
+  event_type: string
+  reason: string | null
+  created_at: string
+  payload?: Record<string, any> | null
+}
 
 export interface AvailabilityDepot {
   warehouse: string; on_hand: number; reserved: number; available: number
@@ -86,6 +96,31 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return authedRequest<T>(path, init ?? {})
 }
 
+/* Fetch a file from an authenticated endpoint and hand it to the browser.
+
+   A plain <a href> cannot be used: the download routes require a bearer token
+   and an anchor sends none, so the link would come back 401 and the browser
+   would save the error page as a PDF. The blob is fetched with the token
+   attached, then handed to a synthetic anchor. */
+async function download(path: string, filename: string): Promise<void> {
+  const token = tokenStore.get()
+  const res = await fetch(`/api${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  // Revoked on the next tick: revoking synchronously can cancel the download
+  // in some browsers before it has read the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+
 export interface QuoteLine {
   id: number; sku: string; name: string; category: string; qty: number
   list_price: number; discount_pct: number; effective_discount: number
@@ -104,6 +139,11 @@ export interface QuoteDetail {
   level1_approved_at?: string | null
   manager_revision_notes?: string | null
   revision_requested?: boolean
+  /** Revision-loop state, from state.revision_meta(). */
+  revision_count?: number
+  sent_to_customer?: boolean
+  can_revise_and_send?: boolean
+  unsent_changes?: Array<{ sku: string; was: number | null; now: number }>
   ref: string; customer: string; tier: string; rep: string; state: string
   total: number; subtotal: number; discount_total: number; tax_total: number
   total_recurring: number; margin_pct: number
@@ -118,6 +158,7 @@ export interface QuoteDetail {
 }
 
 export interface Product {
+  image?: string | null
   sku: string; name: string; category: string
   list_price: number; cost: number
   is_recurring?: boolean; is_promoted?: boolean; stock_total?: number
@@ -162,6 +203,11 @@ export const api = {
   product: (sku: string) => req<any>(`/products/${sku}`),
   createProduct: (body: Record<string, unknown>) =>
     req<any>('/products', { method: 'POST', body: JSON.stringify(body) }),
+  uploadProductImage: (dataUrl: string, filename?: string, sku?: string) =>
+    req<{ url: string; filename: string; size_bytes: number }>('/products/upload-image', {
+      method: 'POST',
+      body: JSON.stringify({ data_url: dataUrl, filename, sku }),
+    }),
   updateProduct: (sku: string, body: Record<string, unknown>) =>
     req<any>(`/products/${sku}`, { method: 'PATCH', body: JSON.stringify(body) }),
   pricelists: () => req<any[]>('/pricelists'),
@@ -201,6 +247,21 @@ export const api = {
     }),
   policy: () => req<any>('/policy'),
 
+  /** Accounts the signed-in rep may raise a quotation for. */
+  myCustomers: () => req<Array<{ name: string; tier: string
+                                 owner: string | null; is_mine: boolean }>>(
+    '/my/customers'),
+
+  /** Send a revised quotation straight to the customer, skipping approval. */
+  reviseAndSend: (ref: string) =>
+    req<{ ref: string; state: string; revision: number
+          risk_score: number; risk_band: string; within_policy: boolean
+          portal_url: string; changes: Array<{ sku: string; was: number; now: number }>
+          message: string }>(
+      `/quotes/${ref}/revise-send`, { method: 'POST', body: '{}' }),
+
+  revisions: (ref: string) => req<AuditEvent[]>(`/quotes/${ref}/revisions`),
+
   /** Live available-to-promise per depot. `qty` only shapes the split hint. */
   availability: (skus: string[], qty = 0) =>
     req<{ items: Record<string, Availability> }>(
@@ -219,11 +280,20 @@ export const api = {
   fulfilmentQueue: () => req<QueueRow[]>('/fulfilment/queue'),
   allocate: (ref: string, body: Record<string, unknown>) =>
     req<any>(`/orders/${ref}/allocate`, { method: 'POST', body: JSON.stringify(body) }),
+  /** Where an order actually is, and what may legally be done to it next. */
+  fulfilmentStatus: (ref: string) => req<any>(`/orders/${ref}/fulfilment`),
   consolidate: (ref: string) =>
     req<any>(`/orders/${ref}/consolidate`, { method: 'POST' }),
   confirmOrder: (ref: string) =>
     req<any>(`/orders/${ref}/confirm`, { method: 'POST', body: '{}' }),
   invoices: () => req<any[]>('/invoices'),
+
+  /** Settlement methods the SERVER accepts — never a hardcoded list. */
+  paymentMethods: () => req<Array<{ key: string; label: string }>>('/payment-methods'),
+
+  /** The one-page invoice document. */
+  invoicePdfUrl: (ref: string) => `/api/invoices/${ref}/pdf`,
+  downloadInvoice: (ref: string) => download(`/invoices/${ref}/pdf`, `${ref}.pdf`),
   generateInvoice: (ref: string) =>
     req<any>(`/orders/${ref}/invoice`, { method: 'POST', body: '{}' }),
   registerPayment: (ref: string, method: string, amount: number) =>

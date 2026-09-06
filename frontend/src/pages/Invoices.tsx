@@ -22,8 +22,26 @@ interface Invoice {
   kind: 'invoice' | 'credit_note'
   amount: number; amount_paid: number
   status: 'unpaid' | 'partial' | 'paid' | 'issued'
-  due_date: string; method?: string
+  due_date: string; method?: string; method_label?: string
+  paid_at?: string | null; last_payment_at?: string | null
+  payments?: Payment[]
   lines?: Array<{ sku: string; name: string; qty: number; amount: number }>
+}
+
+interface Payment {
+  at: string; amount: number; method: string; method_label?: string
+  by?: string; by_role?: string
+}
+
+/** "2026-09-06T05:11:37" -> "6 Sep 2026, 05:11". */
+const when = (iso?: string | null) => {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  })
 }
 
 const STATUS_TONE: Record<string, string> = {
@@ -47,6 +65,10 @@ export default function Invoices() {
   const [filter, setFilter] = useState<'ALL' | 'unpaid' | 'paid'>('ALL')
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('bank_transfer')
+  /* The methods the SERVER accepts. This dropdown used to offer a hardcoded
+     "Bank" and "Cash"; cash is not a settlement method the API recognises, so
+     choosing it produced a 422 the operator could do nothing about. */
+  const [methods, setMethods] = useState<Array<{ key: string; label: string }>>([])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -61,6 +83,12 @@ export default function Invoices() {
       .catch(e => setError(`Could not load invoices (${e?.message ?? 'unknown error'}).`))
   }, [])
   useEffect(load, [load])
+
+  useEffect(() => {
+    api.paymentMethods()
+      .then(m => { setMethods(m); setMethod(p => m.some(x => x.key === p) ? p : (m[0]?.key ?? p)) })
+      .catch(() => { /* the field falls back to bank transfer */ })
+  }, [])
 
   const current = rows.find(r => r.ref === selected) ?? null
   const visible = rows.filter(r =>
@@ -100,8 +128,8 @@ export default function Invoices() {
         <header className="flex flex-wrap items-center gap-3">
           <div>
             <div className="flex items-center gap-2.5">
-              <h1 className="font-display text-[22px] font-bold text-fg">Invoices &amp; Ledgers</h1>
-              <span className="rounded-full bg-blue-500/10 text-blue-700 px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-blue-500/20">
+              <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">Invoices &amp; Ledgers</h1>
+              <span className="rounded-full bg-accent/10 text-accent px-2.5 py-0.5 font-mono text-[10.5px] font-semibold ring-1 ring-accent/20">
                 Finance Manager Only
               </span>
             </div>
@@ -137,17 +165,16 @@ export default function Invoices() {
 
         <div className="grid lg:grid-cols-[minmax(0,1fr)_400px] gap-4 items-start">
           {/* ── List (screen 12) ─────────────────────────────────── */}
-          <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-[13px] min-w-[560px]">
+          <section className="panel">
+            <div className="scroll-x">
+              <table className="grid-table min-w-[560px]">
                 <thead>
-                  <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                                 border-b border-line">
-                    <th className="text-left font-medium px-4 py-2.5">Invoice #</th>
-                    <th className="text-left font-medium px-3 py-2.5">Customer</th>
-                    <th className="text-right font-medium px-3 py-2.5 w-32">Amount</th>
-                    <th className="text-left font-medium px-3 py-2.5 w-24">Status</th>
-                    <th className="text-left font-medium px-4 py-2.5 w-28">Due date</th>
+                  <tr>
+                    <th>Invoice #</th>
+                    <th>Customer</th>
+                    <th className="text-right font-medium w-32">Amount</th>
+                    <th className="w-24">Status</th>
+                    <th className="w-28">Due date</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -159,25 +186,25 @@ export default function Invoices() {
                                   ${selected === r.ref ? 'bg-accent-wash' : 'hover:bg-surface-2/60'}`}
                       style={{ transition: `background 200ms ${EASE_CSS}` }}
                     >
-                      <td className="px-4 py-2.5 font-mono text-fg">
+                      <td className="font-mono text-fg">
                         {r.ref}
                         {r.kind === 'credit_note' && (
                           <span className="ml-2 rounded-full bg-surface-2 px-1.5 py-0.5
                                            font-mono text-[9px] text-fg-3">CREDIT</span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-fg font-medium">{r.customer}</td>
+                      <td className="text-fg font-medium">{r.customer}</td>
                       <td className={`px-3 py-2.5 text-right font-mono tabular-nums font-semibold
                                       ${r.amount < 0 ? 'text-band-auto' : 'text-fg'}`}>
                         {inr(r.amount)}
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td>
                         <span className={`rounded-full ring-1 px-2 py-0.5 font-mono text-[10px]
                                           font-semibold uppercase ${STATUS_TONE[r.status] ?? ''}`}>
                           {r.status}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-[12px] text-fg-2">{r.due_date}</td>
+                      <td className="font-mono text-[12px] text-fg-2">{r.due_date}</td>
                     </tr>
                   ))}
                   {visible.length === 0 && (
@@ -192,7 +219,7 @@ export default function Invoices() {
 
           {/* ── Detail (screen 13) ───────────────────────────────── */}
           {current && (
-            <aside className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5
+            <aside className="panel p-5
                               flex flex-col gap-4 lg:sticky lg:top-[72px]">
               <div>
                 <div className="font-mono text-[11px] text-accent">{current.ref}</div>
@@ -274,8 +301,10 @@ export default function Invoices() {
                                  ring-1 ring-black/[.08] outline-none focus:ring-accent/40"
                       aria-label="Payment method"
                     >
-                      <option value="bank_transfer">Bank</option>
-                      <option value="cash">Cash</option>
+                      {(methods.length ? methods
+                        : [{ key: 'bank_transfer', label: 'Bank transfer' }]).map(m => (
+                        <option key={m.key} value={m.key}>{m.label}</option>
+                      ))}
                     </select>
                   </div>
                   <button
@@ -299,9 +328,53 @@ export default function Invoices() {
                 </p>
               ) : (
                 <p className="rounded-lg bg-band-autoWash px-3 py-2.5 text-[12.5px] text-band-auto">
-                  Settled in full{current.method ? ` via ${current.method.replace(/_/g, ' ')}` : ''}.
+                  Settled in full
+                  {current.paid_at ? ` on ${when(current.paid_at)}` : ''}
+                  {current.method_label
+                    ? ` via ${current.method_label}`
+                    : current.method ? ` via ${current.method.replace(/_/g, ' ')}` : ''}.
                 </p>
               )}
+
+              {/* What was actually received, and when.
+
+                  The panel previously showed a single "paid" flag and nothing
+                  behind it: an operator answering "when did this clear, and how?"
+                  had no way to tell, and a part-paid invoice showed a balance
+                  with no record of what had already come in. */}
+              {(current.payments?.length ?? 0) > 0 && (
+                <div className="border-t border-line pt-3">
+                  <div className="metric-label mb-2">Payments received</div>
+                  <div className="flex flex-col gap-2">
+                    {current.payments!.map((pmt, i) => (
+                      <div key={i} className="flex items-baseline justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="text-[12.5px] text-fg truncate">
+                            {pmt.method_label ?? pmt.method.replace(/_/g, ' ')}
+                          </div>
+                          <div className="font-mono text-[10.5px] text-fg-3">
+                            {when(pmt.at)}{pmt.by ? ` \u00b7 ${pmt.by}` : ''}
+                          </div>
+                        </div>
+                        <span className="font-mono text-[12.5px] tabular-nums text-fg shrink-0">
+                          {inr(pmt.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <a
+                href={api.invoicePdfUrl(current.ref)}
+                onClick={e => { e.preventDefault(); api.downloadInvoice(current.ref) }}
+                className="rounded-full ring-1 ring-black/[.09] bg-surface px-4 py-2 text-center
+                           font-display text-[12.5px] font-semibold text-fg
+                           hover:ring-accent/40 hover:text-accent"
+                style={{ transition: `all 240ms ${EASE_CSS}` }}
+              >
+                Download invoice (PDF)
+              </a>
             </aside>
           )}
         </div>

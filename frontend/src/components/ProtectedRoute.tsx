@@ -124,6 +124,9 @@ export function PublicOnlyRoute({ children }: { children: ReactElement }) {
     if (from.startsWith('/shop') || from.startsWith('/cart') || from.startsWith('/quotations') || from.startsWith('/account')) {
       return children
     }
+    if (!localStorage.getItem('clinch_token')) {
+      return children
+    }
     if (user?.role === 'customer' && !localStorage.getItem('df360_token')) {
       return children
     }

@@ -107,7 +107,7 @@ export default function Settings() {
     group: 'tier_ceiling' | 'category_ceiling'; label: string
     entries: Record<string, number>
   }) => (
-    <div className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5">
+    <div className="panel p-5">
       <h2 className="font-display text-[14px] font-semibold text-fg mb-3">{label}</h2>
       <div className="flex flex-col gap-2.5">
         {Object.entries(entries).map(([k, v]) => {
@@ -153,7 +153,7 @@ export default function Settings() {
 
         <header className="flex flex-wrap items-center gap-3">
           <div>
-            <h1 className="font-display text-[22px] font-bold text-fg">
+            <h1 className="font-display text-[19px] font-bold text-fg tracking-tight">
               Discount Tiers &amp; Approval Chain
             </h1>
             <p className="text-[12.5px] text-fg-3 mt-0.5">
@@ -198,24 +198,23 @@ export default function Settings() {
         </div>
 
         {/* Routing rules (wireframe: Discount range → Max Discount) */}
-        <section className="rounded-2xl bg-surface ring-1 ring-black/[.055] shadow-lift p-5">
+        <section className="panel p-5">
           <h2 className="font-display text-[14px] font-semibold text-fg mb-3">Approval chain</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[13px] min-w-[420px]">
+          <div className="scroll-x">
+            <table className="grid-table min-w-[420px]">
               <thead>
-                <tr className="font-mono text-[9.5px] uppercase tracking-wider text-fg-3
-                               border-b border-line">
-                  <th className="text-left font-medium py-2">Blended risk score</th>
-                  <th className="text-left font-medium py-2">Routes to</th>
+                <tr>
+                  <th>Blended risk score</th>
+                  <th>Routes to</th>
                 </tr>
               </thead>
               <tbody>
                 {draft.bands.map(([lo, hi, route]) => (
                   <tr key={route} className="border-b border-line last:border-0">
-                    <td className="py-2.5 font-mono tabular-nums text-fg-2">
+                    <td className="font-mono tabular-nums text-fg-2">
                       {hi > 1e6 ? `${lo} and above` : `${lo} – ${hi}`}
                     </td>
-                    <td className="py-2.5">
+                    <td>
                       <Band band={route} />
                       <span className="ml-2.5 text-[12.5px] text-fg-2">
                         {route === 'AUTO' ? 'No approval needed'
@@ -226,10 +225,10 @@ export default function Settings() {
                   </tr>
                 ))}
                 <tr>
-                  <td className="py-2.5 font-mono text-fg-2">
+                  <td className="font-mono text-fg-2">
                     Any single line ≥ {draft.hard_override_pts} pts over
                   </td>
-                  <td className="py-2.5">
+                  <td>
                     <Band band="FINANCE" />
                     <span className="ml-2.5 text-[12.5px] text-fg-2">
                       Hard override, regardless of score

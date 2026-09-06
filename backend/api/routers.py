@@ -32,7 +32,7 @@ from engine.fulfilment import (
 from engine.recommender import recommend as run_recommender
 from engine.scoring import Quote, coach as run_coach, score_quote
 
-from . import fixtures as fx
+from . import customers, fixtures as fx
 from . import services as svc
 from . import state
 from .schemas import (
@@ -154,6 +154,62 @@ def products(category: str | None = None, q: str | None = None, _actor: dict[str
     return rows
 
 
+@sales.post("/products/upload-image")
+def upload_product_image(body: dict[str, Any] = Body(...),
+                         _actor: dict[str, Any] = Depends(require("product.manage"))) -> dict[str, Any]:
+    """Upload an image file for a product (Base64 Data URL)."""
+    import base64
+    import re
+    from pathlib import Path
+
+    data_url = body.get("data_url") or ""
+    if not data_url or not isinstance(data_url, str):
+        raise HTTPException(422, {"error": "bad_image", "message": "data_url is required."})
+
+    match = re.match(r"^data:image/([a-zA-Z0-9\+\-]+);base64,(.+)$", data_url)
+    if not match:
+        raise HTTPException(422, {"error": "invalid_data_url",
+                                  "message": "Invalid data URL format. Expected 'data:image/...;base64,...'"})
+
+    ext = match.group(1).lower()
+    if ext == "jpeg":
+        ext = "jpg"
+    elif ext == "svg+xml":
+        ext = "svg"
+    elif ext not in ("png", "jpg", "webp", "gif", "svg"):
+        ext = "png"
+
+    raw_data = match.group(2)
+    try:
+        image_bytes = base64.b64decode(raw_data)
+    except Exception as exc:
+        raise HTTPException(422, {"error": "decode_failed", "message": f"Could not decode image: {exc}"})
+
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(422, {"error": "file_too_large", "message": "Image exceeds 10MB limit."})
+
+    sku = (body.get("sku") or "").strip().upper()
+    filename = (body.get("filename") or "").strip()
+
+    if sku:
+        clean_sku = re.sub(r"[^A-Za-z0-9_\-]", "", sku)
+        safe_filename = f"{clean_sku}.{ext}"
+    elif filename:
+        clean_base = re.sub(r"[^A-Za-z0-9_\-]", "_", Path(filename).stem)
+        safe_filename = f"{clean_base[:40]}.{ext}"
+    else:
+        import uuid
+        safe_filename = f"prod_{uuid.uuid4().hex[:8]}.{ext}"
+
+    target_dir = Path(__file__).resolve().parent.parent.parent / "frontend" / "public" / "products"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_path = target_dir / safe_filename
+    target_path.write_bytes(image_bytes)
+
+    rel_url = f"/products/{safe_filename}"
+    return {"url": rel_url, "filename": safe_filename, "size_bytes": len(image_bytes)}
+
+
 @sales.get("/products/{sku}")
 def product_detail(sku: str, _actor: dict[str, Any] = Depends(require("product.view"))) -> dict[str, Any]:
     """One product with its variants and every tier price (PS A2)."""
@@ -236,6 +292,7 @@ def create_product(body: dict[str, Any] = Body(...),
         stock_total=stock_qty,
         description=body.get("description", ""),
         variants=body.get("variants", []),
+        image=body.get("image"),
         attribute_values=attributes,
         initial_warehouse=warehouse,
         initial_stock_qty=stock_qty,
@@ -265,7 +322,7 @@ def update_product(sku: str, body: dict[str, Any] = Body(...),
     if product is None:
         raise HTTPException(404, f"No product {sku}")
     editable = {"name", "category", "list_price", "cost", "uom", "tax_pct",
-                "is_recurring", "recurrence", "is_promoted", "description", "variants"}
+                "is_recurring", "recurrence", "is_promoted", "description", "variants", "image"}
     for k, v in body.items():
         if k in editable:
             product[k] = v
@@ -463,6 +520,12 @@ def list_quotes(
             is_stalled=row["days_idle"] >= state.get_policy().stall_days,
             is_customer=is_cust,
             is_unassigned=(q.rep_id == "UNASSIGNED"),
+            # Revision-loop state, so the rep and manager lists can separate
+            # "waiting on the customer" from "waiting on us" without a second
+            # request per row.
+            **state.approval_meta(q.ref),
+            **state.revision_meta(q.ref),
+            awaiting_customer=row["state"] == "NEGOTIATION",
         ))
 
     if _actor.get("role") == "manager":
@@ -524,10 +587,16 @@ def quote_detail(ref: str, _actor: dict[str, Any] = Depends(require("quote.view"
             cost=l.cost, margin=round(l.margin, 2),
             ceiling=over_by_sku[l.sku]["allowed"], over=over_by_sku[l.sku]["over"],
         ) for i, l in enumerate(quote.lines)],
+        # What the CUSTOMER has asked for on this quotation. Stored on every
+        # counter-offer but previously rendered only back to the customer, so
+        # the rep who has to act on the request could not see the number they
+        # were being asked for.
+        customer_requests=state.customer_requests(ref),
         # Who approved this and when, plus any outstanding coaching note. The
         # UI renders these directly; without them the approval badge would have
         # to reconstruct the answer by scanning the audit log client-side.
         **state.approval_meta(ref),
+        **state.revision_meta(ref),
     )
 
 
@@ -559,6 +628,39 @@ def _guard_editable(ref: str) -> None:
         })
 
 
+@sales.get("/my/customers")
+def my_customers(_actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
+    """Accounts the caller may raise a quotation for.
+
+    A rep gets their own book. Anyone else gets the full list for reference --
+    they cannot create a quotation anyway, so a narrowed list would only hide
+    information from someone entitled to see it.
+    """
+    rep_id = _actor.get("id", "")
+    is_rep = _actor.get("role") == "rep"
+    owned = set(fx.customers_for_rep(rep_id)) | {
+        a["company"] for a in customers.all_accounts()
+        if a.get("assigned_rep") == rep_id}
+
+    out = []
+    for name, meta in sorted(fx.CUSTOMERS.items()):
+        if is_rep and owned and name not in owned:
+            continue
+        out.append(dict(name=name, tier=meta["tier"],
+                        owner=fx.REP_NAME.get(meta.get("owner"), None),
+                        is_mine=name in owned))
+    # Storefront accounts this rep was assigned.
+    for a in customers.all_accounts():
+        if a.get("assigned_rep") != rep_id and is_rep:
+            continue
+        if any(o["name"] == a["company"] for o in out):
+            continue
+        out.append(dict(name=a["company"], tier=a["tier"],
+                        owner=fx.REP_NAME.get(a.get("assigned_rep"), None),
+                        is_mine=a.get("assigned_rep") == rep_id))
+    return out
+
+
 @sales.post("/quotes")
 def create_quote(body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depends(require("quote.edit"))) -> dict[str, Any]:
     if _actor.get("role") != "rep":
@@ -570,6 +672,22 @@ def create_quote(body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Depe
     customer = body.get("customer")
     if customer not in fx.CUSTOMERS:
         raise HTTPException(422, f"Unknown customer {customer!r}")
+
+    # A rep quotes for their own accounts. Enforced here, not only in the
+    # dropdown: the dropdown is a convenience and a POST can carry anything.
+    rep_id = _actor.get("id", "")
+    mine = set(fx.customers_for_rep(rep_id)) | {
+        a["company"] for a in customers.all_accounts()
+        if a.get("assigned_rep") == rep_id}
+    if mine and customer not in mine:
+        raise HTTPException(403, {
+            "error": "not_your_account",
+            "customer": customer,
+            "your_accounts": sorted(mine),
+            "message": (f"{customer} is not one of your accounts. "
+                        f"{fx.REP_NAME.get(fx.owner_of(customer)) or 'Another rep'} "
+                        "owns it."),
+        })
     rep_id = _actor.get("id", body.get("rep", "rep_rao"))
     rep_name = _actor.get("name", fx.REP_NAME.get(rep_id, "A. Rao"))
     ref = state.create_quote(customer, rep_id)
@@ -598,10 +716,23 @@ def patch_line(ref: str, idx: int, body: dict[str, Any] = Body(...), _actor: dic
     _guard_editable(ref)
     if not 0 <= idx < len(state.QUOTES[ref]["lines"]):
         raise HTTPException(404, f"No line {idx} on {ref}")
+    # Capture the old value BEFORE the write, so the audit entry can say what
+    # actually changed. "line 2 -> 20%" told a reviewer nothing about what it
+    # used to be, which is the only interesting part of a revision history.
+    line = state.QUOTES[ref]["lines"][idx]
+    was = float(line.get("discount_pct", 0.0))
+    sku = line.get("sku", "")
+    name = (fx.BY_SKU.get(sku) or {}).get("name", sku)
+
     state.update_line(ref, idx, body.get("qty"), body.get("discount_pct"))
     if body.get("discount_pct") is not None:
-        state.record(ref, body.get("actor", "A. Rao"), "rep", "discount_changed",
-                     reason=f"line {idx} -> {body['discount_pct']}%")
+        now = float(body["discount_pct"])
+        if abs(now - was) > 1e-9:
+            verb = "reduced" if now < was else "increased"
+            state.record(
+                ref, _actor.get("name") or "Rep", "rep", "discount_changed",
+                reason=f"{verb} {name} discount from {was:g}% to {now:g}%",
+                sku=sku, line_index=idx, old_discount_pct=was, new_discount_pct=now)
     return _rebuilt(ref)
 
 
@@ -654,12 +785,122 @@ def submit(ref: str, actor: str = Query("A. Rao"), _actor: dict[str, Any] = Depe
         row = state.QUOTES.get(ref)
         if row is not None:
             row["revision_requested"] = False
+    # An auto-approved submission goes straight to the customer: there is no
+    # reviewer in the path, so nothing should sit waiting for one.
+    if target == "APPROVED":
+        state.record_approval(ref, user_id="system", name="Auto-approval", role="system")
+        state.mark_sent_to_customer(ref)
     state.record(ref, actor, "rep", "resubmitted" if was_revision else "submitted",
                  reason=f"score {r.score} -> {r.band}")
     return {"ref": ref, "state": target, "risk_score": r.score,
             "risk_band": r.band, "auto_routed": True,
             "requires_finance": r.band == "FINANCE",
             "allowed_transitions": LEGAL_TRANSITIONS[target]}
+
+
+@sales.post("/quotes/{ref}/revise-send")
+def revise_and_send(ref: str, body: dict[str, Any] = Body(default_factory=dict),
+                    _actor: dict[str, Any] = Depends(require("quote.edit"))) -> dict[str, Any]:
+    """Send a revised quotation straight back to the customer.
+
+    Deliberately does NOT request approval. A rep who has pulled a discount back
+    inside policy should be able to put the corrected offer in front of the
+    customer without a manager signing off on a quote that no longer breaches
+    anything -- that queue exists for exceptions, and routing compliant work
+    through it is how approval queues stop being read.
+
+    What it does NOT do is let the rep decide that. The score is recomputed here
+    from the CURRENT lines by the same `score_quote` the approval desk uses, and
+    the answer is recorded on the quotation. If the customer accepts terms that
+    are still over a ceiling, /shop/quotes/{ref}/confirm re-scores again and
+    routes it to a manager at that point.
+    """
+    if ref not in state.QUOTES:
+        raise HTTPException(404, f"No quotation {ref}")
+
+    current = state.state_of(ref)
+    if current not in ("DRAFT", "NEGOTIATION"):
+        raise HTTPException(409, {
+            "error": "not_revisable", "ref": ref, "current_state": current,
+            "message": f"{ref} is {current}; only a draft or a quote already "
+                       "under negotiation can be revised and resent.",
+        })
+
+    meta = state.revision_meta(ref)
+    if not meta["can_revise_and_send"]:
+        raise HTTPException(409, {
+            "error": "nothing_changed", "ref": ref,
+            "message": "Nothing has changed since the customer last saw this "
+                       "quotation. Adjust a discount before resending.",
+        })
+
+    quote, r = svc.score_for(ref)
+    if not quote.lines:
+        raise HTTPException(422, {"error": "empty_quote",
+                                  "message": "Add at least one line before sending."})
+
+    if current != "NEGOTIATION":
+        if not is_legal(current, "NEGOTIATION"):
+            _conflict(ref, current, "NEGOTIATION")
+        state.set_state(ref, "NEGOTIATION")
+
+    # A quote coming back to the customer is no longer answering a manager's
+    # note, whatever it was doing before.
+    row = state.QUOTES[ref]
+    row["revision_requested"] = False
+
+    moved = meta["unsent_changes"]
+    count = state.mark_sent_to_customer(ref)
+    actor = _actor.get("name") or "Rep"
+    detail = ("; ".join(f"{m['sku']} {m['was']:g}% -> {m['now']:g}%" for m in moved)
+              if moved else "first send")
+    state.record(ref, actor, "rep", "sent_to_customer",
+                 reason=f"revision {count} sent to {quote.customer} ({detail})",
+                 revision=count, changes=moved,
+                 risk_score=r.score, risk_band=r.band)
+
+    token = _portal_token_for(ref)
+    return {
+        "ref": ref, "state": state.state_of(ref),
+        "revision": count,
+        "risk_score": r.score, "risk_band": r.band,
+        "within_policy": r.band == "AUTO",
+        "portal_token": token,
+        "portal_url": f"/portal/{token}",
+        "changes": moved,
+        "message": (
+            f"Revision {count} sent to {quote.customer}. "
+            + ("Terms are within policy, so acceptance will confirm the order directly."
+               if r.band == "AUTO" else
+               f"Terms still route to {'Finance' if r.band == 'FINANCE' else 'a manager'} "
+               "if the customer accepts them as they stand.")),
+    }
+
+
+def _portal_token_for(ref: str) -> str:
+    """Stable per-quote portal token, minted on first use."""
+    existing = next((t for t, r in fx.PORTAL_TOKENS.items() if r == ref), None)
+    if existing:
+        return existing
+    token = f"{ref.lower()}-{_sign(ref)}"
+    fx.PORTAL_TOKENS[token] = ref
+    return token
+
+
+@sales.get("/quotes/{ref}/revisions")
+def revision_history(ref: str,
+                     _actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
+    """Every revision cycle on this quotation, oldest first.
+
+    Read straight off the append-only event log rather than a separate table:
+    one history, and it cannot drift from the audit trail it is derived from.
+    """
+    if ref not in state.QUOTES:
+        raise HTTPException(404, f"No quotation {ref}")
+    interesting = {"discount_changed", "sent_to_customer", "countered",
+                   "returned", "approved", "rejected", "submitted",
+                   "resubmitted", "confirmed", "customer_confirmed"}
+    return [e for e in state.audit_for(ref) if e.get("event_type") in interesting]
 
 
 @sales.get("/approvals")
@@ -775,7 +1016,26 @@ def reassign_quote(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str,
     if not new_rep_id:
         raise HTTPException(400, "new_rep_id is required")
 
-    actor = _actor.get("name", body.get("actor", "M. Shah"))
+    # The actor is whoever the token says it is. Reading it from the body with a
+    # default meant the audit line could be dictated by the caller -- and that
+    # an unauthenticated-looking request still stamped "M. Shah" on the record.
+    actor = _actor.get("name") or "Unknown"
+    actor_role = _actor.get("role")
+
+    # Hiding the other clusters in the dropdown is a courtesy, not a control.
+    # A manager may only move a deal to a rep who reports to them; finance and
+    # admin may move it anywhere.
+    known_reps = {u["id"] for u in fx.USERS if u.get("role") == "rep"}
+    if new_rep_id not in known_reps:
+        raise HTTPException(422, f"{new_rep_id!r} is not a sales rep")
+    if actor_role == "manager" and not fx.is_rep_managed_by(new_rep_id, actor):
+        raise HTTPException(403, {
+            "message": (f"{fx.REP_NAME.get(new_rep_id, new_rep_id)} does not report to "
+                        f"{actor}. A deal can only be reassigned within your own team."),
+            "rep": fx.REP_NAME.get(new_rep_id, new_rep_id),
+            "manager": fx.REP_TO_MANAGER.get(new_rep_id),
+        })
+
     update_permanent = bool(body.get("update_customer_assigned_rep", False))
 
     if ref not in state.QUOTES:
@@ -846,9 +1106,27 @@ def reassign_quote(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str,
 
 
 @sales.get("/users/reps")
-def get_sales_reps(_actor: dict[str, Any] = Depends(require("quote.view"))) -> list[dict[str, Any]]:
-    """Return all sales reps and their designated reporting manager."""
-    return [
+def get_sales_reps(
+    all_clusters: bool = Query(False),
+    _actor: dict[str, Any] = Depends(require("quote.view")),
+) -> list[dict[str, Any]]:
+    """Sales reps and their reporting manager.
+
+    A manager sees THEIR OWN CLUSTER, not the whole sales floor. The reassign
+    dialog is the reason this matters: it was offering all twelve reps to every
+    manager, so M. Shah could hand one of her deals to a rep who reports to
+    P. Deshmukh -- a rep she cannot coach, review or hold to the outcome, and
+    whose own manager would never see the deal arrive. Reassignment is a
+    within-team act; the list now says so.
+
+    Finance and admin keep the full org view because their job is cross-team.
+    `all_clusters=true` lets a manager ask for the whole floor explicitly (for a
+    directory, say) rather than having it handed to them by default.
+    """
+    actor_role = _actor.get("role")
+    actor_name = _actor.get("name") or ""
+
+    rows = [
         dict(
             id=u["id"],
             name=u["name"],
@@ -858,6 +1136,15 @@ def get_sales_reps(_actor: dict[str, Any] = Depends(require("quote.view"))) -> l
         )
         for u in fx.USERS if u.get("role") == "rep"
     ]
+
+    if actor_role == "manager" and not all_clusters:
+        mine = [r for r in rows if fx.is_rep_managed_by(r["id"], actor_name)]
+        # Never hand back an empty dropdown because a name did not match: an
+        # empty list would silently make reassignment impossible rather than
+        # visibly wrong.
+        if mine:
+            return mine
+    return rows
 
 
 @sales.get("/users/managers")
@@ -1005,6 +1292,12 @@ def approval_action(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str
     elif target == "APPROVED":
         state.record_approval(ref, user_id=_actor.get("id", ""), name=actor, role=role)
         state.record(ref, actor, role, "approved", reason=body.get("reason"))
+        # Approving IS sending. The customer should not wait for the rep to
+        # notice and forward it: the terms are signed off, so the quotation
+        # appears on their dashboard immediately.
+        state.mark_sent_to_customer(ref)
+        state.record(ref, actor, role, "sent_to_customer",
+                     reason="approved terms released to the customer")
     else:
         state.record(ref, actor, role, action + "d", reason=body.get("reason"))
 
@@ -1196,21 +1489,7 @@ def accept_allocation(ref: str, body: dict[str, Any] = Body(default_factory=dict
 
     manual = body.get("allocations")
     if manual is not None:
-        if not isinstance(manual, list) or not manual:
-            raise HTTPException(422, "allocations must be a non-empty list")
-        known = {w["name"] for w in fx.WAREHOUSES}
-        for a in manual:
-            if a.get("warehouse") not in known:
-                raise HTTPException(422, f"unknown warehouse {a.get('warehouse')!r}")
-            if int(a.get("qty", 0)) <= 0:
-                raise HTTPException(422, "each allocation needs a positive qty")
-        plan = dict(ref=ref, objective="manual", allocations=manual,
-                    backorders=body.get("backorders", []),
-                    shipment_count=len({a["warehouse"] for a in manual}),
-                    total_cost=body.get("total_cost", 0.0),
-                    fully_allocated=not body.get("backorders"),
-                    consolidation_available=bool(body.get("backorders")),
-                    explanation="Manually overridden by the operations user.")
+        plan = _manual_plan(ref, manual)
     else:
         plan = _split_for(ref, body.get("objective", "cost"))
         if plan is None:
@@ -1225,6 +1504,100 @@ def accept_allocation(ref: str, body: dict[str, Any] = Body(default_factory=dict
                          f"accepted {plan['objective']} split across "
                          f"{plan['shipment_count']} depot(s)"))
     return plan
+
+
+def _manual_plan(ref: str, rows: Any) -> dict[str, Any]:
+    """Turn an operator's per-depot quantities into a plan we can stand behind.
+
+    This used to take the client at its word: the cost was read straight off
+    the request body (`total_cost`, defaulting to 0.0), `fully_allocated` was
+    whatever the caller said, and nothing checked the quantities at all --
+    despite the screen telling the operator that "committing more than is
+    available is refused". So an override could reserve stock that did not
+    exist, and it recorded a shipping cost of zero, which then sat next to the
+    suggested split's real figure and made the suggestion look expensive by
+    comparison. Every one of those numbers is now derived here, from the same
+    cost model the optimiser uses, so the two plans are quoted on equal terms.
+    """
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(422, "allocations must be a non-empty list")
+
+    quote = state.build_quote(ref)
+    if quote is None:
+        raise HTTPException(404, f"No quotation {ref}")
+
+    by_name = {w["name"]: w for w in fx.WAREHOUSES}
+    demand = {l.sku: l for l in quote.lines
+              if not l.is_recurring and l.category == "Hardware" and l.qty > 0}
+
+    cleaned: list[dict[str, Any]] = []
+    taken: dict[str, int] = {}          # sku -> units allocated across depots
+    for a in rows:
+        depot = a.get("warehouse")
+        sku = a.get("sku")
+        if depot not in by_name:
+            raise HTTPException(422, f"unknown warehouse {depot!r}")
+        if sku not in demand:
+            raise HTTPException(422, f"{sku!r} is not a shippable line on {ref}")
+        try:
+            qty = int(a.get("qty", 0))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "each allocation needs a whole-number qty")
+        if qty <= 0:
+            raise HTTPException(422, "each allocation needs a positive qty")
+
+        # This order's own reservation was released by the caller before we got
+        # here, so `available` already counts the units we are about to re-commit.
+        free = state.available(depot, sku)
+        if qty > free:
+            raise HTTPException(422,
+                f"{depot} holds {free} of {sku} free; cannot commit {qty}")
+
+        taken[sku] = taken.get(sku, 0) + qty
+        if taken[sku] > demand[sku].qty:
+            raise HTTPException(422,
+                f"{sku}: allocating {taken[sku]} against an order for "
+                f"{demand[sku].qty}")
+
+        cleaned.append(dict(
+            warehouse=depot, sku=sku, name=demand[sku].name, qty=qty,
+            unit_ship_cost=by_name[depot]["ship_cost_weight"],
+            cost=round(qty * by_name[depot]["ship_cost_weight"], 2),
+        ))
+
+    # Same cost model as engine.fulfilment: per-unit weight for every unit,
+    # plus the fixed charge once per depot actually opened.
+    used = sorted({a["warehouse"] for a in cleaned})
+    variable = sum(a["qty"] * by_name[a["warehouse"]]["ship_cost_weight"] for a in cleaned)
+    fixed = sum(by_name[n]["fixed_shipment_cost"] for n in used)
+    total = round(variable + fixed, 2)
+
+    backorders = [
+        dict(sku=sku, name=line.name, qty=line.qty - taken.get(sku, 0),
+             status="awaiting_stock")
+        for sku, line in demand.items() if line.qty - taken.get(sku, 0) > 0
+    ]
+
+    unmet = sum(b["qty"] for b in backorders)
+    return dict(
+        ref=ref, objective="manual", allocations=cleaned, backorders=backorders,
+        shipment_count=len(used), total_cost=total, warehouses_used=used,
+        subsets_evaluated=0,
+        fully_allocated=not backorders,
+        consolidation_available=bool(backorders),
+        explanation=(
+            f"Manual override: {sum(a['qty'] for a in cleaned)} unit(s) across "
+            f"{len(used)} depot(s) -- {inr_plain(variable)} carriage + "
+            f"{inr_plain(fixed)} shipment charge"
+            + (f"; {unmet} unit(s) backordered." if unmet else ".")
+        ),
+    )
+
+
+def inr_plain(v: float) -> str:
+    """Rupees without the locale machinery -- this string goes into an audit
+    line, not onto a screen."""
+    return f"\u20b9{v:,.2f}".rstrip("0").rstrip(".") if v % 1 else f"\u20b9{v:,.0f}"
 
 
 def _split_for(ref: str, objective: str) -> dict[str, Any] | None:
@@ -1383,17 +1756,104 @@ def order_billing(ref: str, _actor: dict[str, Any] = Depends(require("billing.vi
     return ledger
 
 
+@operations.get("/orders/{ref}/fulfilment")
+def fulfilment_status(ref: str,
+                      _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
+    """Where this order actually is, and what may be done to it next.
+
+    The fulfilment screen used to fetch only the SPLIT PLAN and the warehouse
+    list. It never asked what state the order was in, which had three
+    consequences, all of them visible:
+
+      * Every action was offered at every stage. Pressing "Confirm & Ship" on an
+        order that had already shipped produced "Q-1042 is FULFILLED; CONFIRMED
+        is not a legal next state" -- a state-machine message shown to a finance
+        user as though they had done something wrong, when the button should not
+        have been there.
+
+      * The invoice and payment continuation only appeared as a RESULT of
+        clicking Confirm in that session. Reload the page and an order that had
+        shipped, been invoiced and been paid showed none of it -- the tail of
+        quote-to-cash simply disappeared.
+
+      * Nothing said where in the chain the order stood, so "customer request ->
+        fulfilment -> payment" was not legible on the screen that runs it.
+
+    One call now answers all of that, from the same state the machine enforces,
+    so the buttons and the stage indicator cannot disagree with the server.
+    """
+    if ref not in state.QUOTES:
+        raise HTTPException(404, f"No quotation {ref}")
+
+    quote = state.build_quote(ref)
+    current = state.state_of(ref)
+    allocation = state.ALLOCATIONS.get(ref)
+
+    moves = [m for m in state.STOCK_MOVES
+             if m.get("order_ref") == ref and m.get("kind") == "ship"]
+
+    from .billing import PAYMENT_METHODS
+    inv = next((i for i in state.INVOICES
+                if i["order_ref"] == ref and i["kind"] == "invoice"), None)
+    invoice = None
+    if inv is not None:
+        paid = float(inv.get("amount_paid", 0.0))
+        invoice = dict(
+            ref=inv["ref"], amount=inv["amount"], amount_paid=paid,
+            outstanding=round(float(inv["amount"]) - paid, 2),
+            status=inv["status"], due_date=inv.get("due_date"),
+            paid_at=inv.get("paid_at"),
+            method_label=inv.get("method_label")
+                or PAYMENT_METHODS.get(inv.get("method") or "", None),
+            payments=inv.get("payments") or [],
+        )
+
+    # The stage the order has REACHED, on the customer-visible chain. Derived
+    # from lifecycle state rather than stored, so it cannot drift.
+    order = ["APPROVED", "CONFIRMED", "FULFILLED", "INVOICED", "PAID"]
+    stage = order.index(current) if current in order else -1
+
+    return dict(
+        ref=ref,
+        customer=quote.customer if quote else None,
+        state=current,
+        stage=stage,
+        stages=["Approved", "Confirmed", "Shipped", "Invoiced", "Paid"],
+        allowed_transitions=LEGAL_TRANSITIONS.get(current, []),
+        # What the screen may offer. Computed here, next to the state machine
+        # that will enforce it, rather than guessed in the browser.
+        can_allocate=current in ("APPROVED", "CONFIRMED") ,
+        can_ship=is_legal(current, "CONFIRMED") or is_legal(current, "FULFILLED"),
+        can_invoice=is_legal(current, "INVOICED"),
+        # Payable only once the invoice has been raised -- the same rule
+        # billing.record_payment enforces, so the button and the server agree.
+        can_take_payment=bool(inv) and inv["status"] != "paid"
+                         and current == "INVOICED",
+        allocated=allocation is not None,
+        allocation=allocation,
+        shipped=moves,
+        invoice=invoice,
+    )
+
+
 @operations.post("/orders/{ref}/confirm")
 def confirm_order(ref: str, body: dict[str, Any] = Body(default_factory=dict), _actor: dict[str, Any] = Depends(require("fulfilment.allocate"))) -> dict[str, Any]:
     """APPROVED -> CONFIRMED -> FULFILLED. Rubric step 8 begins here."""
     current = state.state_of(ref)
     if ref not in state.QUOTES:
         raise HTTPException(404, f"No quotation {ref}")
-    for target in ("CONFIRMED", "FULFILLED"):
+    targets = ("CONFIRMED", "FULFILLED") if current == "APPROVED" else ("FULFILLED",) if current == "CONFIRMED" else ()
+    if not targets:
+        _conflict(ref, current, "FULFILLED")
+    for target in targets:
         if not is_legal(state.state_of(ref), target):
             _conflict(ref, state.state_of(ref), target)
         state.set_state(ref, target)
-        state.record(ref, body.get("actor", "A. Rao"), "rep", target.lower())
+        # Whoever is holding the token, in their real role. This recorded every
+        # shipment as "A. Rao (rep)" -- including one dispatched by Finance --
+        # and the name could be dictated by the request body.
+        state.record(ref, _actor.get("name") or "Unknown",
+                     _actor.get("role") or "finance", target.lower())
 
     # Goods physically leave on fulfilment. If no split was explicitly
     # accepted, commit the recommended one first -- otherwise stock would
@@ -1437,8 +1897,8 @@ def generate_invoice(ref: str, body: dict[str, Any] = Body(default_factory=dict)
         # it is correct -- but the ORDER still has to advance, or it stalls at
         # FULFILLED forever and the payment tail can never be demonstrated.
         state.set_state(ref, "INVOICED")
-        state.record(ref, body.get("actor", "R. Menon"), "finance", "invoiced",
-                     reason=f"{existing['ref']} (existing)")
+        state.record(ref, _actor.get("name") or "Unknown", _actor.get("role") or "finance",
+                     "invoiced", reason=f"{existing['ref']} (existing)")
         return existing
 
     one_time = [l for l in quote.lines if not l.is_recurring]
@@ -1456,8 +1916,8 @@ def generate_invoice(ref: str, body: dict[str, Any] = Body(default_factory=dict)
     )
     state.INVOICES.append(invoice)
     state.set_state(ref, "INVOICED")
-    state.record(ref, body.get("actor", "R. Menon"), "finance", "invoiced",
-                 reason=f"{inv_ref} for {amount}")
+    state.record(ref, _actor.get("name") or "Unknown", _actor.get("role") or "finance",
+                 "invoiced", reason=f"{inv_ref} for {amount}")
     return state.remember(body.get("idempotency_key"), invoice)
 
 
@@ -1473,31 +1933,34 @@ def pay(ref: str, body: dict[str, Any] = Body(...), _actor: dict[str, Any] = Dep
     if cached:
         return cached
 
-    inv = next((i for i in state.INVOICES if i["ref"] == ref), None)
+    from .billing import find_invoice, record_payment
+
+    inv = find_invoice(ref)
     if inv is None:
         raise HTTPException(404, f"No invoice {ref}")
-    if inv["status"] == "paid":
-        raise HTTPException(409, detail={
-            "error": "already_paid", "ref": ref,
-            "message": f"{ref} is already fully paid."})
 
-    inv["amount_paid"] = round(inv["amount_paid"] + float(body.get("amount", 0)), 2)
-    inv["status"] = ("paid" if inv["amount_paid"] >= inv["amount"] - 0.01
-                     else "partial" if inv["amount_paid"] > 0 else "unpaid")
-    inv["method"] = body.get("method", "bank_transfer")
+    # Settlement lives in ONE place (billing.record_payment), shared with the
+    # customer portal. This handler used to do the arithmetic itself: it took
+    # the method on trust, recorded no timestamp and kept no payment history,
+    # so an invoice paid at the desk and the same invoice paid by the customer
+    # produced two different records of the same event. It also read the actor
+    # from the request body, which made the audit line forgeable.
+    #
+    # Paying the full balance is the default, so a finance user clearing an
+    # invoice does not have to retype the amount that is already on screen.
+    amount = body.get("amount")
+    if amount in (None, "", 0):
+        amount = round(float(inv["amount"]) - float(inv.get("amount_paid", 0.0)), 2)
 
-    # Rubric step 8 closes the loop: a fully paid invoice moves the ORDER to
-    # PAID as well. Flipping only the invoice would leave the quotation stuck at
-    # INVOICED forever, which is the exact "flow stops short" gap the rubric's
-    # final step is testing for.
-    order_state = state.state_of(inv["order_ref"])
-    if inv["status"] == "paid" and is_legal(order_state, "PAID"):
-        state.set_state(inv["order_ref"], "PAID")
-
-    state.record(inv["order_ref"], body.get("actor", "R. Menon"), "finance",
-                 "paid", reason=f"{ref} {inv['status']} via {inv['method']}")
-    return state.remember(body.get("idempotency_key"),
-                          {**inv, "order_state": state.state_of(inv["order_ref"])})
+    result = record_payment(
+        inv,
+        amount=amount,
+        method=str(body.get("method", "bank_transfer")),
+        actor=_actor.get("name") or "Unknown",
+        actor_role=_actor.get("role") or "finance",
+        reference=body.get("reference"),
+    )
+    return state.remember(body.get("idempotency_key"), result)
 
 
 # =========================================================================== #
@@ -1562,15 +2025,114 @@ def portal_request(token: str, body: dict[str, Any] = Body(...)) -> dict[str, An
     if ref is None:
         raise HTTPException(404, "Invalid or expired link")
 
-    quote = fx.get_quote(ref)
+    # `state.build_quote`, not `fx.get_quote`: the latter reads only the seeded
+    # fixture rows, so this returned None -- and then crashed on `.customer` --
+    # for every quotation raised during the session. That is ALL of a storefront
+    # customer's quotations, so the negotiation endpoint answered 500 to the one
+    # group of users it exists for.
+    quote = state.build_quote(ref)
+    if quote is None:
+        raise HTTPException(404, f"No quotation {ref}")
+
+    # The storefront sends {action, discount_pct, note}; the token portal sends
+    # {counter_discount_pct, comment}. Both are accepted rather than one being
+    # declared correct: the field names diverged silently, so a customer typing
+    # a discount into the shop had it read as None -- the request was filed with
+    # no number in it, nothing was re-scored, and the quotation sat unchanged
+    # while the screen said it had been submitted.
     counter = body.get("counter_discount_pct")
+    if counter is None:
+        counter = body.get("discount_pct")
+    comment = body.get("comment") or body.get("note")
+    action = (body.get("action") or "").strip().lower()
+
+    # "Accept the counter you were offered" is a confirmation, not a new ask:
+    # the terms on the quotation are already the ones being accepted.
+    if action == "accept_counter" and counter is None:
+        current = state.state_of(ref)
+        if is_legal(current, "NEGOTIATION"):
+            state.set_state(ref, "NEGOTIATION")
+        state.record(ref, quote.customer, "customer", "countered",
+                     reason=comment or "Accepted the revised terms offered.")
+        state.PORTAL_COMMENTS.setdefault(ref, []).append(dict(
+            line_id=None, author=quote.customer,
+            body=comment or "Accepted the revised terms offered.",
+            counter_discount_pct=None,
+            created_at=state.last_activity(ref),
+        ))
+        return {"ok": True, "ref": ref, "re_entered_approval": False,
+                "new_band": None, "accepted_counter": True,
+                "message": "Revised terms accepted. Confirm the quotation to place the order.",
+                "state": state.state_of(ref)}
+
+    if counter is not None:
+        try:
+            counter = float(counter)
+        except (TypeError, ValueError):
+            raise HTTPException(422, "discount_pct must be a number")
+        if not 0 <= counter <= 100:
+            raise HTTPException(422, "a discount must be between 0 and 100 percent")
+
+        lock = state.negotiation_lock(ref)
+        if lock["negotiation_locked"]:
+            raise HTTPException(409, detail={
+                "error": "negotiation_closed", "ref": ref,
+                "message": lock["lock_reason"],
+                "times_sent": lock["times_sent"]})
+
+        # The same ask twice, with nothing moved in between, is the same message
+        # sent again -- not a new position. Each one used to re-enter approval,
+        # so a customer could put a quotation through the manager's queue
+        # repeatedly without ever changing their offer.
+        previous = lock["last_requested_discount"]
+        if previous is not None and abs(previous - counter) < 1e-9 \
+                and not state.unsent_changes(ref):
+            raise HTTPException(409, detail={
+                "error": "duplicate_request", "ref": ref,
+                "requested": counter,
+                "message": (f"You have already asked for {counter:g}% on this "
+                            f"quotation and it is still under review. Ask for a "
+                            f"different figure, or confirm the terms as they stand.")})
+
+        # Can this quotation accept a counter-offer AT ALL, in the state it is
+        # in? Checked here, before anything is written.
+        #
+        # It used to be checked further down, AFTER the comment and the audit
+        # event had already been appended -- so a request the server went on to
+        # refuse still moved the customer's recorded ask. Asking for 18% while
+        # 12% was with the approver returned 409 and left the record saying the
+        # customer had asked for 18%: a rejected request that changed the data
+        # anyway, and a number no one had agreed to.
+        current = state.state_of(ref)
+        if current != "NEGOTIATION" and not is_legal(current, "NEGOTIATION"):
+            if current.startswith("PENDING"):
+                raise HTTPException(409, detail={
+                    "error": "already_under_review", "ref": ref,
+                    "state": current,
+                    "requested": previous,
+                    "message": (
+                        (f"Your request for {previous:g}% is already with your "
+                         f"account manager. " if previous is not None else
+                         "This quotation is already under review. ")
+                        + "You can send a new figure once they have replied."),
+                })
+            _conflict(ref, current, "NEGOTIATION")
+
     state.PORTAL_COMMENTS.setdefault(ref, []).append(dict(
         line_id=body.get("line_id"), author=quote.customer,
-        body=body.get("comment"), counter_discount_pct=counter,
+        body=comment, counter_discount_pct=counter,
         created_at=state.last_activity(ref),
     ))
-    state.record(ref, quote.customer, "customer", "countered",
-                 reason=body.get("comment"))
+    # The NUMBER goes in the audit line, not only in the comment. The event read
+    # "countered - <free text>", so a rep opening the revision history saw that
+    # the customer had asked for something but not what: the figure lived only
+    # in PORTAL_COMMENTS, which no internal screen reads.
+    state.record(
+        ref, quote.customer, "customer", "countered",
+        reason=(f"asked for {counter:g}%" + (f" - {comment}" if comment else "")
+                if counter is not None else comment),
+        counter_discount_pct=counter, line_id=body.get("line_id"),
+    )
 
     re_entered = False
     new_band = None
@@ -1579,14 +2141,13 @@ def portal_request(token: str, body: dict[str, Any] = Body(...)) -> dict[str, An
         # a legal move from both APPROVED and CONFIRMED, and it keeps the audit
         # trail honest: the customer asked, THEN the system re-routed. Jumping
         # straight to PENDING_MANAGER would skip a state and lose that ordering.
+        # Legality was established above, before anything was written.
         current = state.state_of(ref)
         if is_legal(current, "NEGOTIATION"):
             state.set_state(ref, "NEGOTIATION")
-        elif current != "NEGOTIATION":
-            _conflict(ref, current, "NEGOTIATION")
 
         # Re-score the quote AS IF the counter were accepted.
-        probe = fx.get_quote(ref)
+        probe = state.build_quote(ref)
         line_id = body.get("line_id")
         if line_id is not None and 0 <= line_id < len(probe.lines):
             probe.lines[line_id].discount_pct = float(counter)

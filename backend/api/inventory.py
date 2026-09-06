@@ -81,7 +81,12 @@ def availability_for(sku: str, requested: int = 0) -> dict[str, Any]:
 def availability(
     skus: str = Query(..., description="Comma-separated SKUs"),
     qty: int = Query(0, ge=0, description="Quantity being considered, for the split hint"),
-    _actor: dict[str, Any] = Depends(require("fulfilment.view")),
+    # `product.view`, not `fulfilment.view`. A rep needs to know what they can
+    # promise while building a quotation -- that is quoting information, not
+    # warehouse operations, and reps do not hold fulfilment.view. Gating it
+    # there silently emptied the live stock indicator in the Quote Builder for
+    # the one role that uses it most.
+    _actor: dict[str, Any] = Depends(require("product.view")),
 ) -> dict[str, Any]:
     """Live ATP per depot for one or more SKUs.
 
